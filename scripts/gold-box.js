@@ -68,7 +68,13 @@ class GoldBoxModule {
     
     try {
       const id = 'gold-box-launcher';
-      const rendered = document.getElementById(id);
+      
+      // Check if button already exists to avoid duplicates
+      if (document.getElementById(id)) {
+        console.log('The Gold Box: Button already exists, skipping creation');
+        return;
+      }
+      
       const customName = game.settings.get('gold-box', 'moduleElementsName');
       let name = customName ? customName : 'The Gold Box';
       
@@ -83,18 +89,22 @@ class GoldBoxModule {
         button.type = 'button';
         button.innerHTML = inner;
         button.setAttribute('data-tooltip', 'The Gold Box');
+        button.style.cssText = 'margin: 4px 0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;';
         
         button.addEventListener('click', () => {
           this.onTakeAITurn();
         });
         
-        // Find chat form and prepend button
-        const chatForm = document.getElementsByClassName('chat-form')[0];
+        // Find chat form and prepend button - use more specific selector
+        const chatForms = document.getElementsByClassName('chat-form');
+        const chatForm = chatForms && chatForms.length > 0 ? chatForms[0] : null;
+        
         if (chatForm) {
           chatForm.prepend(button);
           console.log('The Gold Box: Added chat button using v13 pattern');
         } else {
           console.error('The Gold Box: Could not find chat form');
+          console.log('The Gold Box: Available chat-form elements:', chatForms);
         }
       } else {
         // Fallback for older versions using jQuery
@@ -151,7 +161,7 @@ class GoldBoxModule {
 }
 
 // Simple configuration handler for settings menu
-class GoldBoxConfig extends foundry.applications.api.ApplicationV2 {
+class GoldBoxConfig extends foundry.applications.api.HandlebarsApplicationMixin(foundry.applications.api.ApplicationV2) {
   static get defaultOptions() {
     return foundry.utils.mergeObject(super.defaultOptions, {
       title: 'The Gold Box Configuration',
