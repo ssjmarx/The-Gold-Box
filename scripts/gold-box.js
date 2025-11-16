@@ -54,9 +54,16 @@ class GoldBoxModule {
 
     // Hook to add chat button when sidebar tab is rendered
     Hooks.on('renderSidebarTab', (app, html, data) => {
+      console.log('The Gold Box: renderSidebarTab hook fired for', app.options.id);
       if (app.options.id === 'chat') {
         this.addChatButton(html);
       }
+    });
+
+    // Also try hooking to chat log render as backup
+    Hooks.on('renderChatLog', (app, html, data) => {
+      console.log('The Gold Box: renderChatLog hook fired');
+      this.addChatButton(html);
     });
   }
 
@@ -142,7 +149,7 @@ class GoldBoxModule {
     const dialog = new Dialog({
       title: 'The Gold Box',
       content: `
-        <h2>The Gold Box v0.1.10</h2>
+        <h2>The Gold Box v0.1.12</h2>
         <p>An AI-powered Foundry VTT module for intelligent TTRPG assistance.</p>
         <p><strong>Status:</strong> Basic structure loaded - AI features coming soon!</p>
         <p><a href="https://github.com/ssjmarx/Gold-Box" target="_blank">GitHub Repository</a></p>
