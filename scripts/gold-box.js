@@ -25,6 +25,16 @@ class GoldBoxModule {
    * Register Foundry VTT hooks
    */
   registerHooks() {
+    // Register the setting that the config menu will use
+    game.settings.register('gold-box', 'moduleElementsName', {
+      name: "Module Elements Name",
+      hint: "Custom name for module elements in the UI",
+      scope: "world",
+      config: false,
+      type: String,
+      default: "The Gold Box"
+    });
+
     // Register settings menu using ChatConsole pattern
     game.settings.registerMenu('gold-box', 'configMenu', {
       name: "The Gold Box Configuration",
@@ -69,11 +79,11 @@ class GoldBoxModule {
       // Use ChatConsole's proven approach for v13+
       if (game.release.generation >= 13) {
         // Create button using DOM manipulation for v13
-        const button = (() => {
-          let btn = document.createElement('button');
-          btn.innerHTML = `<button id="${id}" type="button" data-tooltip="The Gold Box">${inner}</button>`;
-          return btn.firstChild;
-        })();
+        const button = document.createElement('button');
+        button.id = id;
+        button.type = 'button';
+        button.setAttribute('data-tooltip', 'The Gold Box');
+        button.innerHTML = inner;
         
         button.addEventListener('click', () => {
           this.onTakeAITurn();
@@ -123,7 +133,7 @@ class GoldBoxModule {
     const dialog = new Dialog({
       title: 'The Gold Box',
       content: `
-        <h2>The Gold Box v0.1.8</h2>
+        <h2>The Gold Box v0.1.9</h2>
         <p>An AI-powered Foundry VTT module for intelligent TTRPG assistance.</p>
         <p><strong>Status:</strong> Basic structure loaded - AI features coming soon!</p>
         <p><a href="https://github.com/ssjmarx/Gold-Box" target="_blank">GitHub Repository</a></p>
@@ -142,7 +152,7 @@ class GoldBoxModule {
 }
 
 // Simple configuration handler for settings menu
-class GoldBoxConfig extends FormApplication {
+class GoldBoxConfig extends FormApplicationV2 {
   static get defaultOptions() {
     return foundry.utils.mergeObject(super.defaultOptions, {
       title: 'The Gold Box Configuration',
