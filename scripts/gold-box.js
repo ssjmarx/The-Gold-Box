@@ -32,6 +32,8 @@ class GoldBoxModule {
 
     // Hook when settings are rendered
     Hooks.on('renderSettings', (app, html, data) => {
+      console.log('The Gold Box: renderSettings hook called');
+      
       // Add a button to the settings menu
       const button = document.createElement('button');
       button.innerHTML = '<i class="fas fa-robot"></i> The Gold Box';
@@ -40,18 +42,34 @@ class GoldBoxModule {
         this.showModuleInfo();
       });
       
-      const settingsGame = html.querySelector('#settings-game');
-      if (settingsGame) {
-        settingsGame.appendChild(button);
+      // Try multiple selectors for settings container
+      let settingsContainer = html.querySelector('#settings-game') || 
+                          html.querySelector('#settings') || 
+                          html.querySelector('.sidebar');
+      
+      if (settingsContainer) {
+        console.log('The Gold Box: Adding button to settings container');
+        settingsContainer.appendChild(button);
+      } else {
+        console.error('The Gold Box: Could not find settings container');
+        console.log('The Gold Box: Available elements:', html.innerHTML.substring(0, 200));
       }
     });
 
     // Hook when the sidebar is rendered
     Hooks.on('renderSidebarTab', (app, html, data) => {
+      console.log('The Gold Box: renderSidebarTab hook called for', app.options.id);
+      
       if (app.options.id === 'chat') {
         // Add AI controls to chat sidebar
         this.addChatControls(html);
       }
+    });
+
+    // Also try to add chat controls when chat log is rendered
+    Hooks.on('renderChatLog', (app, html, data) => {
+      console.log('The Gold Box: renderChatLog hook called');
+      this.addChatControls(html);
     });
   }
 
@@ -59,24 +77,49 @@ class GoldBoxModule {
    * Add AI controls to the chat sidebar
    */
   addChatControls(html) {
+    console.log('The Gold Box: addChatControls called');
+    console.log('The Gold Box: HTML element:', html.tagName || html.constructor.name);
+    
     // Create the controls container
     const controlsDiv = document.createElement('div');
     controlsDiv.className = 'gold-box-controls';
+    controlsDiv.style.marginTop = '10px';
+    controlsDiv.style.padding = '10px';
+    controlsDiv.style.borderTop = '1px solid #ccc';
     
     // Create the AI turn button
     const aiButton = document.createElement('button');
     aiButton.className = 'gold-box-ai-turn';
     aiButton.innerHTML = '<i class="fas fa-play"></i> Take AI Turn';
+    aiButton.style.background = 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)';
+    aiButton.style.color = 'white';
+    aiButton.style.border = 'none';
+    aiButton.style.padding = '8px 16px';
+    aiButton.style.borderRadius = '4px';
+    aiButton.style.cursor = 'pointer';
+    aiButton.style.width = '100%';
     aiButton.addEventListener('click', () => {
       this.onTakeAITurn();
     });
     
     controlsDiv.appendChild(aiButton);
     
-    // Find the chat controls and add our button after it
-    const chatControls = html.querySelector('.chat-controls');
-    if (chatControls) {
-      chatControls.parentNode.insertBefore(controlsDiv, chatControls.nextSibling);
+    // Try multiple selectors for chat container
+    let chatContainer = html.querySelector('.chat-controls') ||
+                      html.querySelector('.chat') ||
+                      html.querySelector('#chat') ||
+                      html.querySelector('.sidebar-tab');
+    
+    if (chatContainer) {
+      console.log('The Gold Box: Found chat container, adding button');
+      chatContainer.parentNode.insertBefore(controlsDiv, chatContainer.nextSibling);
+    } else {
+      console.error('The Gold Box: Could not find chat container');
+      console.log('The Gold Box: Available elements:', html.innerHTML.substring(0, 300));
+      
+      // As a fallback, try to add to the main html element
+      html.appendChild(controlsDiv);
+      console.log('The Gold Box: Added button as fallback');
     }
   }
 
@@ -95,7 +138,7 @@ class GoldBoxModule {
     const dialog = new Dialog({
       title: 'The Gold Box',
       content: `
-        <h2>The Gold Box v0.1.0</h2>
+        <h2>The Gold Box v0.1.1</h2>
         <p>An AI-powered Foundry VTT module for intelligent TTRPG assistance.</p>
         <p><strong>Status:</strong> Basic structure loaded - AI features coming soon!</p>
         <p><a href="https://github.com/ssjmarx/Gold-Box" target="_blank">GitHub Repository</a></p>
