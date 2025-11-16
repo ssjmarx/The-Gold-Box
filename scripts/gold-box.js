@@ -140,7 +140,7 @@ class GoldBoxModule {
     const dialog = new Dialog({
       title: 'The Gold Box',
       content: `
-        <h2>The Gold Box v0.1.2</h2>
+        <h2>The Gold Box v0.1.3</h2>
         <p>An AI-powered Foundry VTT module for intelligent TTRPG assistance.</p>
         <p><strong>Status:</strong> Basic structure loaded - AI features coming soon!</p>
         <p><a href="https://github.com/ssjmarx/Gold-Box" target="_blank">GitHub Repository</a></p>
