@@ -34,25 +34,27 @@ class GoldBoxModule {
     Hooks.on('renderSettings', (app, html, data) => {
       console.log('The Gold Box: renderSettings hook called');
       
-      // Add a button to the settings menu
+      // Add a button to the settings menu - use app's HTML element
       const button = document.createElement('button');
       button.innerHTML = '<i class="fas fa-robot"></i> The Gold Box';
       button.style.margin = '0.25rem';
+      button.style.padding = '0.5rem 1rem';
+      button.style.background = '#4a5568';
+      button.style.color = 'white';
+      button.style.border = 'none';
+      button.style.borderRadius = '0.25rem';
+      button.style.cursor = 'pointer';
       button.addEventListener('click', () => {
         this.showModuleInfo();
       });
       
-      // Try multiple selectors for settings container
-      let settingsContainer = html.querySelector('#settings-game') || 
-                          html.querySelector('#settings') || 
-                          html.querySelector('.sidebar');
-      
-      if (settingsContainer) {
-        console.log('The Gold Box: Adding button to settings container');
-        settingsContainer.appendChild(button);
+      // Try to add to the settings app's element
+      if (app.element && app.element.length) {
+        app.element[0].appendChild(button);
+        console.log('The Gold Box: Adding button to settings app element');
       } else {
-        console.error('The Gold Box: Could not find settings container');
-        console.log('The Gold Box: Available elements:', html.innerHTML.substring(0, 200));
+        console.error('The Gold Box: Could not find app element');
+        console.log('The Gold Box: App object:', app);
       }
     });
 
@@ -62,14 +64,14 @@ class GoldBoxModule {
       
       if (app.options.id === 'chat') {
         // Add AI controls to chat sidebar
-        this.addChatControls(html);
+        this.addChatControls(app.element);
       }
     });
 
     // Also try to add chat controls when chat log is rendered
     Hooks.on('renderChatLog', (app, html, data) => {
       console.log('The Gold Box: renderChatLog hook called');
-      this.addChatControls(html);
+      this.addChatControls(app.element);
     });
   }
 
