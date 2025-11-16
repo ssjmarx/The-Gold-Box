@@ -1,0 +1,70 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  create-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Create module.zip
+        run: |
+          # Create a zip file excluding .git, .github, and the .desktop file
+          zip -r module.zip . -x ".git/*" ".github/*" "*.desktop"
+
+      - name: Generate module.json with correct URLs
+        run: |
+          # Update the manifest and download URLs in module.json
+          sed -i "s|https://github.com/ssjmarx/Gold-Box/releases/latest/download/module.json|https://github.com/ssjmarx/Gold-Box/releases/download/${{ steps.version.outputs.VERSION }}/module.json|g" module.json
+          sed -i "s|https://github.com/ssjmarx/Gold-Box/releases/download/v0.1.0/module.zip|https://github.com/ssjmarx/Gold-Box/releases/download/${{ steps.version.outputs.VERSION }}/module.zip|g" module.json
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          release_name: The Gold Box ${{ steps.version.outputs.VERSION }}
+          draft: false
+          prerelease: false
+          body: |
+            ## The Gold Box ${{ steps.version.outputs.VERSION }}
+            
+            ### Installation
+            Add the following URL to Foundry VTT's Module Management:
+            ```
+            https://github.com/ssjmarx/Gold-Box/releases/download/${{ steps.version.outputs.VERSION }}/module.json
+            ```
+            
+            ### Changes
+            See [CHANGELOG.md](https://github.com/ssjmarx/Gold-Box/blob/main/CHANGELOG.md) for detailed changes.
+
+      - name: Upload Release Asset (module.json)
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./module.json
+          asset_name: module.json
+          asset_content_type: application/json
+
+      - name: Upload Release Asset (module.zip)
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ./module.zip
+          asset_name: module.zip
+          asset_content_type: application/zip

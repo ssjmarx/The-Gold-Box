@@ -1,0 +1,40 @@
+{
+  "name": "gold-box",
+  "title": "The Gold Box",
+  "description": "An AI-powered Foundry VTT module that provides intelligent TTRPG assistance through a sophisticated Python backend.",
+  "version": "0.1.0",
+  "author": "ssjmarx",
+  "url": "https://github.com/ssjmarx/Gold-Box",
+  "license": "CC-BY-NC-SA-4.0",
+  "readme": "https://github.com/ssjmarx/Gold-Box/blob/main/README.md",
+  "bugs": "https://github.com/ssjmarx/Gold-Box/issues",
+  "changelog": "https://github.com/ssjmarx/Gold-Box/blob/main/CHANGELOG.md",
+  "type": "module",
+  "includes": [
+    "./scripts/**/*",
+    "./styles/**/*",
+    "./lang/**/*",
+    "./packs/**/*",
+    "./templates/**/*"
+  ],
+  "esmodules": [
+    "scripts/gold-box.js"
+  ],
+  "styles": [
+    "styles/gold-box.css"
+  ],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    }
+  ],
+  "socket": true,
+  "manifest": "https://github.com/ssjmarx/Gold-Box/releases/latest/download/module.json",
+  "download": "https://github.com/ssjmarx/Gold-Box/releases/latest/download/module.zip",
+  "compatibility": {
+    "minimum": "12",
+    "verified": "13"
+  }
+}

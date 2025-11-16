@@ -1,0 +1,53 @@
+{
+  "GOLD_BOX": {
+    "MODULE_NAME": "The Gold Box",
+    "MODULE_DESCRIPTION": "An AI-powered Foundry VTT module for intelligent TTRPG assistance",
+    
+    "BUTTONS": {
+      "TAKE_AI_TURN": "Take AI Turn",
+      "MODULE_INFO": "The Gold Box"
+    },
+    
+    "NOTIFICATIONS": {
+      "AI_FUNCTIONALITY_COMING_SOON": "The Gold Box: AI functionality coming soon!",
+      "MODULE_INITIALIZED": "The Gold Box module initialized successfully",
+      "MODULE_READY": "The Gold Box is ready for AI adventures!"
+    },
+    
+    "DIALOG": {
+      "TITLE": "The Gold Box",
+      "VERSION": "Version {version}",
+      "DESCRIPTION": "An AI-powered Foundry VTT module for intelligent TTRPG assistance.",
+      "STATUS": "Basic structure loaded - AI features coming soon!",
+      "GITHUB_LINK": "GitHub Repository",
+      "CLOSE": "Close"
+    },
+    
+    "STATUS": {
+      "THINKING": "AI is thinking...",
+      "READY": "AI is ready",
+      "ERROR": "AI encountered an error"
+    },
+    
+    "SETTINGS": {
+      "TITLE": "The Gold Box Settings",
+      "BACKEND_URL": "Backend URL",
+      "BACKEND_URL_HINT": "The URL where your Python backend is running",
+      "API_KEY": "API Key",
+      "API_KEY_HINT": "Your AI service API key",
+      "AI_ROLE": "AI Role",
+      "AI_ROLE_HINT": "What role the AI should play in your game",
+      "ROLES": {
+        "DM": "Dungeon Master",
+        "DM_ASSISTANT": "DM Assistant", 
+        "PLAYER": "Player"
+      }
+    },
+    
+    "ERRORS": {
+      "BACKEND_UNREACHABLE": "Cannot reach the backend server",
+      "INVALID_API_KEY": "Invalid API key",
+      "CONNECTION_FAILED": "Failed to connect to AI service"
+    }
+  }
+}

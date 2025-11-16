@@ -35,6 +35,7 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
+*.desktop
 
 # Node.js
 node_modules/
@@ -65,3 +66,4 @@ logs/
 tmp/
 temp/
 *.tmp
+DEVELOPMENT.md
