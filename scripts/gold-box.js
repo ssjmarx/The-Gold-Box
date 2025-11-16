@@ -123,7 +123,7 @@ class GoldBoxModule {
     const dialog = new Dialog({
       title: 'The Gold Box',
       content: `
-        <h2>The Gold Box v0.1.7</h2>
+        <h2>The Gold Box v0.1.8</h2>
         <p>An AI-powered Foundry VTT module for intelligent TTRPG assistance.</p>
         <p><strong>Status:</strong> Basic structure loaded - AI features coming soon!</p>
         <p><a href="https://github.com/ssjmarx/Gold-Box" target="_blank">GitHub Repository</a></p>
@@ -147,7 +147,7 @@ class GoldBoxConfig extends FormApplication {
     return foundry.utils.mergeObject(super.defaultOptions, {
       title: 'The Gold Box Configuration',
       id: 'gold-box-config',
-      template: 'templates/gold-box-config.html'
+      template: 'templates/gold-box-config.html',
       width: 400,
       height: 300
     });
@@ -165,13 +165,10 @@ class GoldBoxConfig extends FormApplication {
   }
 }
 
-  /**
-   * Clean up when the module is disabled
-   */
-  tearDown() {
-    console.log('The Gold Box module disabled');
-  }
-}
+// GoldBoxModule class extension for tearDown method
+GoldBoxModule.prototype.tearDown = function() {
+  console.log('The Gold Box module disabled');
+};
 
 // Create and register the module
 const goldBox = new GoldBoxModule();
