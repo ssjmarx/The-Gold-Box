@@ -28,56 +28,99 @@ class GoldBoxModule {
     // Hook when the game is ready
     Hooks.once('ready', () => {
       console.log('The Gold Box: Game is ready');
+      
+      // Add buttons after DOM is fully loaded
+      this.addSettingsButton();
+      this.addChatButton();
     });
+  }
 
-    // Hook when settings are rendered
-    Hooks.on('renderSettings', (app, html, data) => {
-      console.log('The Gold Box: renderSettings hook called');
-      
-      // Wrap html with jQuery to use jQuery methods
-      const $html = $(html);
-      
-      // Add a button to the settings menu - use jQuery to append to html
-      const button = $('<button><i class="fas fa-robot"></i> The Gold Box</button>');
-      button.css({
-        'margin': '0.25rem',
-        'padding': '0.5rem 1rem',
-        'background': '#4a5568',
-        'color': 'white',
-        'border': 'none',
-        'border-radius': '0.25rem',
-        'cursor': 'pointer'
-      });
-      button.click(() => {
-        this.showModuleInfo();
-      });
-      
-      // Find the settings menu container and add the button
-      const settingsMenu = $html.find('.settings-sidebar') || $html.find('#settings') || $html.find('.settings-list');
-      if (settingsMenu.length) {
-        settingsMenu.append(button);
-        console.log('The Gold Box: Adding button to settings menu');
-      } else {
-        console.error('The Gold Box: Could not find settings menu');
-        console.log('The Gold Box: Available elements:', $html[0].outerHTML.substring(0, 200));
-      }
-    });
+  /**
+   * Add settings button to the settings menu
+   */
+  addSettingsButton() {
+    try {
+      // Wait a bit for DOM to be ready
+      setTimeout(() => {
+        // Look for the settings tab button and add our button next to it
+        const settingsTab = $('a[data-tab="settings"]');
+        if (settingsTab.length > 0) {
+          const button = $('<button><i class="fas fa-robot"></i> The Gold Box</button>');
+          button.css({
+            'margin': '0 0.25rem',
+            'padding': '0.5rem 1rem',
+            'background': '#4a5568',
+            'color': 'white',
+            'border': 'none',
+            'border-radius': '0.25rem',
+            'cursor': 'pointer',
+            'font-size': '0.9rem'
+          });
+          button.click(() => {
+            this.showModuleInfo();
+          });
+          
+          // Insert after the settings tab
+          settingsTab.after(button);
+          console.log('The Gold Box: Added settings button using ready hook');
+        } else {
+          console.error('The Gold Box: Could not find settings tab');
+        }
+      }, 1000);
+    } catch (error) {
+      console.error('The Gold Box: Error adding settings button:', error);
+    }
+  }
 
-    // Hook when the sidebar is rendered
-    Hooks.on('renderSidebarTab', (app, html, data) => {
-      console.log('The Gold Box: renderSidebarTab hook called for', app.options.id);
-      
-      if (app.options.id === 'chat') {
-        // Add AI controls to chat sidebar
-        this.addChatControls(app.element);
-      }
-    });
-
-    // Also try to add chat controls when chat log is rendered
-    Hooks.on('renderChatLog', (app, html, data) => {
-      console.log('The Gold Box: renderChatLog hook called');
-      this.addChatControls(app.element);
-    });
+  /**
+   * Add chat button to the chat sidebar
+   */
+  addChatButton() {
+    try {
+      // Wait a bit for DOM to be ready
+      setTimeout(() => {
+        // Look for the chat tab and add our button
+        const chatTab = $('a[data-tab="chat"]');
+        if (chatTab.length > 0) {
+          const controlsDiv = $('<div class="gold-box-controls"></div>');
+          controlsDiv.css({
+            'margin': '0.5rem',
+            'padding': '0.5rem',
+            'border-top': '1px solid #ccc'
+          });
+          
+          const aiButton = $('<button><i class="fas fa-play"></i> Take AI Turn</button>');
+          aiButton.css({
+            'background': 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            'color': 'white',
+            'border': 'none',
+            'padding': '0.5rem 1rem',
+            'border-radius': '0.25rem',
+            'cursor': 'pointer',
+            'width': '100%',
+            'font-size': '0.9rem'
+          });
+          aiButton.click(() => {
+            this.onTakeAITurn();
+          });
+          
+          controlsDiv.append(aiButton);
+          
+          // Find the chat form and add our button before it
+          const chatForm = chatTab.closest('.sidebar-tab').find('form');
+          if (chatForm.length > 0) {
+            chatForm.before(controlsDiv);
+            console.log('The Gold Box: Added chat button using ready hook');
+          } else {
+            console.error('The Gold Box: Could not find chat form');
+          }
+        } else {
+          console.error('The Gold Box: Could not find chat tab');
+        }
+      }, 1500);
+    } catch (error) {
+      console.error('The Gold Box: Error adding chat button:', error);
+    }
   }
 
   /**
