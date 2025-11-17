@@ -24,7 +24,8 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 load_dotenv()
 
 # Configuration from environment variables
-EXPECTED_API_KEY = os.environ.get('GOLD_BOX_API_KEY', '')
+OPENAI_API_KEY = os.environ.get('GOLD_BOX_OPENAI_COMPATIBLE_API_KEY', '')
+NOVELAI_API_KEY = os.environ.get('GOLD_BOX_NOVELAI_API_API_KEY', '')
 GOLD_BOX_PORT = int(os.environ.get('GOLD_BOX_PORT', 5001))
 FLASK_DEBUG = os.environ.get('FLASK_DEBUG', 'True').lower() == 'true'
 FLASK_ENV = os.environ.get('FLASK_ENV', 'development')
@@ -457,13 +458,9 @@ def validate_prompt(prompt):
 
 def verify_api_key(request):
     """
-    Enhanced API key verification using universal validator
+    Enhanced API key verification for multiple services
     Returns (is_valid: bool, error_message: str)
     """
-    # If no API key is expected, allow all requests (development mode)
-    if not EXPECTED_API_KEY:
-        return True, None
-    
     # Get API key from headers
     provided_key = request.headers.get('X-API-Key')
     
@@ -472,18 +469,25 @@ def verify_api_key(request):
         logger.warning(f"Missing API key from {request.remote_addr}")
         return False, "API key required"
     
-    # Validate API key format
-    is_valid, error = validator.validate_api_key(provided_key)
-    if not is_valid:
-        logger.warning(f"Invalid API key format from {request.remote_addr}: {error}")
-        return False, "Invalid API key format"
+    # Check against all configured keys
+    valid_keys = [key for key in [OPENAI_API_KEY, NOVELAI_API_KEY] if key]
     
-    # Check if API key matches
-    if provided_key != EXPECTED_API_KEY:
+    if not valid_keys:
+        return False, "No API keys configured on server"
+    
+    # Check if provided key matches any configured key
+    if provided_key not in valid_keys:
         logger.warning(f"Invalid API key from {request.remote_addr}")
         return False, "Invalid API key"
     
-    logger.info(f"Valid API key from {request.remote_addr}")
+    # Determine which service this key belongs to
+    service_name = "Unknown"
+    if provided_key == OPENAI_API_KEY:
+        service_name = "OpenAI Compatible"
+    elif provided_key == NOVELAI_API_KEY:
+        service_name = "NovelAI API"
+    
+    logger.info(f"Valid {service_name} API key from {request.remote_addr}")
     return True, None
 
 # Enhanced request middleware for security
@@ -609,7 +613,7 @@ def health_check():
         'timestamp': datetime.now().isoformat(),
         'version': '0.1.0',
         'service': 'The Gold Box Backend',
-        'api_key_required': bool(EXPECTED_API_KEY),
+        'api_key_required': bool(OPENAI_API_KEY) or bool(NOVELAI_API_KEY),
         'environment': FLASK_ENV,
         'validation_enabled': True,
         'universal_validator': True,
@@ -635,7 +639,7 @@ def service_info():
         'version': '0.1.0',
         'status': 'running',
         'environment': FLASK_ENV,
-        'api_key_required': bool(EXPECTED_API_KEY),
+        'api_key_required': bool(OPENAI_API_KEY) or bool(NOVELAI_API_KEY),
         'validation_features': {
             'universal_validator': True,
             'input_sanitization': True,
@@ -726,9 +730,9 @@ if __name__ == '__main__':
     print("=" * 60)
     print(f"Environment: {FLASK_ENV}")
     print(f"Debug mode: {debug_mode}")
-    print(f"API Key Required: {bool(EXPECTED_API_KEY)}")
-    if EXPECTED_API_KEY:
-        print(f"API Key: {'*' * (len(EXPECTED_API_KEY) - 4)}{EXPECTED_API_KEY[-4:]}")  # Show last 4 chars
+    print(f"API Keys Required: {bool(OPENAI_API_KEY) or bool(NOVELAI_API_KEY)}")
+    print(f"OpenAI API Key: {'*' * (len(OPENAI_API_KEY) - 4)}{OPENAI_API_KEY[-4:]}")  # Show last 4 chars
+    print(f"NovelAI API Key: {'*' * (len(NOVELAI_API_KEY) - 4)}{NOVELAI_API_KEY[-4:]}")  # Show last 4 chars
     print(f"Rate Limiting: {RATE_LIMIT_MAX_REQUESTS} requests per {RATE_LIMIT_WINDOW_SECONDS} seconds")
     
     # CORS Configuration Summary

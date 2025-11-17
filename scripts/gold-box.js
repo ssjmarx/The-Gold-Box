@@ -13,12 +13,13 @@ class GoldBoxAPI {
   }
 
   /**
-   * Initialize API with game settings (called after game is ready)
+   * Initialize API (called after game is ready)
    */
   init() {
     if (typeof game !== 'undefined' && game.settings) {
-      this.baseUrl = game.settings.get('gold-box', 'backendUrl') || 'http://localhost:5000';
-      console.log('The Gold Box: API initialized with URL:', this.baseUrl);
+      // Start with default URL, will be updated by auto-discovery later
+      this.baseUrl = 'http://localhost:5000';
+      console.log('The Gold Box: API initialized with default URL:', this.baseUrl);
     } else {
       console.warn('The Gold Box: Game settings not available during API init');
     }
@@ -83,9 +84,8 @@ class GoldBoxAPI {
         // Update the API URL
         this.baseUrl = newUrl;
         
-        // Update settings
+        // Update status only (backendUrl setting was removed)
         if (typeof game !== 'undefined' && game.settings) {
-          await game.settings.set('gold-box', 'backendUrl', newUrl);
           console.log(`The Gold Box: Updated backend URL to: ${newUrl}`);
           
           // Update status
@@ -236,21 +236,31 @@ class GoldBoxModule {
    */
   async checkBackendAndShowInstructions() {
     try {
-      // Only try to connect to current setting - don't do auto-discovery on startup
+      // Test connection to auto-discovered URL
       const testResult = await this.api.testConnection();
       if (testResult.success) {
         await game.settings.set('gold-box', 'backendStatus', 'connected');
-        console.log('The Gold Box: Backend is running on user-configured URL');
+        console.log('The Gold Box: Backend is running on auto-discovered URL:', this.api.baseUrl);
         if (typeof ui !== 'undefined' && ui.notifications) {
           ui.notifications.info('The Gold Box: Backend connected successfully!');
         }
         return;
       }
       
-      // If current setting failed, show instructions but don't auto-discover
-      await game.settings.set('gold-box', 'backendStatus', 'disconnected');
-      console.log('The Gold Box: Backend not reachable on configured URL');
-      this.displayStartupInstructions();
+      // If auto-discovery failed, try manual discovery
+      console.log('The Gold Box: Auto-discovery failed, trying manual discovery...');
+      const manualResult = await this.api.autoDiscoverAndUpdatePort();
+      
+      if (manualResult) {
+        if (typeof ui !== 'undefined' && ui.notifications) {
+          ui.notifications.info(`The Gold Box: Backend found at ${this.api.baseUrl}!`);
+        }
+      } else {
+        // Show instructions if no backend found
+        await game.settings.set('gold-box', 'backendStatus', 'disconnected');
+        console.log('The Gold Box: No backend server found');
+        this.displayStartupInstructions();
+      }
     } catch (error) {
       await game.settings.set('gold-box', 'backendStatus', 'error');
       console.error('The Gold Box: Error checking backend:', error);
@@ -262,16 +272,6 @@ class GoldBoxModule {
    * Register Foundry VTT hooks
    */
   registerHooks() {
-    // Register backend URL setting
-    game.settings.register('gold-box', 'backendUrl', {
-      name: "Backend URL",
-      hint: "The URL where your Python backend is running",
-      scope: "world",
-      config: true,
-      type: String,
-      default: "http://localhost:5001"
-    });
-
     // Register backend status setting (display-only)
     game.settings.register('gold-box', 'backendStatus', {
       name: "Backend Status",
@@ -605,7 +605,7 @@ class GoldBoxModule {
           <p>See the README.md file for manual setup instructions.</p>
           <p><strong>Option 3: Auto-discover port</strong></p>
           <p>Go to Gold Box settings and click "Discover Backend" to automatically find and connect to a running backend server.</p>
-          <p><em><strong>Note:</strong> If you're running the backend on a custom port, configure the "Backend URL" setting manually, or use the auto-discover feature.</em></p>
+          <p><em><strong>Note:</strong> The frontend automatically discovers the backend port. Use the "Discover Backend" button if needed.</em></p>
         </div>
       </div>
     `;

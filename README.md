@@ -144,6 +144,49 @@ Capable of doing everything from minimal GM assistance, emulating a player or pl
 - AI permissions and tool access controlled by role settings
 - Custom prompts and behavior adjustable through configuration files
 
+### 📋 Privacy & Security
+
+**Important**: The Gold Box is designed with privacy-first principles. Your AI prompts and responses are **NOT logged** on the server side - only technical metadata for monitoring.
+
+**Key Points:**
+- ✅ **No Content Logging**: Your actual prompts and AI responses remain private
+- ✅ **API Key Security**: Keys stored in environment variables only
+- ✅ **Local Control**: You control server exposure and configuration
+- ✅ **Rate Limiting**: Built-in protection against abuse
+
+**For complete privacy details, see** `PRIVACY_NOTICE.md`
+
+⚠️ **Server Security Notice**: When running in production mode, ensure proper CORS configuration and network security practices.
+
+### 🔧 Server Configuration for Production
+
+#### **Local Development (Default)**
+```bash
+# Works out-of-the-box for local FoundryVTT
+./start-backend.py
+```
+
+#### **Production/Server Hosting**
+Configure your FoundryVTT domain(s) for external access:
+
+```bash
+# For The Forge hosting
+export CORS_ORIGINS="https://your-campaign.forge-vtt.com"
+./start-backend.py
+
+# For self-hosted domain
+export CORS_ORIGINS="https://rpg.yourdomain.com"
+./start-backend.py
+
+# For multiple domains
+export CORS_ORIGINS="https://foundry.yourdomain.com,https://backup.yourdomain.com"
+./start-backend.py
+
+# Development + production mix
+export CORS_ORIGINS="http://localhost:30000,https://your-foundry-domain.com"
+./start-backend.py
+```
+
 ## Security Features
 
 The Gold Box backend implements comprehensive security measures to ensure safe pre-alpha deployment:
