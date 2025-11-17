@@ -2,11 +2,117 @@
   <div class="form-group">
     <h3>The Gold Box Settings</h3>
     <p>An AI-powered Foundry VTT module for intelligent TTRPG assistance.</p>
-    <p><strong>Status:</strong> Basic structure loaded - AI features coming soon!</p>
+    <p><strong>Status:</strong> Backend communication enabled!</p>
+    
     <div class="form-group">
       <label>Module Elements Name</label>
       <input type="text" name="moduleElementsName" value="{{moduleElementsName}}" placeholder="The Gold Box">
       <p class="notes">Custom name for module elements in the UI</p>
     </div>
+    
+    <hr>
+    
+    <div class="form-group">
+      <h4>Backend Configuration</h4>
+      
+      <div class="form-group">
+        <label>Backend URL</label>
+        <input type="text" name="backendUrl" value="{{backendUrl}}" placeholder="http://localhost:5001">
+        <p class="notes">The URL where your Python backend is running</p>
+      </div>
+      
+      <div class="form-group">
+        <button type="button" id="test-connection" class="gold-box-test-btn">
+          <i class="fas fa-plug"></i> Test Connection
+        </button>
+        <div id="connection-status" class="gold-box-connection-status">
+          <i class="fas fa-question-circle"></i> Connection not tested
+        </div>
+        
+        <div class="form-group">
+          <button type="button" id="start-backend" class="gold-box-test-btn">
+            <i class="fas fa-play"></i> Start Backend
+          </button>
+          <button type="button" id="stop-backend" class="gold-box-test-btn" style="background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);">
+            <i class="fas fa-stop"></i> Stop Backend
+          </button>
+          <div id="backend-status" class="gold-box-connection-status">
+            <i class="fas fa-question-circle"></i> Backend status: Unknown
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <hr>
+    
+    <div class="form-group">
+      <h4>AI Configuration</h4>
+      
+      <div class="form-group">
+        <label for="aiPrompt">AI Prompt</label>
+        <textarea name="aiPrompt" rows="4" placeholder="Enter your prompt here...">{{aiPrompt}}</textarea>
+        <p class="notes">The prompt that will be sent to the AI backend when you click "Start AI Turn"</p>
+      </div>
+      
+      <div class="form-group">
+        <label for="aiRole">AI Role</label>
+        <select name="aiRole">
+          <option value="dm" {{#if (eq aiRole "dm")}}selected{{/if}}>Dungeon Master</option>
+          <option value="dm_assistant" {{#if (eq aiRole "dm_assistant")}}selected{{/if}}>DM Assistant</option>
+          <option value="player" {{#if (eq aiRole "player")}}selected{{/if}}>Player</option>
+        </select>
+        <p class="notes">What role the AI should play in your game</p>
+      </div>
+    </div>
   </div>
 </form>
+
+<style>
+.gold-box-test-btn {
+  background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 0.25rem;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-right: 0.5rem;
+}
+
+.gold-box-test-btn:hover {
+  background: linear-gradient(135deg, #218838 0%, #1ea085 100%);
+  transform: translateY(-1px);
+}
+
+.gold-box-connection-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.5rem;
+  background: var(--color-bg-light);
+  border-radius: 0.25rem;
+  font-size: 0.875rem;
+}
+
+.gold-box-connection-status.success {
+  background: var(--color-success);
+  color: white;
+}
+
+.gold-box-connection-status.error {
+  background: var(--color-error);
+  color: white;
+}
+
+.gold-box-connection-status.testing {
+  background: var(--color-warning);
+  color: white;
+}
+
+textarea[name="aiPrompt"] {
+  width: 100%;
+  min-height: 80px;
+  resize: vertical;
+  font-family: inherit;
+}
+</style>

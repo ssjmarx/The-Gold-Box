@@ -1,0 +1,5 @@
+# The Gold Box Backend Dependencies
+# All licenses compatible with CC-BY-NC-SA 4.0
+
+Flask==2.3.3              # BSD 3-Clause License - Web framework
+Flask-CORS==4.0.0         # MIT License - Cross-origin requests

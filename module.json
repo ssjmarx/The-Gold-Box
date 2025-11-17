@@ -3,7 +3,7 @@
   "name": "gold-box",
   "title": "The Gold Box",
   "description": "An AI-powered Foundry VTT module that provides intelligent TTRPG assistance through a sophisticated Python backend.",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "author": "ssjmarx",
   "url": "https://github.com/ssjmarx/Gold-Box",
   "license": "CC-BY-NC-SA-4.0",
@@ -16,7 +16,8 @@
     "./styles/**/*",
     "./lang/**/*",
     "./packs/**/*",
-    "./templates/**/*"
+    "./templates/**/*",
+    "./licenses/**/*"
   ],
   "templates": [
     "./templates/gold-box-config.html"
