@@ -5,7 +5,7 @@ An AI-powered Foundry VTT module that provides intelligent TTRPG assistance thro
 ## Project Vision
 
 The Gold Box transforms Foundry VTT into an intelligent TTRPG assistant that can:
-- Act as a complete Dungeon Master for solo play
+- Act as a complete Dungeon Master for solo play (or group play when no traditional GM is available)
 - Serve as a DM Assistant to help human DMs
 - Play as an AI-controlled Player character
 - Generate contextual content based on game state
@@ -15,13 +15,13 @@ The Gold Box transforms Foundry VTT into an intelligent TTRPG assistant that can
 ## Architecture Overview
 
 ```
-+-----------+      (1) User Action      +---------------------+      (2) Request (Prompt + State)      +-------------------+      (3) API Call      +----------+
++-----------+      (1) User Action     +---------------------+       (2) Request (Prompt + State)    +-------------------+   (3) API Call      +----------+
 |           |------------------------->|                     |-------------------------------------->|                   |-------------------->|          |
-|   User   |                          | Foundry VTT Module  |                                      | Python Backend    |                    |   LLM    |
-|           |<-------------------------|    (JavaScript)      |<--------------------------------------|  (FastAPI/Flask)  |<--------------------|  APIs    |
-+-----------+      (6) Final Update    +---------------------+      (5) Structured Command             +-------------------+      (4) Response     +----------+
-      ^                                                                                 |
-      |                                                                                 |
+|   User    |                          | Foundry VTT Module  |                                       | Python Backend    |                     |   LLM    |
+|           |<-------------------------|    (JavaScript)     |<--------------------------------------|  (FastAPI/Flask)  |<--------------------|  APIs    |
++-----------+      (6) Final Update    +---------------------+      (5) Structured Command           +-------------------+    (4) Response     +----------+
+      ^                                                                                   |
+      |                                                                                   |
       +--------------------------------(7) Other APIs (Image, TTS)------------------------+
 ```
 
@@ -45,7 +45,7 @@ The intelligence layer that:
 
 ### 3. External APIs
 The AI services that provide:
-- Language models (OpenAI GPT, Claude, etc.)
+- Language models (GPT, Novel AI, etc.)
 - Image generation (DALL-E, Stable Diffusion)
 - Text-to-Speech/Speech-to-Text (ElevenLabs, Whisper)
 
@@ -100,8 +100,8 @@ The **"Take AI Turn"** button is the single point of entry. All AI logic is trig
 - **DM Assistant:** Limited to enemy control and assistance functions
 - **Player:** Restricted to personal character actions only
 
-### Single-Player Focus
-Designed specifically for solo TTRPG experiences, with rich context gathering to provide the AI with all information normally provided by human players.
+### Variable Focus
+Capable of doing everything from minimal GM assistance, emulating a player or players, to emulating a GM for a single player or group of playes, by restricting the AI's permissions.
 
 ## Technology Stack
 
@@ -120,10 +120,9 @@ Designed specifically for solo TTRPG experiences, with rich context gathering to
 - Environment-based configuration management
 
 ### AI Services
-- OpenAI API (GPT models, DALL-E)
-- Anthropic Claude (optional)
-- ElevenLabs (TTS)
-- OpenAI Whisper (STT)
+- OpenAI API
+- Novel AI API
+- Locally-run models
 
 ## Development Setup
 
@@ -134,11 +133,11 @@ Designed specifically for solo TTRPG experiences, with rich context gathering to
 - API keys for chosen AI services
 
 ### Installation
-1. Clone this repository
-2. Set up Python backend: `pip install -r requirements.txt`
-3. Build Foundry module: `npm run build`
-4. Configure API keys in backend settings
-5. Install module in Foundry VTT
+1. Clone this repository into Foundry's Modules folder
+2. Set up Python backend with 'start-backend.py'
+3. Start Foundry while backend is running
+4. Enable plugin in Foundry world settings
+5. Configure plugin through Foundry settings menu
 
 ### Configuration
 - API keys configured through backend environment variables
@@ -172,16 +171,6 @@ The Gold Box backend implements comprehensive security measures to ensure safe p
 - **Validation Error Reporting**: Step-by-step failure identification
 - **Health Endpoints**: Service status and security configuration monitoring
 
-### 🧪 **Testing & Documentation**
-- **36 Test Cases**: Comprehensive validation test suite
-- **Security Documentation**: Detailed CORS and validation guides
-- **Pre-Alpha Checklist**: Security completion tracking
-
-For detailed security implementation, see:
-- [VALIDATION_DOCUMENTATION.md](backend/VALIDATION_DOCUMENTATION.md)
-- [CORS_SECURITY_GUIDE.md](backend/CORS_SECURITY_GUIDE.md)
-- [PRE_ALPHA_SHARING_CHECKLIST.md](PRE_ALPHA_SHARING_CHECKLIST.md)
-
 ## Contributing
 
 This project is currently under active development. Contributions are welcome, especially in:
@@ -196,11 +185,8 @@ This project is licensed under the Creative Commons Attribution-NonCommercial-Sh
 
 ## Roadmap
 
-- [x] Phase 1: Basic LLM communication
+- [ ] Phase 0: Minimal security configuration
+- [ ] Phase 1: Basic LLM communication
 - [ ] Phase 2: Context-aware responses
 - [ ] Phase 3: Tool-driven actions
 - [ ] Phase 4: Multi-modal orchestration
-- [ ] Additional AI service integrations
-- [ ] Custom prompt templates
-- [ ] Advanced combat automation
-- [ ] Dynamic scene generation
