@@ -112,10 +112,12 @@ Designed specifically for solo TTRPG experiences, with rich context gathering to
 - CSS for styling
 
 ### Backend (Python)
-- FastAPI for web framework
-- Pydantic for data validation
+- Flask for web framework with security-first configuration
+- Universal Input Validation system with comprehensive protection
+- Flask-CORS with environment-based origin restrictions
 - HTTP clients for API integration
-- Async/await for concurrent operations
+- Rate limiting and security headers
+- Environment-based configuration management
 
 ### AI Services
 - OpenAI API (GPT models, DALL-E)
@@ -142,6 +144,43 @@ Designed specifically for solo TTRPG experiences, with rich context gathering to
 - API keys configured through backend environment variables
 - AI permissions and tool access controlled by role settings
 - Custom prompts and behavior adjustable through configuration files
+
+## Security Features
+
+The Gold Box backend implements comprehensive security measures to ensure safe pre-alpha deployment:
+
+### 🛡️ **Input Validation & Sanitization**
+- **Universal Input Validator**: Comprehensive validation for all input types
+- **Dangerous Pattern Detection**: Blocks XSS, SQL injection, command injection, path traversal
+- **Character Set Enforcement**: Regex-based character validation per input type
+- **Size Limits**: Prevents buffer overflow attacks
+- **HTML Escaping**: Prevents XSS in displayed content
+
+### 🔒 **API Security**
+- **Rate Limiting**: Configurable request throttling (5 requests/minute default)
+- **CORS Protection**: Environment-based origin whitelisting
+- **API Key Authentication**: Secure key validation and format checking
+- **Security Headers**: X-Content-Type-Options, X-Frame-Options, X-XSS-Protection
+
+### 🚀 **Environment-Based Configuration**
+- **Development Mode**: Localhost-only origins with relaxed settings
+- **Production Mode**: Explicit origin configuration required
+- **Fail-Safe Approach**: No access unless explicitly configured
+
+### 📊 **Monitoring & Logging**
+- **Comprehensive Logging**: All security events logged with client IP
+- **Validation Error Reporting**: Step-by-step failure identification
+- **Health Endpoints**: Service status and security configuration monitoring
+
+### 🧪 **Testing & Documentation**
+- **36 Test Cases**: Comprehensive validation test suite
+- **Security Documentation**: Detailed CORS and validation guides
+- **Pre-Alpha Checklist**: Security completion tracking
+
+For detailed security implementation, see:
+- [VALIDATION_DOCUMENTATION.md](backend/VALIDATION_DOCUMENTATION.md)
+- [CORS_SECURITY_GUIDE.md](backend/CORS_SECURITY_GUIDE.md)
+- [PRE_ALPHA_SHARING_CHECKLIST.md](PRE_ALPHA_SHARING_CHECKLIST.md)
 
 ## Contributing
 

@@ -3,3 +3,4 @@
 
 Flask==2.3.3              # BSD 3-Clause License - Web framework
 Flask-CORS==4.0.0         # MIT License - Cross-origin requests
+python-dotenv==1.0.0         # BSD 3-Clause License - Environment variable management

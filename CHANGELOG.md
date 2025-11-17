@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.14] - 2025-11-17
+
+### Security
+- ✅ **Universal Input Validation System**: Comprehensive input validation with dangerous pattern detection
+- ✅ **Enhanced CORS Security**: Environment-based CORS with security-first approach
+- ✅ **Advanced Input Sanitization**: HTML escaping, character validation, and SQL injection prevention
+- ✅ **Security Headers**: Added X-Content-Type-Options, X-Frame-Options, X-XSS-Protection
+- ✅ **Rate Limiting**: Configurable rate limiting with memory-efficient cleanup
+- ✅ **API Key Authentication**: Secure API key validation and format checking
+
+### Added
+- Universal input validator for all input types (text, prompt, API key, config, URL, email, filename)
+- Type-specific validation with regex patterns and character set enforcement
+- Structured data validation for dictionaries and lists
+- AI parameter validation with range checking (temperature, top_p, etc.)
+- Environment-based CORS configuration (development defaults vs production requirements)
+- Comprehensive security pattern detection (XSS, SQL injection, command injection, path traversal)
+- Input sanitization with HTML escaping and null byte removal
+- Size limits enforcement per input type
+- Detailed validation error reporting with step-by-step failure identification
+
+### Changed
+- Complete security overhaul with defense-in-depth approach
+- Enhanced error handling with security-focused response formats
+- Improved logging with security event tracking
+- Restructured validation system for maintainability and extensibility
+- Updated CORS configuration for maximum security
+
+### Technical Details
+- UniversalInputValidator class with compiled regex patterns
+- Security patterns covering XSS, SQL injection, command injection, and data exfiltration
+- Input sanitization following OWASP guidelines
+- Environment-based security configuration
+- Comprehensive test suite with 36 test cases covering all validation scenarios
+- Production-ready CORS with explicit origin whitelisting
+
+### Documentation
+- Added comprehensive validation documentation (VALIDATION_DOCUMENTATION.md)
+- Added CORS security guide (CORS_SECURITY_GUIDE.md)
+- Updated pre-alpha sharing checklist with completed security items
+
 ## [0.1.13] - 2025-11-16
 
 ### Added
@@ -17,7 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Start/Stop backend buttons in configuration UI
 - Real-time connection testing and status display
 - End-to-end prompt sending and response handling
-- Input validation and sanitization for security
+- Basic input validation and sanitization for security
 - Rate limiting to prevent abuse
 - Styled chat messages for AI responses
 - Comprehensive error handling and user feedback

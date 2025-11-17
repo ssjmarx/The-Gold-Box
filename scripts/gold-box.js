@@ -8,11 +8,109 @@
  */
 class GoldBoxAPI {
   constructor() {
-    this.baseUrl = game.settings.get('gold-box', 'backendUrl') || 'http://localhost:5001';
+    // Initialize with default URL - settings will be applied later
+    this.baseUrl = 'http://localhost:5000';
   }
 
   /**
-   * Test connection to the backend
+   * Initialize API with game settings (called after game is ready)
+   */
+  init() {
+    if (typeof game !== 'undefined' && game.settings) {
+      this.baseUrl = game.settings.get('gold-box', 'backendUrl') || 'http://localhost:5000';
+      console.log('The Gold Box: API initialized with URL:', this.baseUrl);
+    } else {
+      console.warn('The Gold Box: Game settings not available during API init');
+    }
+  }
+
+  /**
+   * Discover available backend port by testing multiple ports
+   * @param {number} startPort - Port to start checking from (default: 5000)
+   * @param {number} maxAttempts - Maximum number of ports to check (default: 20)
+   * @returns {Promise<number|null>} - Found port number or null if none found
+   */
+  async discoverBackendPort(startPort = 5000, maxAttempts = 20) {
+    console.log(`The Gold Box: Starting port discovery from ${startPort}...`);
+    
+    for (let i = 0; i < maxAttempts; i++) {
+      const port = startPort + i;
+      const testUrl = `http://localhost:${port}`;
+      
+      try {
+        // Test connection with timeout
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 second timeout
+        
+        const response = await fetch(`${testUrl}/api/health`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.service === 'The Gold Box Backend') {
+            console.log(`The Gold Box: Found backend running on port ${port}`);
+            return port;
+          }
+        }
+      } catch (error) {
+        // Expected for ports that aren't running our backend
+        continue;
+      }
+    }
+    
+    console.warn(`The Gold Box: No backend found on ports ${startPort}-${startPort + maxAttempts - 1}`);
+    return null;
+  }
+
+  /**
+   * Auto-discover and update backend port
+   * @returns {Promise<boolean>} - True if successful, false otherwise
+   */
+  async autoDiscoverAndUpdatePort() {
+    try {
+      const discoveredPort = await this.discoverBackendPort();
+      
+      if (discoveredPort) {
+        const newUrl = `http://localhost:${discoveredPort}`;
+        
+        // Update the API URL
+        this.baseUrl = newUrl;
+        
+        // Update settings
+        if (typeof game !== 'undefined' && game.settings) {
+          await game.settings.set('gold-box', 'backendUrl', newUrl);
+          console.log(`The Gold Box: Updated backend URL to: ${newUrl}`);
+          
+          // Update status
+          await game.settings.set('gold-box', 'backendStatus', 'connected');
+        }
+        
+        return true;
+      } else {
+        // Update status to disconnected
+        if (typeof game !== 'undefined' && game.settings) {
+          await game.settings.set('gold-box', 'backendStatus', 'disconnected');
+        }
+        return false;
+      }
+    } catch (error) {
+      console.error('The Gold Box: Error during port discovery:', error);
+      if (typeof game !== 'undefined' && game.settings) {
+        await game.settings.set('gold-box', 'backendStatus', 'error');
+      }
+      return false;
+    }
+  }
+
+  /**
+   * Test connection to backend
    */
   async testConnection() {
     try {
@@ -44,13 +142,20 @@ class GoldBoxAPI {
   /**
    * Send prompt to backend for processing
    */
-  async sendPrompt(prompt) {
+  async sendPrompt(prompt, apiKey = null) {
     try {
+      const headers = {
+        'Content-Type': 'application/json'
+      };
+      
+      // Add API key to headers if provided
+      if (apiKey) {
+        headers['X-API-Key'] = apiKey;
+      }
+      
       const response = await fetch(`${this.baseUrl}/api/process`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
+        headers: headers,
         body: JSON.stringify({ prompt: prompt })
       });
 
@@ -66,6 +171,35 @@ class GoldBoxAPI {
     } catch (error) {
       console.error('Gold Box API Error:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Get auto-start instructions from backend
+   */
+  async getAutoStartInstructions() {
+    try {
+      const response = await fetch(`${this.baseUrl}/api/start`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return {
+          success: true,
+          data: data
+        };
+      } else {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message
+      };
     }
   }
 }
@@ -85,64 +219,42 @@ class GoldBoxModule {
     // Register hooks
     this.registerHooks();
     
-    // Auto-start backend if enabled
-    await this.autoStartBackend();
+    // Initialize API with game settings
+    this.api.init();
+    
+    // Check backend connection automatically (delayed until world is ready)
+    Hooks.once('ready', () => {
+      this.checkBackendAndShowInstructions();
+    });
     
     // Log that the module is ready
     console.log('The Gold Box is ready for AI adventures!');
   }
 
   /**
-   * Auto-start backend if enabled
+   * Check backend connection and show instructions if needed (runs automatically)
    */
-  async autoStartBackend() {
-    const autoStart = game.settings.get('gold-box', 'autoStartBackend');
-    if (autoStart) {
-      console.log('The Gold Box: Auto-starting backend...');
-      await this.startBackend();
-    }
-  }
-
-  /**
-   * Start the backend server
-   */
-  async startBackend() {
+  async checkBackendAndShowInstructions() {
     try {
-      // Check if backend is already running
+      // Only try to connect to current setting - don't do auto-discovery on startup
       const testResult = await this.api.testConnection();
       if (testResult.success) {
-        await game.settings.set('gold-box', 'backendStatus', 'running');
-        console.log('The Gold Box: Backend already running');
+        await game.settings.set('gold-box', 'backendStatus', 'connected');
+        console.log('The Gold Box: Backend is running on user-configured URL');
+        if (typeof ui !== 'undefined' && ui.notifications) {
+          ui.notifications.info('The Gold Box: Backend connected successfully!');
+        }
         return;
       }
-
-      // Start backend using Node.js child process
-      const { spawn } = require('child_process');
       
-      // For Foundry VTT environment, we need to handle this differently
-      // Since we can't use Node.js require directly in browser, 
-      // we'll show a message instead
-      ui.notifications.warn('Please start the backend manually: cd backend && source venv/bin/activate && python server.py');
-      await game.settings.set('gold-box', 'backendStatus', 'manual');
-      
+      // If current setting failed, show instructions but don't auto-discover
+      await game.settings.set('gold-box', 'backendStatus', 'disconnected');
+      console.log('The Gold Box: Backend not reachable on configured URL');
+      this.displayStartupInstructions();
     } catch (error) {
-      console.error('The Gold Box: Error starting backend:', error);
-      ui.notifications.error(`Failed to start backend: ${error.message}`);
-    }
-  }
-
-  /**
-   * Stop the backend server
-   */
-  async stopBackend() {
-    try {
-      await game.settings.set('gold-box', 'backendStatus', 'stopped');
-      ui.notifications.info('Backend stopped. Please stop the Python process manually.');
-      console.log('The Gold Box: Backend stop requested');
-      
-    } catch (error) {
-      console.error('The Gold Box: Error stopping backend:', error);
-      ui.notifications.error(`Failed to stop backend: ${error.message}`);
+      await game.settings.set('gold-box', 'backendStatus', 'error');
+      console.error('The Gold Box: Error checking backend:', error);
+      this.displayStartupInstructions();
     }
   }
 
@@ -150,71 +262,117 @@ class GoldBoxModule {
    * Register Foundry VTT hooks
    */
   registerHooks() {
-    // Register the setting that we use in chat button and config
-    game.settings.register('gold-box', 'moduleElementsName', {
-      name: "Module Elements Name",
-      scope: "world",
-      config: false,
-      type: String,
-      default: "The Gold Box"
-    });
-
     // Register backend URL setting
     game.settings.register('gold-box', 'backendUrl', {
       name: "Backend URL",
+      hint: "The URL where your Python backend is running",
       scope: "world",
-      config: false,
+      config: true,
       type: String,
       default: "http://localhost:5001"
     });
 
-    // Register backend auto-start setting
-    game.settings.register('gold-box', 'autoStartBackend', {
-      name: "Auto-start Backend",
-      scope: "world",
-      config: false,
-      type: Boolean,
-      default: true
-    });
-
-    // Register backend status setting
+    // Register backend status setting (display-only)
     game.settings.register('gold-box', 'backendStatus', {
       name: "Backend Status",
+      hint: "Current status of backend server (automatically detected)",
       scope: "world",
-      config: false,
+      config: false, // Not editable by user
       type: String,
-      default: "stopped"
+      default: "checking..."
     });
 
-    // Register AI prompt setting
+    // Register server debug prompt setting
     game.settings.register('gold-box', 'aiPrompt', {
-      name: "AI Prompt",
+      name: "Server Debug Prompt",
+      hint: "The prompt that will be sent to the AI backend when you click the AI chat button",
       scope: "world",
-      config: false,
+      config: true,
+      type: String,
+      default: "Hello! This is a test prompt. Please respond with a friendly greeting and introduce yourself as an AI assistant for tabletop RPGs."
+    });
+
+    // Register AI role setting with dropdown
+    game.settings.register('gold-box', 'aiRole', {
+      name: "AI Role",
+      hint: "What role AI should play in your game",
+      scope: "world",
+      config: true,
+      type: String,
+      choices: {
+        "dm": "Dungeon Master",
+        "dm_assistant": "DM Assistant",
+        "player": "Player"
+      },
+      default: "dm"
+    });
+
+    // Register API key setting with password obfuscation
+    game.settings.register('gold-box', 'apiKey', {
+      name: "API Key",
+      hint: "Secure API key for backend authentication. Leave empty to use without authentication (development mode).",
+      scope: "world",
+      config: true,
       type: String,
       default: ""
     });
 
-    // Register AI role setting
-    game.settings.register('gold-box', 'aiRole', {
-      name: "AI Role",
-      scope: "world",
-      config: false,
-      type: String,
-      default: "dm"
-    });
-
-    // Register settings menu using ChatConsole pattern
-    game.settings.registerMenu('gold-box', 'configMenu', {
-      name: "The Gold Box Configuration",
-      label: "Open Gold Box Config",
-      hint: "Configure The Gold Box module settings",
-      scope: "world",
-      config: true,
-      restricted: true,
-      requiresReload: false,
-      icon: "fas fa-robot",
-      type: GoldBoxConfig
+    // Hook to add custom button to settings menu and handle API key password field
+    Hooks.on('renderSettingsConfig', (app, html, data) => {
+      // Handle both jQuery and plain DOM objects
+      const $html = $(html);
+      
+      // Find Gold Box settings section
+      const goldBoxSettings = $html.find('.tab[data-tab="gold-box"]');
+      if (goldBoxSettings.length > 0) {
+        // Convert API key input to password field
+        const apiKeyInput = $html.find('input[name="gold-box.apiKey"]');
+        if (apiKeyInput.length > 0) {
+          // Change input type to password for security
+          apiKeyInput.attr('type', 'password');
+          
+          // Add placeholder text
+          apiKeyInput.attr('placeholder', 'Enter API key (leave empty for development mode)');
+          
+          // Add show/hide password toggle with unified gold styling and enhanced accessibility
+          const apiKeyFormGroup = apiKeyInput.closest('.form-group');
+          const toggleButton = $('<button type="button" class="gold-box-toggle-password" style="margin-left: 8px; padding: 4px 8px; font-size: 11px; border: none; border-radius: 3px; background: linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FF8C00 100%); color: #1a1a1a; font-weight: 600; transition: all 0.2s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 2px 6px rgba(0,0,0,0.2);">Show</button>');
+          
+          toggleButton.on('click', (e) => {
+            e.preventDefault();
+            const currentType = apiKeyInput.attr('type');
+            const newType = currentType === 'password' ? 'text' : 'password';
+            apiKeyInput.attr('type', newType);
+            toggleButton.text(newType === 'password' ? 'Show' : 'Hide');
+            // Enhanced accessibility: darker background for better contrast
+            toggleButton.css('background', newType === 'password' ? 
+              'linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FF8C00 100%)' : 
+              'linear-gradient(135deg, #FF8C00 0%, #FFA500 50%, #FFD700 100%)');
+          });
+          
+          apiKeyFormGroup.find('.form-fields').append(toggleButton);
+        }
+        
+        // Add discovery button after existing settings with unified gold styling and enhanced accessibility
+        const buttonHtml = `
+          <div class="form-group">
+            <label></label>
+            <div class="form-fields">
+              <button type="button" id="gold-box-discover-port" class="gold-box-discover-btn" style="background: linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FF8C00 100%); color: #1a1a1a; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 600; transition: all 0.2s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 2px 6px rgba(0,0,0,0.2);">
+                Discover Backend
+              </button>
+              <p class="notes">Automatically search for and connect to Gold Box backend server</p>
+            </div>
+          </div>
+        `;
+        
+        goldBoxSettings.append(buttonHtml);
+        
+        // Add click handler for discovery button
+        $html.find('#gold-box-discover-port').on('click', () => {
+          this.manualPortDiscovery();
+        });
+      }
     });
 
     // Hook when game is ready
@@ -252,11 +410,11 @@ class GoldBoxModule {
         return;
       }
       
-      const customName = game.settings.get('gold-box', 'moduleElementsName');
-      let name = customName ? customName : 'The Gold Box';
+      // Use hardcoded name since we removed moduleElementsName setting
+      const name = 'The Gold Box';
       
-      // Build button HTML
-      const inner = `<i class="fas fa-robot"></i> ${name}`;
+      // Build button HTML without robot emoji
+      const inner = `The Gold Box`;
       
       // Use ChatConsole's proven approach for v13+
       if (game.release.generation >= 13) {
@@ -266,7 +424,7 @@ class GoldBoxModule {
         button.type = 'button';
         button.innerHTML = inner;
         button.setAttribute('data-tooltip', 'The Gold Box');
-        button.style.cssText = 'margin: 4px 0; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;';
+        button.style.cssText = 'margin: 4px 0; background: linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FF8C00 100%); color: #1a1a1a; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 600; transition: all 0.2s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 2px 6px rgba(0,0,0,0.2);';
         
         button.addEventListener('click', () => {
           this.onTakeAITurn();
@@ -310,37 +468,49 @@ class GoldBoxModule {
   async onTakeAITurn() {
     console.log('The Gold Box: AI turn requested');
     
-    // Get the current prompt from settings
+    // Get current prompt from settings
     const prompt = game.settings.get('gold-box', 'aiPrompt');
     
     if (!prompt || prompt.trim() === '') {
-      ui.notifications.warn('Please configure an AI prompt in the Gold Box settings first!');
+      if (typeof ui !== 'undefined' && ui.notifications) {
+        ui.notifications.warn('Please configure a server debug prompt in Gold Box settings first!');
+      }
       return;
     }
     
+    // Get API key from settings
+    const apiKey = game.settings.get('gold-box', 'apiKey');
+    
     // Show loading notification
-    const loadingId = ui.notifications.info('The Gold Box: Sending request to AI...');
+    let loadingId = null;
+    if (typeof ui !== 'undefined' && ui.notifications) {
+      loadingId = ui.notifications.info('The Gold Box: Sending request to AI...');
+    }
     
     try {
-      // Send prompt to backend
+      // Send prompt to backend with API key
       console.log('The Gold Box: Sending prompt:', prompt);
-      const result = await this.api.sendPrompt(prompt);
+      const result = await this.api.sendPrompt(prompt, apiKey);
       
       if (result.success) {
         // Display the response in chat
         this.displayAIResponse(result.data.response, result.data);
-        ui.notifications.info('The Gold Box: AI response received!');
+        if (typeof ui !== 'undefined' && ui.notifications) {
+          ui.notifications.info('The Gold Box: AI response received!');
+        }
       } else {
         throw new Error(result.error || 'Unknown error occurred');
       }
       
     } catch (error) {
       console.error('The Gold Box: Error processing AI turn:', error);
-      ui.notifications.error(`The Gold Box Error: ${error.message}`);
+      if (typeof ui !== 'undefined' && ui.notifications) {
+        ui.notifications.error(`The Gold Box Error: ${error.message}`);
+      }
       this.displayErrorResponse(error.message);
     } finally {
       // Clear loading notification
-      if (loadingId) {
+      if (loadingId && typeof ui !== 'undefined' && ui.notifications) {
         ui.notifications.remove(loadingId);
       }
     }
@@ -350,7 +520,8 @@ class GoldBoxModule {
    * Display AI response in the chat
    */
   displayAIResponse(response, metadata) {
-    const customName = game.settings.get('gold-box', 'moduleElementsName') || 'The Gold Box';
+    // Use hardcoded name since we removed moduleElementsName setting
+    const customName = 'The Gold Box';
     const role = game.settings.get('gold-box', 'aiRole') || 'dm';
     
     const roleDisplay = {
@@ -359,10 +530,11 @@ class GoldBoxModule {
       'player': 'Player'
     };
     
+    // Chat message without robot emoji
     const messageContent = `
       <div class="gold-box-response">
         <div class="gold-box-header">
-          <strong><i class="fas fa-robot"></i> ${customName} - ${roleDisplay[role]}</strong>
+          <strong>${customName} - ${roleDisplay[role]}</strong>
           <div class="gold-box-timestamp">${new Date(metadata.timestamp).toLocaleTimeString()}</div>
         </div>
         <div class="gold-box-content">
@@ -386,12 +558,13 @@ class GoldBoxModule {
    * Display error response in the chat
    */
   displayErrorResponse(error) {
-    const customName = game.settings.get('gold-box', 'moduleElementsName') || 'The Gold Box';
+    // Use hardcoded name since we removed moduleElementsName setting
+    const customName = 'The Gold Box';
     
     const messageContent = `
       <div class="gold-box-error">
         <div class="gold-box-header">
-          <strong><i class="fas fa-exclamation-triangle"></i> ${customName} - Error</strong>
+          <strong>${customName} - Error</strong>
         </div>
         <div class="gold-box-content">
           <p><strong>Error:</strong> ${error}</p>
@@ -411,6 +584,79 @@ class GoldBoxModule {
   }
 
   /**
+   * Display startup instructions prominently in the chat
+   */
+  displayStartupInstructions() {
+    // Use hardcoded name since we removed moduleElementsName setting
+    const customName = 'The Gold Box';
+    
+    // Startup instructions without rocket emoji
+    const messageContent = `
+      <div class="gold-box-startup">
+        <div class="gold-box-header">
+          <strong>${customName} - Backend Startup Required</strong>
+          <div class="gold-box-timestamp">${new Date().toLocaleTimeString()}</div>
+        </div>
+        <div class="gold-box-content">
+          <p><strong>Backend Server Not Running or Not Reachable</strong></p>
+          <p><strong>Option 1: Run the automation script</strong></p>
+          <p>Run <code>./start-backend.py</code> from the Gold Box module directory to automatically set up and start the backend server.</p>
+          <p><strong>Option 2: Manual setup</strong></p>
+          <p>See the README.md file for manual setup instructions.</p>
+          <p><strong>Option 3: Auto-discover port</strong></p>
+          <p>Go to Gold Box settings and click "Discover Backend" to automatically find and connect to a running backend server.</p>
+          <p><em><strong>Note:</strong> If you're running the backend on a custom port, configure the "Backend URL" setting manually, or use the auto-discover feature.</em></p>
+        </div>
+      </div>
+    `;
+    
+    // Send startup instructions to chat
+    ChatMessage.create({
+      user: game.user.id,
+      content: messageContent,
+      speaker: {
+        alias: customName
+      },
+      whisper: {
+        users: [game.user.id]
+      }
+    });
+  }
+
+  /**
+   * Manual port discovery triggered from settings
+   */
+  async manualPortDiscovery() {
+    if (typeof ui !== 'undefined' && ui.notifications) {
+      ui.notifications.info('The Gold Box: Searching for backend server...');
+    }
+    
+    try {
+      const result = await this.api.autoDiscoverAndUpdatePort();
+      
+      if (result) {
+        if (typeof ui !== 'undefined' && ui.notifications) {
+          ui.notifications.success(`The Gold Box: Backend found! Updated to ${this.api.baseUrl}`);
+        }
+        
+        // Refresh settings to show updated URL
+        if (game.settings && game.settings.menu) {
+          game.settings.menu.render(true);
+        }
+      } else {
+        if (typeof ui !== 'undefined' && ui.notifications) {
+          ui.notifications.error('The Gold Box: No backend server found. Please start the backend first.');
+        }
+      }
+    } catch (error) {
+      console.error('The Gold Box: Manual port discovery failed:', error);
+      if (typeof ui !== 'undefined' && ui.notifications) {
+        ui.notifications.error(`The Gold Box: Discovery failed - ${error.message}`);
+      }
+    }
+  }
+
+  /**
    * Show module information dialog
    */
   showModuleInfo() {
@@ -420,7 +666,7 @@ class GoldBoxModule {
         <h2>The Gold Box v0.1.12</h2>
         <p>An AI-powered Foundry VTT module for intelligent TTRPG assistance.</p>
         <p><strong>Status:</strong> Basic structure loaded - AI features coming soon!</p>
-        <p><a href="https://github.com/ssjmarx/Gold-Box" target="_blank">GitHub Repository</a></p>
+        <p><a href="https://github.com/ssjmarx/gold-Box" target="_blank">GitHub Repository</a></p>
       `,
       buttons: {
         close: {
@@ -432,203 +678,6 @@ class GoldBoxModule {
     });
     
     dialog.render(true);
-  }
-}
-
-// Enhanced configuration handler for settings menu
-class GoldBoxConfig extends foundry.applications.api.HandlebarsApplicationMixin(foundry.applications.api.ApplicationV2) {
-  static get defaultOptions() {
-    return foundry.utils.mergeObject(super.defaultOptions, {
-      title: 'The Gold Box Configuration',
-      id: 'gold-box-config',
-      template: 'templates/gold-box-config.html',
-      width: 500,
-      height: 600
-    });
-  }
-
-  getData() {
-    return {
-      moduleElementsName: game.settings.get('gold-box', 'moduleElementsName') || 'The Gold Box',
-      backendUrl: game.settings.get('gold-box', 'backendUrl') || 'http://localhost:5001',
-      aiPrompt: game.settings.get('gold-box', 'aiPrompt') || '',
-      aiRole: game.settings.get('gold-box', 'aiRole') || 'dm',
-      autoStartBackend: game.settings.get('gold-box', 'autoStartBackend') || true,
-      backendStatus: game.settings.get('gold-box', 'backendStatus') || 'stopped'
-    };
-  }
-
-  async _updateObject(event, formData) {
-    // Update all settings
-    await game.settings.set('gold-box', 'moduleElementsName', formData.moduleElementsName);
-    await game.settings.set('gold-box', 'backendUrl', formData.backendUrl);
-    await game.settings.set('gold-box', 'aiPrompt', formData.aiPrompt);
-    await game.settings.set('gold-box', 'aiRole', formData.aiRole);
-    
-    // Update the API instance with new backend URL
-    if (game.goldBox && game.goldBox.api) {
-      game.goldBox.api = new GoldBoxAPI();
-    }
-    
-    ui.notifications.info('The Gold Box settings updated!');
-  }
-
-  activateListeners(html) {
-    super.activateListeners(html);
-    
-    // Add connection test button functionality
-    const testButton = html.find('#test-connection')[0];
-    if (testButton) {
-      testButton.addEventListener('click', () => this.testConnection());
-    }
-    
-    // Add backend start button functionality
-    const startButton = html.find('#start-backend')[0];
-    if (startButton) {
-      startButton.addEventListener('click', () => this.startBackend());
-    }
-    
-    // Add backend stop button functionality
-    const stopButton = html.find('#stop-backend')[0];
-    if (stopButton) {
-      stopButton.addEventListener('click', () => this.stopBackend());
-    }
-    
-    // Update backend status display on load
-    this.updateBackendStatus();
-  }
-
-  async startBackend() {
-    const statusDiv = document.getElementById('backend-status');
-    const startButton = document.getElementById('start-backend');
-    const stopButton = document.getElementById('stop-backend');
-    
-    if (!statusDiv || !startButton || !stopButton) return;
-    
-    // Show starting status
-    statusDiv.className = 'gold-box-connection-status testing';
-    statusDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting backend...';
-    startButton.disabled = true;
-    stopButton.disabled = true;
-    
-    try {
-      // Check if backend is already running
-      const backendUrl = document.querySelector('input[name="backendUrl"]').value || 'http://localhost:5001';
-      const testAPI = new GoldBoxAPI();
-      testAPI.baseUrl = backendUrl;
-      
-      const testResult = await testAPI.testConnection();
-      if (testResult.success) {
-        await game.settings.set('gold-box', 'backendStatus', 'running');
-        statusDiv.className = 'gold-box-connection-status success';
-        statusDiv.innerHTML = `<i class="fas fa-check-circle"></i> Backend already running: ${testResult.data.service}`;
-      } else {
-        // Show manual start instructions
-        await game.settings.set('gold-box', 'backendStatus', 'manual');
-        statusDiv.className = 'gold-box-connection-status testing';
-        statusDiv.innerHTML = '<i class="fas fa-info-circle"></i> Manual start required. See terminal for command.';
-        
-        // Show instruction dialog
-        ui.notifications.warn('Please start the backend manually using the terminal commands shown in the notification.');
-      }
-      
-    } catch (error) {
-      statusDiv.className = 'gold-box-connection-status error';
-      statusDiv.innerHTML = `<i class="fas fa-exclamation-circle"></i> Error: ${error.message}`;
-    } finally {
-      startButton.disabled = false;
-      stopButton.disabled = false;
-    }
-  }
-
-  async stopBackend() {
-    const statusDiv = document.getElementById('backend-status');
-    const startButton = document.getElementById('start-backend');
-    const stopButton = document.getElementById('stop-backend');
-    
-    if (!statusDiv || !startButton || !stopButton) return;
-    
-    // Show stopping status
-    statusDiv.className = 'gold-box-connection-status testing';
-    statusDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Stopping backend...';
-    startButton.disabled = true;
-    stopButton.disabled = true;
-    
-    try {
-      await game.settings.set('gold-box', 'backendStatus', 'stopped');
-      statusDiv.className = 'gold-box-connection-status testing';
-      statusDiv.innerHTML = '<i class="fas fa-info-circle"></i> Please stop the Python process manually.';
-      ui.notifications.info('Backend stop requested. Please stop the Python process manually.');
-      
-    } catch (error) {
-      statusDiv.className = 'gold-box-connection-status error';
-      statusDiv.innerHTML = `<i class="fas fa-exclamation-circle"></i> Error: ${error.message}`;
-    } finally {
-      startButton.disabled = false;
-      stopButton.disabled = false;
-    }
-  }
-
-  async updateBackendStatus() {
-    const statusDiv = document.getElementById('backend-status');
-    if (!statusDiv) return;
-    
-    const backendStatus = game.settings.get('gold-box', 'backendStatus') || 'stopped';
-    
-    switch (backendStatus) {
-      case 'running':
-        statusDiv.className = 'gold-box-connection-status success';
-        statusDiv.innerHTML = '<i class="fas fa-check-circle"></i> Backend is running';
-        break;
-      case 'stopped':
-        statusDiv.className = 'gold-box-connection-status error';
-        statusDiv.innerHTML = '<i class="fas fa-stop-circle"></i> Backend is stopped';
-        break;
-      case 'manual':
-        statusDiv.className = 'gold-box-connection-status testing';
-        statusDiv.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Manual start required';
-        break;
-      default:
-        statusDiv.className = 'gold-box-connection-status testing';
-        statusDiv.innerHTML = '<i class="fas fa-question-circle"></i> Backend status: Unknown';
-    }
-  }
-
-  async testConnection() {
-    const statusDiv = document.getElementById('connection-status');
-    const testButton = document.getElementById('test-connection');
-    
-    if (!statusDiv || !testButton) return;
-    
-    // Show testing status
-    statusDiv.className = 'gold-box-connection-status testing';
-    statusDiv.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Testing connection...';
-    testButton.disabled = true;
-    
-    try {
-      // Get current backend URL from form
-      const backendUrl = document.querySelector('input[name="backendUrl"]').value || 'http://localhost:5000';
-      
-      // Create a temporary API instance for testing
-      const testAPI = new GoldBoxAPI();
-      testAPI.baseUrl = backendUrl;
-      
-      const result = await testAPI.testConnection();
-      
-      if (result.success) {
-        statusDiv.className = 'gold-box-connection-status success';
-        statusDiv.innerHTML = `<i class="fas fa-check-circle"></i> Connected to ${result.data.service} v${result.data.version}`;
-      } else {
-        statusDiv.className = 'gold-box-connection-status error';
-        statusDiv.innerHTML = `<i class="fas fa-exclamation-circle"></i> Connection failed: ${result.error}`;
-      }
-      
-    } catch (error) {
-      statusDiv.className = 'gold-box-connection-status error';
-      statusDiv.innerHTML = `<i class="fas fa-exclamation-circle"></i> Connection failed: ${error.message}`;
-    } finally {
-      testButton.disabled = false;
-    }
   }
 }
 
