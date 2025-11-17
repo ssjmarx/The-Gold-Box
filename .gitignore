@@ -67,4 +67,3 @@ tmp/
 temp/
 *.tmp
 backend/keys.enc
-backend/keys.enc
