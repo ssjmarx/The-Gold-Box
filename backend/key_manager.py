@@ -49,7 +49,12 @@ class MultiKeyManager:
         if password is None:
             return None
         
-        salt = b'goldbox_salt_2025'
+        # Generate salt from password using a fixed method for consistency
+        # This ensures the same password always produces the same salt
+        import hashlib
+        password_hash = hashlib.sha256(password.encode('utf-8')).digest()
+        salt = password_hash[:16]  # Use first 16 bytes as salt
+        
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA256(),
             length=32,

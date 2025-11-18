@@ -142,16 +142,11 @@ class GoldBoxAPI {
   /**
    * Send prompt to backend for processing
    */
-  async sendPrompt(prompt, apiKey = null) {
+  async sendPrompt(prompt) {
     try {
       const headers = {
         'Content-Type': 'application/json'
       };
-      
-      // Add API key to headers if provided
-      if (apiKey) {
-        headers['X-API-Key'] = apiKey;
-      }
       
       const response = await fetch(`${this.baseUrl}/api/process`, {
         method: 'POST',
@@ -307,17 +302,7 @@ class GoldBoxModule {
       default: "dm"
     });
 
-    // Register API key setting with password obfuscation
-    game.settings.register('gold-box', 'apiKey', {
-      name: "API Key",
-      hint: "Secure API key for backend authentication. Leave empty to use without authentication (development mode).",
-      scope: "world",
-      config: true,
-      type: String,
-      default: ""
-    });
-
-    // Hook to add custom button to settings menu and handle API key password field
+    // Hook to add custom button to settings menu
     Hooks.on('renderSettingsConfig', (app, html, data) => {
       // Handle both jQuery and plain DOM objects
       const $html = $(html);
@@ -325,34 +310,6 @@ class GoldBoxModule {
       // Find Gold Box settings section
       const goldBoxSettings = $html.find('.tab[data-tab="gold-box"]');
       if (goldBoxSettings.length > 0) {
-        // Convert API key input to password field
-        const apiKeyInput = $html.find('input[name="gold-box.apiKey"]');
-        if (apiKeyInput.length > 0) {
-          // Change input type to password for security
-          apiKeyInput.attr('type', 'password');
-          
-          // Add placeholder text
-          apiKeyInput.attr('placeholder', 'Enter API key (leave empty for development mode)');
-          
-          // Add show/hide password toggle with unified gold styling and enhanced accessibility
-          const apiKeyFormGroup = apiKeyInput.closest('.form-group');
-          const toggleButton = $('<button type="button" class="gold-box-toggle-password" style="margin-left: 8px; padding: 4px 8px; font-size: 11px; border: none; border-radius: 3px; background: linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FF8C00 100%); color: #1a1a1a; font-weight: 600; transition: all 0.2s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 2px 6px rgba(0,0,0,0.2);">Show</button>');
-          
-          toggleButton.on('click', (e) => {
-            e.preventDefault();
-            const currentType = apiKeyInput.attr('type');
-            const newType = currentType === 'password' ? 'text' : 'password';
-            apiKeyInput.attr('type', newType);
-            toggleButton.text(newType === 'password' ? 'Show' : 'Hide');
-            // Enhanced accessibility: darker background for better contrast
-            toggleButton.css('background', newType === 'password' ? 
-              'linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FF8C00 100%)' : 
-              'linear-gradient(135deg, #FF8C00 0%, #FFA500 50%, #FFD700 100%)');
-          });
-          
-          apiKeyFormGroup.find('.form-fields').append(toggleButton);
-        }
-        
         // Add discovery button after existing settings with unified gold styling and enhanced accessibility
         const buttonHtml = `
           <div class="form-group">
@@ -478,9 +435,6 @@ class GoldBoxModule {
       return;
     }
     
-    // Get API key from settings
-    const apiKey = game.settings.get('gold-box', 'apiKey');
-    
     // Show loading notification
     let loadingId = null;
     if (typeof ui !== 'undefined' && ui.notifications) {
@@ -488,9 +442,9 @@ class GoldBoxModule {
     }
     
     try {
-      // Send prompt to backend with API key
+      // Send prompt to backend
       console.log('The Gold Box: Sending prompt:', prompt);
-      const result = await this.api.sendPrompt(prompt, apiKey);
+      const result = await this.api.sendPrompt(prompt);
       
       if (result.success) {
         // Display the response in chat

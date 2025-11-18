@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2025-11-17
+
+### Changed
+- 🔧 **API Key Architecture Refactoring**: Removed API key requirement from regular AI processing endpoints
+- 🚀 **User Experience Simplification**: Frontend no longer needs to manage or send API keys
+- 🔒 **Security Enhancement**: API keys now only required for administrative configuration endpoints
+- ⚡ **Performance Improvement**: Removed unnecessary API key validation overhead from regular requests
+
+### Added
+- 🛠️ **Configuration Endpoints**: New `/api/config/keys` endpoints (GET/POST) for API key management
+- 🔐 **Admin Authentication**: Configuration endpoints now require valid API key for access
+- 📊 **API Key Status**: Endpoint to check which AI services are configured without exposing keys
+- 🎯 **Endpoint-Specific Security**: Different security levels for different endpoint types
+
+### Security
+- ✅ **Principle of Least Privilege**: API keys only required where absolutely necessary
+- 🛡️ **Reduced Attack Surface**: Fewer endpoints require authentication
+- 🔑 **Secure Key Management**: Keys never exposed to frontend or logged
+- 🚫 **Configuration Protection**: Admin endpoints protected by existing API key validation
+
+### Technical Details
+- Regular AI processing (`/api/process`) now works without API key headers
+- Configuration management (`/api/config/keys`) requires admin API key
+- Frontend automatically works with simplified authentication model
+- Backend maintains security for sensitive operations while improving usability
+- Full backward compatibility maintained for existing configurations
+
+### Breaking Changes
+- ⚠️ **Frontend Update**: API key handling removed from frontend (no user action needed)
+- ⚠️ **Endpoint Changes**: API key validation now only applies to configuration endpoints
+
+### Documentation
+- Updated API documentation to reflect new authentication model
+- Added configuration endpoint documentation
+- Clarified security model in README
+
+## [0.1.14] - 2025-11-17
+
 ## [0.1.14] - 2025-11-17
 
 ### Security

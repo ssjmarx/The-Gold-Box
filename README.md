@@ -228,7 +228,7 @@ This project is licensed under the Creative Commons Attribution-NonCommercial-Sh
 
 ## Roadmap
 
-- [ ] Phase 0: Minimal security configuration
+- [x] Phase 0: Minimal security configuration
 - [ ] Phase 1: Basic LLM communication
 - [ ] Phase 2: Context-aware responses
 - [ ] Phase 3: Tool-driven actions
