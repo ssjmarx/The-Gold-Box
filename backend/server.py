@@ -19,10 +19,16 @@ import html
 import hashlib
 import subprocess
 import stat
+import getpass
+import json
+import base64
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from typing import Any, Dict, List, Optional, Tuple, Union
 from pathlib import Path
+
+# Import key management from separate module
+from key_manager import MultiKeyManager
 
 # Load environment variables from .env file
 load_dotenv()
@@ -30,9 +36,9 @@ load_dotenv()
 # Configuration from environment variables
 OPENAI_API_KEY = os.environ.get('GOLD_BOX_OPENAI_COMPATIBLE_API_KEY', '')
 NOVELAI_API_KEY = os.environ.get('GOLD_BOX_NOVELAI_API_API_KEY', '')
-GOLD_BOX_PORT = int(os.environ.get('GOLD_BOX_PORT', 5001))
-FLASK_DEBUG = os.environ.get('FLASK_DEBUG', 'True').lower() == 'true'
-FLASK_ENV = os.environ.get('FLASK_ENV', 'development')
+GOLD_BOX_PORT = int(os.environ.get('GOLD_BOX_PORT', 5000))
+FLASK_DEBUG = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
+FLASK_ENV = os.environ.get('FLASK_ENV', 'production')
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
 LOG_FILE = os.environ.get('LOG_FILE', 'goldbox.log')
 
@@ -80,7 +86,16 @@ def get_cors_origins():
         logger.warning(f"Using development CORS defaults: {default_origins}")
         return default_origins
     
-    # Production - no origins by default (must be explicitly configured)
+    # Production - provide localhost defaults for direct server testing
+    if not cors_origins_env:
+        default_origins = [
+            'http://localhost:30000', 'http://127.0.0.1:30000',  # Default Foundry VTT
+            'http://localhost:30001', 'http://127.0.0.1:30001',  # Common alternative
+            'http://localhost:30002', 'http://127.0.0.1:30002',  # Another alternative
+        ]
+        logger.warning(f"Production mode with no CORS_ORIGINS set, using localhost defaults: {default_origins}")
+        return default_origins
+    
     logger.error("Production environment requires explicit CORS_ORIGINS configuration")
     return []
 
@@ -655,6 +670,38 @@ class UniversalInputValidator:
 # Initialize global validator
 validator = UniversalInputValidator()
 
+
+def manage_keys(keychange=False):
+    """Key management function integrated into server startup"""
+    print("Gold Box - Starting Key Management...")
+    
+    manager = MultiKeyManager()
+    
+    # Check if keychange flag is set or no key file exists
+    if keychange or not manager.key_file.exists():
+        print("Running key setup wizard...")
+        if manager.interactive_setup():
+            print('\nSet encryption password for your keys.')
+            print('This password will be required on every server startup.')
+            password = getpass.getpass('Encryption password (blank for unencrypted): ')
+            manager.save_keys(manager.keys_data, password if password else None)
+        else:
+            print("Key setup cancelled or failed")
+            return False
+    else:
+        print("Loading API keys...")
+        if not manager.load_keys():
+            print("Failed to load keys")
+            return False
+    
+    # Load keys into environment variables
+    if not manager.set_environment_variables():
+        print("Failed to load API keys")
+        return False
+    
+    print("API keys loaded successfully")
+    return True
+
 def validate_prompt(prompt):
     """
     Legacy function for backward compatibility
@@ -889,9 +936,7 @@ def service_info():
             'health': 'GET /api/health - Health check',
             'info': 'GET /api/info - Service information',
             'security': 'GET /api/security - Security verification and integrity checks',
-            'config_keys_get': 'GET /api/config/keys - Get API key configuration status (requires admin API key)',
-            'config_keys_set': 'POST /api/config/keys - Set API keys (requires admin API key)',
-            'start': 'POST /api/start - Auto-start instructions'
+            'start': 'POST /api/start - Server startup instructions'
         },
         'license': 'CC-BY-NC-SA 4.0',
         'dependencies': {
@@ -899,10 +944,9 @@ def service_info():
             'Flask-CORS': 'MIT License'
         },
         'security': {
-            'api_authentication': bool(EXPECTED_API_KEY),
+            'api_authentication': bool(OPENAI_API_KEY) or bool(NOVELAI_API_KEY),
             'rate_limiting': True,
             'cors_restrictions': len(CORS_ORIGINS) > 0,
-            'cors_origins': CORS_ORIGINS if FLASK_ENV == 'development' else 'configured',
             'input_validation': 'UniversalInputValidator',
             'security_headers': True,
             'xss_protection': True,
@@ -1010,103 +1054,6 @@ def security_verification():
             'timestamp': datetime.now().isoformat()
         }), 500
 
-@app.route('/api/config/keys', methods=['GET'])
-def get_api_keys():
-    """
-    Get API key configuration status (requires admin API key)
-    """
-    # Verify admin API key for configuration access
-    is_valid, error_msg = verify_api_key(request)
-    if not is_valid:
-        return jsonify({
-            'error': error_msg,
-            'status': 'error',
-            'validation_step': 'admin_api_key'
-        }), 401
-    
-    # Return key configuration status (never actual keys)
-    return jsonify({
-        'status': 'success',
-        'keys_configured': {
-            'openai_api_key': bool(OPENAI_API_KEY),
-            'novelai_api_key': bool(NOVELAI_API_KEY)
-        },
-        'message': 'API key configuration status retrieved',
-        'note': 'Actual API keys are never exposed for security'
-    })
-
-@app.route('/api/config/keys', methods=['POST'])
-def set_api_keys():
-    """
-    Set API keys (requires admin API key)
-    Note: This endpoint should only be used for initial configuration
-    """
-    # Verify admin API key for configuration access
-    is_valid, error_msg = verify_api_key(request)
-    if not is_valid:
-        return jsonify({
-            'error': error_msg,
-            'status': 'error',
-            'validation_step': 'admin_api_key'
-        }), 401
-    
-    try:
-        # Get JSON data
-        data = request.get_json()
-        if not data:
-            return jsonify({
-                'error': 'Invalid JSON data',
-                'status': 'error',
-                'validation_step': 'json_parsing'
-            }), 400
-        
-        # Validate and set OpenAI API key
-        openai_key = data.get('openai_api_key')
-        if openai_key is not None:
-            is_valid, error, _ = validator.validate_input(
-                openai_key, 'api_key', 'openai_api_key', required=True, min_length=8
-            )
-            if not is_valid:
-                return jsonify({
-                    'error': f'OpenAI API key: {error}',
-                    'status': 'error',
-                    'validation_step': 'openai_api_key'
-                }), 400
-            # In production, this should update environment variables or secure storage
-            logger.info("OpenAI API key updated (value not logged for security)")
-        
-        # Validate and set NovelAI API key
-        novelai_key = data.get('novelai_api_key')
-        if novelai_key is not None:
-            is_valid, error, _ = validator.validate_input(
-                novelai_key, 'api_key', 'novelai_api_key', required=True, min_length=8
-            )
-            if not is_valid:
-                return jsonify({
-                    'error': f'NovelAI API key: {error}',
-                    'status': 'error',
-                    'validation_step': 'novelai_api_key'
-                }), 400
-            # In production, this should update environment variables or secure storage
-            logger.info("NovelAI API key updated (value not logged for security)")
-        
-        return jsonify({
-            'status': 'success',
-            'message': 'API keys configuration updated',
-            'note': 'In production, restart server to apply changes',
-            'keys_updated': {
-                'openai_api_key': openai_key is not None,
-                'novelai_api_key': novelai_key is not None
-            }
-        })
-        
-    except Exception as e:
-        logger.error(f"Error setting API keys: {e}")
-        return jsonify({
-            'error': 'Internal server error',
-            'status': 'error',
-            'validation_step': 'key_setting'
-        }), 500
 
 @app.route('/api/start', methods=['POST'])
 def start_backend():
@@ -1123,7 +1070,7 @@ def start_backend():
             'step3': 'Activate virtual environment: source venv/bin/activate',
             'step4': 'Start server: python server.py'
         },
-        'auto_start_note': 'Automatic process spawning is blocked by browser security restrictions',
+        'note': 'Automatic process spawning is blocked by browser security restrictions',
         'environment_note': f'Current environment: {FLASK_ENV}',
         'validation_status': 'Universal input validation is active',
         'cors_note': f'CORS configured for {len(CORS_ORIGINS)} origins'
@@ -1134,7 +1081,7 @@ def not_found(error):
     return jsonify({
         'error': 'Endpoint not found',
         'status': 'error',
-        'available_endpoints': ['/api/process', '/api/health', '/api/info', '/api/security', '/api/config/keys', '/api/start'],
+        'available_endpoints': ['/api/process', '/api/health', '/api/info', '/api/security', '/api/start'],
         'validator_features': ['universal_validation', 'security_checking', 'sanitization']
     }), 404
 
@@ -1147,8 +1094,26 @@ def method_not_allowed(error):
     }), 405
 
 if __name__ == '__main__':
+    # Key Management - Check for keys and prompt for setup if needed
+    print("=" * 60)
+    print("The Gold Box Backend - Key Management")
+    print("=" * 60)
+    
+    # Check for keychange environment variable
+    keychange = os.environ.get('GOLD_BOX_KEYCHANGE', '').lower() in ['true', '1', 'yes']
+    
+    # Run key management
+    if not manage_keys(keychange=keychange):
+        print("[ERROR] Key management failed. Server cannot start without proper key configuration.")
+        sys.exit(1)
+    
+    # Reload environment variables after key management
+    OPENAI_API_KEY = os.environ.get('GOLD_BOX_OPENAI_COMPATIBLE_API_KEY', '')
+    NOVELAI_API_KEY = os.environ.get('GOLD_BOX_NOVELAI_API_API_KEY', '')
+    
     # Check if running in development or production
     debug_mode = FLASK_DEBUG
+    is_development = FLASK_ENV == 'development'
     
     # Find an available port
     start_port = GOLD_BOX_PORT
@@ -1171,7 +1136,7 @@ if __name__ == '__main__':
     
     # CORS Configuration Summary
     print(f"CORS Origins: {len(CORS_ORIGINS)} configured")
-    if FLASK_ENV == 'development':
+    if is_development:
         print("  Development CORS origins (localhost only):")
         for origin in CORS_ORIGINS:
             print(f"    - {origin}")
@@ -1183,26 +1148,77 @@ if __name__ == '__main__':
     print(f"Universal Input Validator: ENABLED")
     print(f"Security Features: XSS, SQL Injection, Command Injection Protection")
     print(f"Security Headers: X-Content-Type-Options, X-Frame-Options, X-XSS-Protection")
-    print(f"Server starting on http://localhost:{available_port}")
-    print("Available endpoints:")
-    print("  POST /api/process - Process AI prompts (enhanced validation)")
-    print("  GET  /api/health  - Health check")
-    print("  GET  /api/info    - Service information")
-    print("  POST /api/start   - Auto-start instructions")
-    print("=" * 60)
-    print("Universal Input Validation Features:")
-    print("  - Dangerous pattern detection")
-    print("  - Character set validation")
-    print("  - Type-specific validation (URL, email, filename)")
-    print("  - Structured data support (dict/list)")
-    print("  - AI parameter validation")
-    print("  - Input sanitization and escaping")
-    print("=" * 60)
     
-    # Start server with auto-reload disabled to prevent duplicate startup messages
-    app.run(
-        host='localhost',
-        port=available_port,
-        debug=debug_mode,
-        use_reloader=False  # Disable Flask's auto-restart feature
-    )
+    # Choose server based on environment
+    if is_development:
+        print(f"Server starting on http://localhost:{available_port} (Flask Development Server)")
+        print("Available endpoints:")
+        print("  POST /api/process - Process AI prompts (enhanced validation)")
+        print("  GET  /api/health  - Health check")
+        print("  GET  /api/info    - Service information")
+        print("  POST /api/start   - Server startup instructions")
+        print("=" * 60)
+        print("Universal Input Validation Features:")
+        print("  - Dangerous pattern detection")
+        print("  - Character set validation")
+        print("  - Type-specific validation (URL, email, filename)")
+        print("  - Structured data support (dict/list)")
+        print("  - AI parameter validation")
+        print("  - Input sanitization and escaping")
+        print("=" * 60)
+        
+        # Start Flask development server
+        app.run(
+            host='localhost',
+            port=available_port,
+            debug=debug_mode,
+            use_reloader=False  # Disable Flask's auto-restart feature
+        )
+    else:
+        # Production mode - try to use Gunicorn
+        try:
+            import gunicorn
+            print(f"Server starting on http://localhost:{available_port} (Gunicorn Production Server)")
+            print("Available endpoints:")
+            print("  POST /api/process - Process AI prompts (enhanced validation)")
+            print("  GET  /api/health  - Health check")
+            print("  GET  /api/info    - Service information")
+            print("  POST /api/start   - Server startup instructions")
+            print("=" * 60)
+            print("Production Features:")
+            print("  - Gunicorn WSGI server")
+            print("  - Multiple worker processes")
+            print("  - Process monitoring and restart")
+            print("  - Request logging")
+            print("  - Graceful shutdown handling")
+            print("=" * 60)
+            
+            # Use subprocess to start Gunicorn with proper settings
+            gunicorn_cmd = [
+                'gunicorn',
+                '--bind', f'localhost:{available_port}',
+                '--workers', '2',
+                '--timeout', '30',
+                '--worker-class', 'sync',
+                '--max-requests', '1000',
+                '--max-requests-jitter', '100',
+                '--preload',
+                'server:app'
+            ]
+            
+            # Replace current process with Gunicorn
+            os.execvp(gunicorn_cmd[0], gunicorn_cmd)
+            
+        except ImportError:
+            print("[WARNING] Gunicorn not available, falling back to Flask development server")
+            print("Install gunicorn for production deployment: pip install gunicorn")
+            print(f"Server starting on http://localhost:{available_port} (Flask Development Server)")
+            print("=" * 60)
+            
+            # Fall back to Flask development server
+            app.run(
+                host='localhost',
+                port=available_port,
+                debug=debug_mode,
+                use_reloader=False
+            )

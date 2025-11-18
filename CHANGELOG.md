@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2025-11-18
+
+### Fixed
+- **Production Mode Default**: Server now correctly defaults to production mode instead of development
+- **Gunicorn Integration**: Production mode now uses Gunicorn WSGI server by default
+- **Key Management Restoration**: Fixed backend.sh to properly trigger key management on startup
+- **Server Selection Logic**: Simplified backend.sh to let server.py handle server choice internally
+
+### Changed
+- **Backend Launcher Simplification**: backend.sh now runs `python server.py` without complex environment manipulation
+- **Production Server**: Automatic detection and use of Gunicorn in production mode with fallback to Flask
+- **Development Server**: Flask development server only used when explicitly forced or in development environment
+- **Environment Variables**: Reduced backend.sh environment variable manipulation, server.py handles configuration internally
+
+### Technical Details
+- Production mode automatically tries to use Gunicorn with optimized settings (2 workers, 30s timeout)
+- Falls back to Flask development server if Gunicorn is not available
+- Development mode uses Flask server with auto-reload disabled for stability
+- Key management wizard properly triggered on every server startup
+- Simplified backend.sh architecture for better maintainability
+
+### Security
+- Production-grade server settings when running in production mode
+- Proper process management and graceful shutdown with Gunicorn
+- Maintained all existing security features while improving server deployment
+
+## [0.2.1] - 2025-11-17
+
 ## [0.2.0] - 2025-11-17
 
 ### Changed

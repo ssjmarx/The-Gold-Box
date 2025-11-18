@@ -113,11 +113,13 @@ Capable of doing everything from minimal GM assistance, emulating a player or pl
 
 ### Backend (Python)
 - Flask for web framework with security-first configuration
+- Gunicorn WSGI server for production deployment
 - Universal Input Validation system with comprehensive protection
 - Flask-CORS with environment-based origin restrictions
 - HTTP clients for API integration
 - Rate limiting and security headers
 - Environment-based configuration management
+- Production-grade server selection (Gunicorn) with Flask fallback
 
 ### AI Services
 - OpenAI API
