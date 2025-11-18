@@ -1,6 +1,6 @@
 # Privacy Notice for The Gold Box
 
-## 🔒 Data Collection and Usage
+##  Data Collection and Usage
 
 ### **What Data We Collect**
 
@@ -41,13 +41,13 @@
 
 ### **Data We DON'T Collect**
 
-- ❌ **AI Prompt Content**: Your actual prompts and AI responses are NOT logged in production
-- ❌ **Foundry VTT Data**: Game content, characters, scenes, etc.
-- ❌ **Personal Information**: Names, emails, personal details
-- ❌ **Browser Data**: Cookies, localStorage, session data
-- ❌ **Analytics**: User behavior tracking, usage patterns
+-  **AI Prompt Content**: Your actual prompts and AI responses are NOT logged in production
+-  **Foundry VTT Data**: Game content, characters, scenes, etc.
+-  **Personal Information**: Names, emails, personal details
+-  **Browser Data**: Cookies, localStorage, session data
+-  **Analytics**: User behavior tracking, usage patterns
 
-### **🚨 Security & Privacy Risks**
+### ** Security & Privacy Risks**
 
 #### **Running This Server**
 - **Exposure**: Server accessible from network (if configured with CORS)
@@ -56,13 +56,13 @@
 - **Network Traffic**: AI service providers can see your IP and requests
 
 #### **Mitigations**
-- ✅ **Local Processing**: Prompts not logged on server side
-- ✅ **Secure Defaults**: Development mode restricted to localhost
-- ✅ **Rate Limiting**: Prevents abuse and data harvesting
-- ✅ **Input Validation**: Protects against injection attacks
-- ✅ **No Analytics**: No user tracking or behavior analysis
+-  **Local Processing**: Prompts not logged on server side
+-  **Secure Defaults**: Development mode restricted to localhost
+-  **Rate Limiting**: Prevents abuse and data harvesting
+-  **Input Validation**: Protects against injection attacks
+-  **No Analytics**: No user tracking or behavior analysis
 
-### **🔐 API Key Security**
+### ** API Key Security**
 
 #### **Best Practices**
 1. **Environment Variables**: Store API keys in `.env` files, not in code
@@ -76,7 +76,7 @@
 - Compromised keys could result in unauthorized charges
 - Lost keys should be revoked immediately through your AI provider
 
-### **🌐 Network Exposure**
+### ** Network Exposure**
 
 #### **Development Mode** (Default)
 - **Binding**: `localhost` only (127.0.0.1)
@@ -89,7 +89,7 @@
 - **Risk**: Higher - requires proper security configuration
 - **Mitigation**: Configure specific CORS origins only
 
-### **📋 Your Rights and Choices**
+### ** Your Rights and Choices**
 
 #### **Data Access**
 - You can request deletion of request logs by contacting server administrator
@@ -101,14 +101,14 @@
 - **Local Only**: Run in development mode for local processing only
 - **Self-Host**: Host your own backend for full control
 
-### **⚖️ Legal Compliance**
+### **️ Legal Compliance**
 
 - **No Personal Data**: We don't collect PII beyond technical connection data
 - **Minimal Collection**: Only what's necessary for service operation
 - **Transparent**: All data practices documented here
 - **Rights**: You maintain control over your AI service accounts
 
-### **📞 Questions and Concerns**
+### ** Questions and Concerns**
 
 For privacy-related questions:
 1. Review this privacy notice
@@ -118,7 +118,7 @@ For privacy-related questions:
 
 ---
 
-## **🔒 Privacy Summary**
+## ** Privacy Summary**
 
 **The Gold Box is designed with privacy-first principles:**
 - **Minimal Data Collection**: Only essential operational data
@@ -127,7 +127,7 @@ For privacy-related questions:
 - **Transparent Practices**: All data handling clearly documented
 - **Security Focused**: Protection against unauthorized access and abuse
 
-**Use this service with confidence that your privacy is respected and protected.** 🛡️
+**Use this service with confidence that your privacy is respected and protected.** ️
 
 ---
 

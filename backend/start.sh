@@ -90,7 +90,7 @@ export CORS_ORIGINS="$CORS_ORIGINS"
 if [ -d "venv" ]; then
     echo "Activating virtual environment..."
     source venv/bin/activate
-    echo "Virtual environment activated ✓"
+    echo "Virtual environment activated "
 else
     echo "Warning: No virtual environment found, using system Python"
 fi

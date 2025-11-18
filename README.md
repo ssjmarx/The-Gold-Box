@@ -144,21 +144,21 @@ Capable of doing everything from minimal GM assistance, emulating a player or pl
 - AI permissions and tool access controlled by role settings
 - Custom prompts and behavior adjustable through configuration files
 
-### 📋 Privacy & Security
+###  Privacy & Security
 
 **Important**: The Gold Box is designed with privacy-first principles. Your AI prompts and responses are **NOT logged** on the server side - only technical metadata for monitoring.
 
 **Key Points:**
-- ✅ **No Content Logging**: Your actual prompts and AI responses remain private
-- ✅ **API Key Security**: Keys stored in environment variables only
-- ✅ **Local Control**: You control server exposure and configuration
-- ✅ **Rate Limiting**: Built-in protection against abuse
+-  **No Content Logging**: Your actual prompts and AI responses remain private
+-  **API Key Security**: Keys stored in environment variables only
+-  **Local Control**: You control server exposure and configuration
+-  **Rate Limiting**: Built-in protection against abuse
 
 **For complete privacy details, see** `PRIVACY_NOTICE.md`
 
-⚠️ **Server Security Notice**: When running in production mode, ensure proper CORS configuration and network security practices.
+️ **Server Security Notice**: When running in production mode, ensure proper CORS configuration and network security practices.
 
-### 🔧 Server Configuration for Production
+###  Server Configuration for Production
 
 #### **Local Development (Default)**
 ```bash
@@ -191,25 +191,25 @@ export CORS_ORIGINS="http://localhost:30000,https://your-foundry-domain.com"
 
 The Gold Box backend implements comprehensive security measures to ensure safe pre-alpha deployment:
 
-### 🛡️ **Input Validation & Sanitization**
+### ️ **Input Validation & Sanitization**
 - **Universal Input Validator**: Comprehensive validation for all input types
 - **Dangerous Pattern Detection**: Blocks XSS, SQL injection, command injection, path traversal
 - **Character Set Enforcement**: Regex-based character validation per input type
 - **Size Limits**: Prevents buffer overflow attacks
 - **HTML Escaping**: Prevents XSS in displayed content
 
-### 🔒 **API Security**
+###  **API Security**
 - **Rate Limiting**: Configurable request throttling (5 requests/minute default)
 - **CORS Protection**: Environment-based origin whitelisting
 - **API Key Authentication**: Secure key validation and format checking
 - **Security Headers**: X-Content-Type-Options, X-Frame-Options, X-XSS-Protection
 
-### 🚀 **Environment-Based Configuration**
+###  **Environment-Based Configuration**
 - **Development Mode**: Localhost-only origins with relaxed settings
 - **Production Mode**: Explicit origin configuration required
 - **Fail-Safe Approach**: No access unless explicitly configured
 
-### 📊 **Monitoring & Logging**
+###  **Monitoring & Logging**
 - **Comprehensive Logging**: All security events logged with client IP
 - **Validation Error Reporting**: Step-by-step failure identification
 - **Health Endpoints**: Service status and security configuration monitoring

@@ -10,22 +10,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.0] - 2025-11-17
 
 ### Changed
-- 🔧 **API Key Architecture Refactoring**: Removed API key requirement from regular AI processing endpoints
-- 🚀 **User Experience Simplification**: Frontend no longer needs to manage or send API keys
-- 🔒 **Security Enhancement**: API keys now only required for administrative configuration endpoints
-- ⚡ **Performance Improvement**: Removed unnecessary API key validation overhead from regular requests
+-  **API Key Architecture Refactoring**: Removed API key requirement from regular AI processing endpoints
+-  **User Experience Simplification**: Frontend no longer needs to manage or send API keys
+-  **Security Enhancement**: API keys now only required for administrative configuration endpoints
+-  **Performance Improvement**: Removed unnecessary API key validation overhead from regular requests
 
 ### Added
-- 🛠️ **Configuration Endpoints**: New `/api/config/keys` endpoints (GET/POST) for API key management
-- 🔐 **Admin Authentication**: Configuration endpoints now require valid API key for access
-- 📊 **API Key Status**: Endpoint to check which AI services are configured without exposing keys
-- 🎯 **Endpoint-Specific Security**: Different security levels for different endpoint types
+- ️ **Configuration Endpoints**: New `/api/config/keys` endpoints (GET/POST) for API key management
+-  **Admin Authentication**: Configuration endpoints now require valid API key for access
+-  **API Key Status**: Endpoint to check which AI services are configured without exposing keys
+-  **Endpoint-Specific Security**: Different security levels for different endpoint types
 
 ### Security
-- ✅ **Principle of Least Privilege**: API keys only required where absolutely necessary
-- 🛡️ **Reduced Attack Surface**: Fewer endpoints require authentication
-- 🔑 **Secure Key Management**: Keys never exposed to frontend or logged
-- 🚫 **Configuration Protection**: Admin endpoints protected by existing API key validation
+-  **Principle of Least Privilege**: API keys only required where absolutely necessary
+- ️ **Reduced Attack Surface**: Fewer endpoints require authentication
+-  **Secure Key Management**: Keys never exposed to frontend or logged
+-  **Configuration Protection**: Admin endpoints protected by existing API key validation
 
 ### Technical Details
 - Regular AI processing (`/api/process`) now works without API key headers
@@ -35,8 +35,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Full backward compatibility maintained for existing configurations
 
 ### Breaking Changes
-- ⚠️ **Frontend Update**: API key handling removed from frontend (no user action needed)
-- ⚠️ **Endpoint Changes**: API key validation now only applies to configuration endpoints
+- ️ **Frontend Update**: API key handling removed from frontend (no user action needed)
+- ️ **Endpoint Changes**: API key validation now only applies to configuration endpoints
 
 ### Documentation
 - Updated API documentation to reflect new authentication model
@@ -48,12 +48,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.14] - 2025-11-17
 
 ### Security
-- ✅ **Universal Input Validation System**: Comprehensive input validation with dangerous pattern detection
-- ✅ **Enhanced CORS Security**: Environment-based CORS with security-first approach
-- ✅ **Advanced Input Sanitization**: HTML escaping, character validation, and SQL injection prevention
-- ✅ **Security Headers**: Added X-Content-Type-Options, X-Frame-Options, X-XSS-Protection
-- ✅ **Rate Limiting**: Configurable rate limiting with memory-efficient cleanup
-- ✅ **API Key Authentication**: Secure API key validation and format checking
+-  **Universal Input Validation System**: Comprehensive input validation with dangerous pattern detection
+-  **Enhanced CORS Security**: Environment-based CORS with security-first approach
+-  **Advanced Input Sanitization**: HTML escaping, character validation, and SQL injection prevention
+-  **Security Headers**: Added X-Content-Type-Options, X-Frame-Options, X-XSS-Protection
+-  **Rate Limiting**: Configurable rate limiting with memory-efficient cleanup
+-  **API Key Authentication**: Secure API key validation and format checking
 
 ### Added
 - Universal input validator for all input types (text, prompt, API key, config, URL, email, filename)

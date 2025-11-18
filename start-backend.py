@@ -32,7 +32,7 @@ def run_command_in_venv(cmd, venv_path, description):
         result = subprocess.run(cmd, shell=False, capture_output=True, text=True, executable=str(cmd_exe))
         
         if result.returncode == 0:
-            print(f"[SUCCESS] {description} ✓")
+            print(f"[SUCCESS] {description} ")
             return True
         else:
             print(f"[ERROR] {description} failed")
@@ -57,7 +57,7 @@ def check_pip():
     """Check if pip is available"""
     try:
         import pip
-        print("[SUCCESS] pip available ✓")
+        print("[SUCCESS] pip available ")
         return True
     except ImportError:
         print("[ERROR] pip is not available")
@@ -81,7 +81,7 @@ def create_venv():
             try:
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode == 0:
-                    print("[SUCCESS] Virtual environment created ✓")
+                    print("[SUCCESS] Virtual environment created ")
                     return True
             except FileNotFoundError:
                 continue
@@ -129,7 +129,7 @@ def install_dependencies():
     upgrade_cmd = [pip_exe, "install", "--upgrade", "pip"]
     result = subprocess.run(upgrade_cmd, capture_output=True, text=True)
     if result.returncode == 0:
-        print("[SUCCESS] Upgrading pip ✓")
+        print("[SUCCESS] Upgrading pip ")
     else:
         print(f"[WARNING] Failed to upgrade pip (continuing anyway): {result.stderr}")
     
@@ -137,7 +137,7 @@ def install_dependencies():
     install_cmd = [pip_exe, "install", "-r", "backend/requirements.txt"]
     result = subprocess.run(install_cmd, capture_output=True, text=True)
     if result.returncode == 0:
-        print("[SUCCESS] Dependencies installed ✓")
+        print("[SUCCESS] Dependencies installed ")
         return True
     else:
         print(f"[ERROR] Failed to install dependencies: {result.stderr}")
@@ -155,7 +155,7 @@ def start_server():
     
     print("[INFO] Starting backend server...")
     print("=" * 50)
-    print("🚀 The Gold Box Backend Server is Starting...")
+    print(" The Gold Box Backend Server is Starting...")
     
     # Check for start.sh before changing directories
     start_script_exists = start_script.exists()
@@ -165,10 +165,10 @@ def start_server():
     print(f"[INFO] Changed to backend directory: {os.getcwd()}")
     
     if start_script_exists and platform.system() != "Windows":
-        print("⚡ Using Gunicorn production server via start.sh")
-        print("📍 Bind: 0.0.0.0:5001 (configurable via BACKEND_BIND)")
-        print("👥 Workers: 2 (configurable via BACKEND_WORKERS)")
-        print("🛑 Press Ctrl+C to stop the server")
+        print(" Using Gunicorn production server via start.sh")
+        print(" Bind: 0.0.0.0:5001 (configurable via BACKEND_BIND)")
+        print(" Workers: 2 (configurable via BACKEND_WORKERS)")
+        print(" Press Ctrl+C to stop the server")
         print("=" * 50)
         
         # Use the production start script
@@ -183,14 +183,14 @@ def start_server():
     else:
         # Check if we're actually on Windows or if start.sh doesn't exist
         if platform.system() == "Windows":
-            print("⚡ Using Flask development server (Windows)")
-            print("📍 Server will find an available port starting from 5001")
-            print("🛑 Press Ctrl+C to stop the server")
+            print(" Using Flask development server (Windows)")
+            print(" Server will find an available port starting from 5001")
+            print(" Press Ctrl+C to stop the server")
             print("=" * 50)
         else:
-            print("⚡ Using Flask development server (Unix fallback - start.sh not found)")
-            print("📍 Server will find an available port starting from 5001")
-            print("🛑 Press Ctrl+C to stop the server")
+            print(" Using Flask development server (Unix fallback - start.sh not found)")
+            print(" Server will find an available port starting from 5001")
+            print(" Press Ctrl+C to stop the server")
             print("=" * 50)
         
         # Use Python from virtual environment to start server
