@@ -1,8 +1,20 @@
 # The Gold Box Backend Dependencies
 # All licenses compatible with CC-BY-NC-SA 4.0
 
-Flask==2.3.3              # BSD 3-Clause License - Web framework
-Flask-CORS==4.0.0         # MIT License - Cross-origin requests
+# FastAPI Framework (latest secure versions)
+fastapi==0.121.2             # MIT License - Modern web framework (latest)
+uvicorn[standard]==0.38.0     # BSD 3-Clause License - ASGI server (latest)
+pydantic==2.12.4               # MIT License - Data validation (latest, Python 3.13 compatible)
+
+# Legacy (for fallback during migration)
+Flask==2.3.3              # BSD 3-Clause License - Web framework (deprecated)
+Flask-CORS==4.0.0         # MIT License - Cross-origin requests (deprecated)
+gunicorn==21.2.0         # BSD 3-Clause License - Production WSGI server (fallback)
+
+# Core Dependencies
 python-dotenv==1.0.0         # BSD 3-Clause License - Environment variable management
-gunicorn==21.2.0         # BSD 3-Clause License - Production WSGI server
 cryptography>=41.0.0        # BSD 3-Clause License - Encryption and security
+
+# AI Integration (Phase 1)
+litellm==1.17.0              # MIT License - Unified LLM interface
+slowapi==0.1.9               # MIT License - Rate limiting for FastAPI

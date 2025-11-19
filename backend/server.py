@@ -4,11 +4,12 @@ The Gold Box - Python Backend Server
 AI-powered Foundry VTT Module Backend
 
 License: CC-BY-NC-SA 4.0 (compatible with dependencies)
-Dependencies: Flask (BSD 3-Clause), Flask-CORS (MIT)
+Dependencies: FastAPI (MIT), Uvicorn (BSD 3-Clause)
 """
 
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+from fastapi import FastAPI, Request, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import logging
 import sys
 import time
@@ -26,6 +27,7 @@ from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from typing import Any, Dict, List, Optional, Tuple, Union
 from pathlib import Path
+from pydantic import BaseModel, Field
 
 # Import key management from separate module
 from key_manager import MultiKeyManager
@@ -102,31 +104,69 @@ def get_cors_origins():
 # Enhanced CORS configuration
 CORS_ORIGINS = get_cors_origins()
 
-# Initialize Flask app
-app = Flask(__name__)
+# Pydantic models for FastAPI request/response validation
+class PromptRequest(BaseModel):
+    prompt: str = Field(..., description="The prompt to send to the AI", min_length=1, max_length=10000)
+    max_tokens: Optional[int] = Field(100, description="Maximum tokens to generate", ge=1, le=8192)
+    temperature: Optional[float] = Field(0.7, description="Sampling temperature", ge=0.0, le=2.0)
+    top_p: Optional[float] = Field(1.0, description="Top-p sampling", ge=0.0, le=1.0)
+    frequency_penalty: Optional[float] = Field(0.0, description="Frequency penalty", ge=-2.0, le=2.0)
+    presence_penalty: Optional[float] = Field(0.0, description="Presence penalty", ge=-2.0, le=2.0)
+
+class HealthResponse(BaseModel):
+    status: str
+    timestamp: str
+    version: str
+    service: str
+    api_key_required: bool
+    environment: str
+    validation_enabled: bool
+    universal_validator: bool
+    rate_limiting: Dict[str, int]
+    cors: Dict[str, Union[int, List[str], bool]]
+
+class InfoResponse(BaseModel):
+    name: str
+    description: str
+    version: str
+    status: str
+    environment: str
+    api_key_required: bool
+    validation_features: Dict[str, bool]
+    supported_input_types: List[str]
+    size_limits: Dict[str, int]
+    endpoints: Dict[str, str]
+    license: str
+    dependencies: Dict[str, str]
+    security: Dict[str, Union[bool, str]]
+
+class ErrorResponse(BaseModel):
+    error: str
+    status: str = "error"
+    validation_step: Optional[str] = None
+    received_fields: Optional[List[str]] = None
+
+# Initialize FastAPI app
+app = FastAPI(
+    title="The Gold Box Backend",
+    description="AI-powered Foundry VTT Module Backend",
+    version="0.2.3",
+    docs_url="/docs" if FLASK_ENV == 'development' else None,
+    redoc_url=None
+)
 
 # Enhanced CORS configuration with security headers
-def configure_cors():
-    """Configure CORS with security-focused settings"""
-    if not CORS_ORIGINS:
-        logger.error("No CORS origins configured - API will be inaccessible")
-        return False
-    
-    # Configure CORS with restrictive settings
-    CORS(app, 
-         origins=CORS_ORIGINS,
-         methods=['GET', 'POST', 'OPTIONS'],  # Explicitly allowed methods
-         allow_headers=['Content-Type', 'X-API-Key'],  # Only necessary headers
-         expose_headers=[],  # Don't expose additional headers
-         supports_credentials=False,  # No cookie-based auth
-         max_age=86400,  # Cache preflight requests for 24 hours
-         vary_header=True)  # Proper Vary header for caching
-    
-    logger.info(f"CORS configured for {len(CORS_ORIGINS)} origins")
-    return True
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type", "X-API-Key"],
+    expose_headers=[],
+    max_age=86400,
+)
 
-# Configure CORS
-configure_cors()
+logger.info(f"CORS configured for {len(CORS_ORIGINS)} origins")
 
 # Simple in-memory rate limiting for basic protection
 class RateLimiter:
@@ -748,23 +788,19 @@ def verify_api_key(request):
     logger.info(f"Valid {service_name} API key from {request.remote_addr}")
     return True, None
 
-# Enhanced request middleware for security
-@app.before_request
-def security_middleware():
+# FastAPI middleware for security headers and request logging
+@app.middleware("http")
+async def security_middleware(request: Request, call_next):
     """Add security headers and log requests"""
     # Log incoming requests
-    logger.info(f"{request.method} {request.path} from {request.remote_addr}")
+    client_host = request.client.host if request.client else "unknown"
+    logger.info(f"{request.method} {request.url.path} from {client_host}")
+    
+    # Call the next middleware/route handler
+    response = await call_next(request)
     
     # Add security headers to API responses
-    if request.path.startswith('/api/'):
-        # Note: This will be applied after the request is processed
-        pass
-    return None
-
-@app.after_request
-def add_security_headers(response):
-    """Add security headers to API responses"""
-    if request.path.startswith('/api/'):
+    if request.url.path.startswith('/api/'):
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['X-Frame-Options'] = 'DENY'
         response.headers['X-XSS-Protection'] = '1; mode=block'
@@ -772,89 +808,83 @@ def add_security_headers(response):
         response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
         response.headers['Pragma'] = 'no-cache'
         response.headers['Expires'] = '0'
+    
     return response
 
-@app.route('/api/process', methods=['POST'])
-def process_prompt():
+@app.post("/api/process")
+async def process_prompt(request: PromptRequest, http_request: Request):
     """
     Enhanced AI processing endpoint with comprehensive input validation
     Note: API keys are managed server-side, not required from frontend
     """
     try:
+        # Get client IP for rate limiting and session management
+        client_host = http_request.client.host if http_request.client else "unknown"
+        
         # Rate limiting (no API key required for regular processing)
-        client_id = request.remote_addr
-        if not rate_limiter.is_allowed(client_id):
-            return jsonify({
-                'error': 'Rate limit exceeded. Please try again later.',
-                'status': 'error',
-                'rate_limit_info': {
-                    'max_requests': rate_limiter.max_requests,
-                    'window_seconds': rate_limiter.window_seconds,
-                    'current_requests': len(rate_limiter.requests.get(client_id, []))
-                }
-            }), 429
+        if not rate_limiter.is_allowed(client_host):
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded. Please try again later.",
+                headers={"X-RateLimit-Remaining": str(0)}
+            )
         
         # Session management
-        session_manager.update_activity(client_id)
-        is_valid, session_msg = session_manager.is_session_valid(client_id)
+        session_manager.update_activity(client_host)
+        is_valid, session_msg = session_manager.is_session_valid(client_host)
         
         if not is_valid:
-            return jsonify({
-                'error': session_msg,
-                'status': 'error',
-                'session_timeout': True,
-                'session_info': {
-                    'timeout_minutes': session_manager.timeout_minutes,
-                    'warning_minutes': session_manager.warning_minutes
-                }
-            }), 401
+            raise HTTPException(
+                status_code=401,
+                detail=session_msg,
+                headers={"X-Session-Timeout": "true"}
+            )
         
-        # Get JSON data
-        data = request.get_json()
-        if not data:
-            return jsonify({
-                'error': 'Invalid JSON data',
-                'status': 'error',
-                'validation_step': 'json_parsing'
-            }), 400
+        # Convert FastAPI model to dict for our validator
+        request_dict = request.model_dump()
         
-        # Validate AI request using universal validator
-        is_valid, error, sanitized_request = validator.validate_ai_request(data)
+        # Use our UniversalInputValidator for comprehensive security validation
+        is_valid, error_msg, validated_request = validator.validate_ai_request(request_dict)
         if not is_valid:
-            return jsonify({
-                'error': error,
-                'status': 'error',
-                'validation_step': 'ai_request',
-                'received_fields': list(data.keys()) if isinstance(data, dict) else []
-            }), 400
+            raise HTTPException(
+                status_code=400,
+                detail=error_msg,
+                headers={"X-Validation-Step": "input_validation"}
+            )
         
         # Log the validated request (without sensitive content)
-        prompt_length = len(sanitized_request.get('prompt', ''))
-        logger.info(f"Processing AI request from {client_id}: {prompt_length} characters")
+        prompt_length = len(validated_request['prompt'])
+        logger.info(f"Processing AI request from {client_host}: {prompt_length} characters")
         
         # For now, just echo back the sanitized prompt
         # This will be replaced with actual AI processing later
-        response = {
+        response_data = {
             'status': 'success',
-            'response': sanitized_request['prompt'],  # Echo back sanitized prompt
-            'original_prompt': sanitized_request['prompt'],
+            'response': validated_request['prompt'],  # Echo back sanitized prompt
+            'original_prompt': request_dict['prompt'],  # Show original for comparison
             'timestamp': datetime.now().isoformat(),
             'processing_time': 0.001,  # Simulated processing time
-            'message': 'AI functionality: Basic echo server - prompt sanitized and returned unchanged',
+            'message': 'AI functionality: FastAPI echo server - prompt sanitized and returned unchanged',
             'validation_passed': True,
             'sanitization_applied': True,
-            'rate_limit_remaining': rate_limiter.max_requests - len(rate_limiter.requests.get(client_id, [])),
-            'ai_parameters': {k: v for k, v in sanitized_request.items() if k != 'prompt'}
+            'rate_limit_remaining': rate_limiter.max_requests - len(rate_limiter.requests.get(client_host, [])),
+            'ai_parameters': {
+                'max_tokens': validated_request['max_tokens'],
+                'temperature': validated_request['temperature'],
+                'top_p': validated_request['top_p'],
+                'frequency_penalty': validated_request['frequency_penalty'],
+                'presence_penalty': validated_request['presence_penalty']
+            }
         }
         
-        logger.info(f"Response sent to {client_id}: Success with validation")
+        logger.info(f"Response sent to {client_host}: Success with validation")
         
         # Check for session warning after response generation
-        is_valid, session_msg = session_manager.is_session_valid(client_id)
+        is_valid, session_msg = session_manager.is_session_valid(client_host)
         if is_valid and session_msg != "Session active":
             # Add session warning to response for Foundry frontend
-            response['session_warning'] = session_msg
-            response['session_info'] = {
+            response_data['session_warning'] = session_msg
+            response_data['session_info'] = {
                 'timeout_minutes': session_manager.timeout_minutes,
                 'warning_minutes': session_manager.warning_minutes,
                 'needs_restart': False
@@ -866,62 +896,64 @@ def process_prompt():
             if cleaned_count > 0:
                 logger.info(f"Cleaned up {cleaned_count} expired sessions")
         
-        return jsonify(response)
+        return response_data
         
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
     except ValueError as e:
-        logger.warning(f"Validation error from {client_id}: {str(e)}")
-        return jsonify({
-            'error': str(e),
-            'status': 'error',
-            'validation_step': 'input_validation'
-        }), 400
-        
+        logger.warning(f"Validation error from {client_host}: {str(e)}")
+        raise HTTPException(
+            status_code=400,
+            detail=str(e),
+            headers={"X-Validation-Step": "input_validation"}
+        )
     except Exception as e:
-        logger.error(f"Unexpected error from {client_id}: {str(e)}")
-        return jsonify({
-            'error': 'Internal server error',
-            'status': 'error',
-            'validation_step': 'server_processing'
-        }), 500
+        logger.error(f"Unexpected error from {client_host}: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error",
+            headers={"X-Validation-Step": "server_processing"}
+        )
 
-@app.route('/api/health', methods=['GET'])
-def health_check():
+@app.get("/api/health", response_model=HealthResponse)
+async def health_check():
     """
     Health check endpoint
     """
-    return jsonify({
-        'status': 'healthy',
-        'timestamp': datetime.now().isoformat(),
-        'version': '0.1.0',
-        'service': 'The Gold Box Backend',
-        'api_key_required': bool(OPENAI_API_KEY) or bool(NOVELAI_API_KEY),
-        'environment': FLASK_ENV,
-        'validation_enabled': True,
-        'universal_validator': True,
-        'rate_limiting': {
+    return HealthResponse(
+        status='healthy',
+        timestamp=datetime.now().isoformat(),
+        version='0.2.3',
+        service='The Gold Box Backend',
+        api_key_required=bool(OPENAI_API_KEY) or bool(NOVELAI_API_KEY),
+        environment=FLASK_ENV,
+        validation_enabled=True,
+        universal_validator=True,
+        rate_limiting={
             'max_requests': RATE_LIMIT_MAX_REQUESTS,
             'window_seconds': RATE_LIMIT_WINDOW_SECONDS
         },
-        'cors': {
+        cors={
             'origins_count': len(CORS_ORIGINS),
             'configured': len(CORS_ORIGINS) > 0,
             'methods': ['GET', 'POST', 'OPTIONS']
         }
-    })
+    )
 
-@app.route('/api/info', methods=['GET'])
-def service_info():
+@app.get("/api/info", response_model=InfoResponse)
+async def service_info():
     """
     Enhanced service information endpoint
     """
-    return jsonify({
-        'name': 'The Gold Box Backend',
-        'description': 'AI-powered Foundry VTT Module Backend with Universal Input Validation',
-        'version': '0.1.0',
-        'status': 'running',
-        'environment': FLASK_ENV,
-        'api_key_required': bool(OPENAI_API_KEY) or bool(NOVELAI_API_KEY),
-        'validation_features': {
+    return InfoResponse(
+        name='The Gold Box Backend',
+        description='AI-powered Foundry VTT Module Backend with Universal Input Validation',
+        version='0.2.3',
+        status='running',
+        environment=FLASK_ENV,
+        api_key_required=bool(OPENAI_API_KEY) or bool(NOVELAI_API_KEY),
+        validation_features={
             'universal_validator': True,
             'input_sanitization': True,
             'security_pattern_checking': True,
@@ -929,21 +961,21 @@ def service_info():
             'structured_data_support': True,
             'ai_parameter_validation': True
         },
-        'supported_input_types': list(validator.ALLOWED_CHAR_PATTERNS.keys()),
-        'size_limits': validator.SIZE_LIMITS,
-        'endpoints': {
+        supported_input_types=list(validator.ALLOWED_CHAR_PATTERNS.keys()),
+        size_limits=validator.SIZE_LIMITS,
+        endpoints={
             'process': 'POST /api/process - Process AI prompts (enhanced validation)',
             'health': 'GET /api/health - Health check',
             'info': 'GET /api/info - Service information',
             'security': 'GET /api/security - Security verification and integrity checks',
             'start': 'POST /api/start - Server startup instructions'
         },
-        'license': 'CC-BY-NC-SA 4.0',
-        'dependencies': {
-            'Flask': 'BSD 3-Clause License',
-            'Flask-CORS': 'MIT License'
+        license='CC-BY-NC-SA 4.0',
+        dependencies={
+            'FastAPI': 'MIT License',
+            'Uvicorn': 'BSD 3-Clause License'
         },
-        'security': {
+        security={
             'api_authentication': bool(OPENAI_API_KEY) or bool(NOVELAI_API_KEY),
             'rate_limiting': True,
             'cors_restrictions': len(CORS_ORIGINS) > 0,
@@ -953,10 +985,10 @@ def service_info():
             'sql_injection_protection': True,
             'command_injection_protection': True
         }
-    })
+    )
 
-@app.route('/api/security', methods=['GET'])
-def security_verification():
+@app.get("/api/security")
+async def security_verification():
     """
     Security verification endpoint for integrity checks
     """
@@ -1044,24 +1076,22 @@ def security_verification():
             len(CORS_ORIGINS) > 0
         ])
         
-        return jsonify(security_status)
+        return security_status
         
     except Exception as e:
         logger.error(f"Security verification error: {e}")
-        return jsonify({
-            'status': 'error',
-            'error': str(e),
-            'timestamp': datetime.now().isoformat()
-        }), 500
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
 
-
-@app.route('/api/start', methods=['POST'])
-def start_backend():
+@app.post("/api/start")
+async def start_backend():
     """
     Attempt to start backend server (for auto-start functionality)
     Note: This is a simplified approach since browser can't spawn processes directly
     """
-    return jsonify({
+    return {
         'status': 'info',
         'message': 'Please start the backend manually: cd backend && source venv/bin/activate && python server.py',
         'instructions': {
@@ -1074,26 +1104,35 @@ def start_backend():
         'environment_note': f'Current environment: {FLASK_ENV}',
         'validation_status': 'Universal input validation is active',
         'cors_note': f'CORS configured for {len(CORS_ORIGINS)} origins'
-    })
+    }
 
-@app.errorhandler(404)
-def not_found(error):
-    return jsonify({
-        'error': 'Endpoint not found',
-        'status': 'error',
-        'available_endpoints': ['/api/process', '/api/health', '/api/info', '/api/security', '/api/start'],
-        'validator_features': ['universal_validation', 'security_checking', 'sanitization']
-    }), 404
+# FastAPI exception handlers
+@app.exception_handler(404)
+async def not_found(request: Request, exc):
+    return JSONResponse(
+        status_code=404,
+        content={
+            'error': 'Endpoint not found',
+            'status': 'error',
+            'available_endpoints': ['/api/process', '/api/health', '/api/info', '/api/security', '/api/start'],
+            'validator_features': ['universal_validation', 'security_checking', 'sanitization']
+        }
+    )
 
-@app.errorhandler(405)
-def method_not_allowed(error):
-    return jsonify({
-        'error': 'Method not allowed',
-        'status': 'error',
-        'allowed_methods': ['GET', 'POST', 'OPTIONS']
-    }), 405
+@app.exception_handler(405)
+async def method_not_allowed(request: Request, exc):
+    return JSONResponse(
+        status_code=405,
+        content={
+            'error': 'Method not allowed',
+            'status': 'error',
+            'allowed_methods': ['GET', 'POST', 'OPTIONS']
+        }
+    )
 
 if __name__ == '__main__':
+    import uvicorn
+    
     # Key Management - Check for keys and prompt for setup if needed
     print("=" * 60)
     print("The Gold Box Backend - Key Management")
@@ -1125,7 +1164,7 @@ if __name__ == '__main__':
         sys.exit(1)
     
     print("=" * 60)
-    print("The Gold Box Backend Server")
+    print("The Gold Box FastAPI Backend Server")
     print("=" * 60)
     print(f"Environment: {FLASK_ENV}")
     print(f"Debug mode: {debug_mode}")
@@ -1145,80 +1184,15 @@ if __name__ == '__main__':
         for origin in CORS_ORIGINS:
             print(f"    - {origin}")
     
-    print(f"Universal Input Validator: ENABLED")
-    print(f"Security Features: XSS, SQL Injection, Command Injection Protection")
-    print(f"Security Headers: X-Content-Type-Options, X-Frame-Options, X-XSS-Protection")
+    # Server startup information
+    print(f"FastAPI Server starting on http://localhost:{available_port}")
+    print("=" * 60)
     
-    # Choose server based on environment
-    if is_development:
-        print(f"Server starting on http://localhost:{available_port} (Flask Development Server)")
-        print("Available endpoints:")
-        print("  POST /api/process - Process AI prompts (enhanced validation)")
-        print("  GET  /api/health  - Health check")
-        print("  GET  /api/info    - Service information")
-        print("  POST /api/start   - Server startup instructions")
-        print("=" * 60)
-        print("Universal Input Validation Features:")
-        print("  - Dangerous pattern detection")
-        print("  - Character set validation")
-        print("  - Type-specific validation (URL, email, filename)")
-        print("  - Structured data support (dict/list)")
-        print("  - AI parameter validation")
-        print("  - Input sanitization and escaping")
-        print("=" * 60)
-        
-        # Start Flask development server
-        app.run(
-            host='localhost',
-            port=available_port,
-            debug=debug_mode,
-            use_reloader=False  # Disable Flask's auto-restart feature
-        )
-    else:
-        # Production mode - try to use Gunicorn
-        try:
-            import gunicorn
-            print(f"Server starting on http://localhost:{available_port} (Gunicorn Production Server)")
-            print("Available endpoints:")
-            print("  POST /api/process - Process AI prompts (enhanced validation)")
-            print("  GET  /api/health  - Health check")
-            print("  GET  /api/info    - Service information")
-            print("  POST /api/start   - Server startup instructions")
-            print("=" * 60)
-            print("Production Features:")
-            print("  - Gunicorn WSGI server")
-            print("  - Multiple worker processes")
-            print("  - Process monitoring and restart")
-            print("  - Request logging")
-            print("  - Graceful shutdown handling")
-            print("=" * 60)
-            
-            # Use subprocess to start Gunicorn with proper settings
-            gunicorn_cmd = [
-                'gunicorn',
-                '--bind', f'localhost:{available_port}',
-                '--workers', '2',
-                '--timeout', '30',
-                '--worker-class', 'sync',
-                '--max-requests', '1000',
-                '--max-requests-jitter', '100',
-                '--preload',
-                'server:app'
-            ]
-            
-            # Replace current process with Gunicorn
-            os.execvp(gunicorn_cmd[0], gunicorn_cmd)
-            
-        except ImportError:
-            print("[WARNING] Gunicorn not available, falling back to Flask development server")
-            print("Install gunicorn for production deployment: pip install gunicorn")
-            print(f"Server starting on http://localhost:{available_port} (Flask Development Server)")
-            print("=" * 60)
-            
-            # Fall back to Flask development server
-            app.run(
-                host='localhost',
-                port=available_port,
-                debug=debug_mode,
-                use_reloader=False
-            )
+    # Start FastAPI server with uvicorn
+    uvicorn.run(
+        app,
+        host='localhost',
+        port=available_port,
+        log_level="info" if not debug_mode else "debug",
+        access_log=True
+    )
