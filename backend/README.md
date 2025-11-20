@@ -1,13 +1,49 @@
-# The Gold Box Backend Setup
+# The Gold Box Backend
 
-This Python backend provides the AI processing capabilities for The Gold Box Foundry VTT module.
+A sophisticated Python backend server for The Gold Box Foundry VTT module, providing AI-powered TTRPG assistance with enterprise-grade security and validation.
+
+## Version 0.2.3
+
+### 🚀 Core Features
+
+#### AI Service Integration
+- **OpenAI Compatible API** - Full support for OpenAI and compatible services
+- **NovelAI API** - Specialized integration for NovelAI services
+- **OpenCode Compatible API** - Support for coding-focused AI services
+- **Local LLM Support** - Integration with local language models
+
+#### API Endpoints
+- **POST `/api/process`** - Process AI prompts with enhanced validation
+- **POST `/api/simple_chat`** - Simplified chat interface for OpenCode services
+- **GET `/api/health`** - Health check and system status
+- **GET `/api/info`** - Detailed service information
+- **GET `/api/security`** - Security verification and integrity checks
+- **POST `/api/start`** - Server startup instructions
+- **POST `/api/admin`** - Password-protected admin operations
+
+#### Enhanced Features (v0.2.3)
+- **Message Context Processing** - Full chat history context support
+- **Enhanced Debugging** - Improved API response logging and debugging
+- **Better Error Handling** - Comprehensive error management and user feedback
+- **Fixed JavaScript Integration** - Resolved frontend syntax errors
+- **Advanced Key Management** - Encrypted API key storage with admin password protection
+
+#### Security Features
+- **Universal Input Validation** - Comprehensive validation with type-specific checking
+- **Session Management** - Configurable timeouts with warnings (30-min default)
+- **Rate Limiting** - IP-based rate limiting (5 requests/minute default)
+- **Enhanced Security Headers** - XSS, CSRF, and injection protection
+- **CORS Protection** - Environment-based configuration
+- **File Integrity Verification** - SHA256 hash checking
+- **Virtual Environment Verification** - Ensures proper isolation
+- **Permission Verification** - Automated security checks
 
 ## Quick Start
 
 ### 1. Install Dependencies
 
 ```bash
-# Navigate to the backend directory
+# Navigate to backend directory
 cd backend
 
 # Install Python packages
@@ -25,23 +61,18 @@ python server.py
 ```
 
 The server will:
-- Default to **production mode** with Gunicorn WSGI server
-- Fall back to Flask development server if Gunicorn is not available
+- Default to **production mode** with FastAPI
 - Start on the first available port from 5000 upwards
 - Automatically trigger key management setup on first run
+- Enable comprehensive security features
 
 **Development Mode:**
 ```bash
 # Force development mode
-./backend.sh --dev
-
-# Or set environment variable
-USE_DEVELOPMENT_SERVER=true ./backend.sh
+FLASK_ENV=development python server.py
 ```
 
 ### 3. Test the Backend
-
-Open your browser or use curl to test:
 
 ```bash
 # Health check
@@ -50,59 +81,62 @@ curl http://localhost:5000/api/health
 # Service info
 curl http://localhost:5000/api/info
 
-# Test prompt processing
-curl -X POST http://localhost:5000/api/process \
+# Test simple chat
+curl -X POST http://localhost:5000/api/simple_chat \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "Hello, AI!"}'
+  -d '{"service_key": "z_ai", "prompt": "Hello, AI!"}'
 ```
 
 ## Configuration
 
 ### Environment Variables
 
-- `FLASK_DEBUG`: Set to `True` for development, `False` for production
+- `FLASK_DEBUG`: Development mode (`True`/`False`, default: `False`)
+- `FLASK_ENV`: Environment (`development`/`production`, default: `production`)
 - `GOLD_BOX_PORT`: Server port (default: 5000)
-- `RATE_LIMIT_MAX_REQUESTS`: Maximum requests per time window (default: 5)
-- `RATE_LIMIT_WINDOW_SECONDS`: Time window for rate limiting in seconds (default: 60)
-- `SESSION_TIMEOUT_MINUTES`: Session timeout duration (default: 30)
-- `SESSION_WARNING_MINUTES`: Session warning time before timeout (default: 5)
-- `CORS_ORIGINS`: Comma-separated list of allowed origins (production only, e.g., "https://example.com,https://app.example.com")
-- `LOG_LEVEL`: Logging level (DEBUG, INFO, WARNING, ERROR, default: INFO)
-- `LOG_FILE`: Log file path (default: goldbox.log)
+- `RATE_LIMIT_MAX_REQUESTS`: Max requests per window (default: 5)
+- `RATE_LIMIT_WINDOW_SECONDS`: Time window in seconds (default: 60)
+- `SESSION_TIMEOUT_MINUTES`: Session timeout (default: 30)
+- `SESSION_WARNING_MINUTES`: Warning before timeout (default: 5)
+- `CORS_ORIGINS`: Comma-separated origins (production only)
+- `LOG_LEVEL`: Logging level (default: `INFO`)
+- `LOG_FILE`: Log file path (default: `goldbox.log`)
 - `GOLD_BOX_OPENAI_COMPATIBLE_API_KEY`: OpenAI-compatible API key
 - `GOLD_BOX_NOVELAI_API_API_KEY`: NovelAI API key
 
-Server runs on `localhost:5000` by default, with automatic port discovery if the default port is occupied.
+### Key Management
 
-### Security Features
+The backend includes advanced key management with encryption:
 
-- **Universal Input Validation**: Comprehensive input validation with type-specific checking, security pattern detection, and sanitization
-- **Session Management**: Configurable session timeouts with warnings (30-minute timeout, 5-minute warnings by default)
-- **Rate Limiting**: Configurable rate limiting per IP address (5 requests per minute by default)
-- **Enhanced Security Headers**: X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, Referrer-Policy
-- **CORS Protection**: Environment-based CORS configuration with security-focused defaults
-- **File Integrity Verification**: SHA256 hash checking for critical files
-- **Virtual Environment Verification**: Ensures proper isolation
-- **Permission Verification**: Automated file permission security checks
-- **XSS Protection**: HTML escaping and script injection prevention
-- **SQL Injection Protection**: Pattern-based SQL injection detection
-- **Command Injection Protection**: Command execution attempt detection
-- **Error Handling**: Comprehensive error responses with detailed validation feedback
+```bash
+# First-time setup - interactive wizard
+python server.py
+
+# Key change mode
+GOLD_BOX_KEYCHANGE=true python server.py
+```
+
+Features:
+- **Encrypted Storage** - AES-256 encryption for API keys
+- **Admin Password Protection** - Secure admin operations
+- **Multiple Service Support** - OpenAI, NovelAI, OpenCode, Local
+- **Environment Variable Loading** - Secure key injection
+- **Validation & Sanitization** - Input validation with security checks
 
 ## API Endpoints
 
 ### GET /api/health
-Health check endpoint.
+Health check endpoint with comprehensive system status.
 
 **Response:**
 ```json
 {
   "status": "healthy",
   "timestamp": "2024-01-01T12:00:00",
-  "version": "0.1.0",
+  "version": "0.2.3",
   "service": "The Gold Box Backend",
-  "api_key_required": false,
-  "environment": "development",
+  "api_key_required": true,
+  "environment": "production",
   "validation_enabled": true,
   "universal_validator": true,
   "rate_limiting": {
@@ -117,73 +151,20 @@ Health check endpoint.
 }
 ```
 
-### GET /api/info
-Service information endpoint.
-
-**Response:**
-```json
-{
-  "name": "The Gold Box Backend",
-  "description": "AI-powered Foundry VTT Module Backend",
-  "version": "0.1.0",
-  "status": "running",
-  "environment": "development",
-  "api_key_required": false,
-  "validation_features": {
-    "universal_validator": true,
-    "input_sanitization": true,
-    "security_pattern_checking": true,
-    "type_specific_validation": true,
-    "structured_data_support": true,
-    "ai_parameter_validation": true
-  },
-  "supported_input_types": ["text", "prompt", "api_key", "config", "url", "email", "filename"],
-  "size_limits": {
-    "prompt": 10000,
-    "text": 50000,
-    "api_key": 500,
-    "config": 1000,
-    "url": 2048,
-    "email": 254,
-    "filename": 255
-  },
-  "endpoints": {
-    "process": "POST /api/process - Process AI prompts (enhanced validation)",
-    "health": "GET /api/health - Health check",
-    "info": "GET /api/info - Service information",
-    "security": "GET /api/security - Security verification and integrity checks",
-    "start": "POST /api/start - Server startup instructions"
-  },
-  "license": "CC-BY-NC-SA 4.0",
-  "dependencies": {
-    "Flask": "BSD 3-Clause License",
-    "Flask-CORS": "MIT License"
-  },
-  "security": {
-    "api_authentication": false,
-    "rate_limiting": true,
-    "cors_restrictions": true,
-    "input_validation": "UniversalInputValidator",
-    "security_headers": true,
-    "xss_protection": true,
-    "sql_injection_protection": true,
-    "command_injection_protection": true
-  }
-}
-```
-
-### POST /api/process
-Main AI processing endpoint with comprehensive input validation and session management.
+### POST /api/simple_chat
+Enhanced chat endpoint for OpenCode-compatible services with message context support.
 
 **Request:**
 ```json
 {
+  "service_key": "z_ai",
   "prompt": "Your AI prompt here",
-  "max_tokens": 100,
-  "temperature": 0.7,
-  "top_p": 1.0,
-  "frequency_penalty": 0.0,
-  "presence_penalty": 0.0
+  "message_context": [
+    {"sender": "User", "content": "Hello"},
+    {"sender": "AI", "content": "Hi there!"}
+  ],
+  "temperature": 0.1,
+  "max_tokens": null
 }
 ```
 
@@ -191,126 +172,176 @@ Main AI processing endpoint with comprehensive input validation and session mana
 ```json
 {
   "status": "success",
-  "response": "Sanitized prompt echoed back",
-  "original_prompt": "Your sanitized AI prompt here",
+  "response": "AI response here",
   "timestamp": "2024-01-01T12:00:00",
-  "processing_time": 0.001,
-  "message": "AI functionality: Basic echo server - prompt sanitized and returned unchanged",
-  "validation_passed": true,
-  "sanitization_applied": true,
-  "rate_limit_remaining": 4,
-  "ai_parameters": {
-    "max_tokens": 100,
-    "temperature": 0.7,
-    "top_p": 1.0,
-    "frequency_penalty": 0.0,
-    "presence_penalty": 0.0
+  "service_used": "z_ai",
+  "metadata": {},
+  "message": "OpenCode API response received successfully"
+}
+```
+
+### POST /api/admin
+Password-protected admin endpoint for server management.
+
+**Request:**
+```json
+{
+  "command": "status",
+  "settings": {
+    "maximum message context": 15,
+    "ai role": "dm",
+    "general llm": "opencode_compatible"
   }
 }
 ```
 
-### GET /api/security
-Security verification endpoint for comprehensive integrity checks.
+**Headers:**
+- `X-Admin-Password`: Admin password for authentication
 
 **Response:**
 ```json
 {
-  "timestamp": "2024-01-01T12:00:00",
-  "status": "verified",
-  "overall_status": "secure",
-  "security_score": 5,
-  "checks": {
-    "virtual_environment": {
-      "verified": true,
-      "message": "Virtual environment isolation verified"
-    },
-    "file_integrity": {
-      "verified": true,
-      "hashes": ["requirements.txt: abc123...", "server.py: def456..."],
-      "message": "Critical file integrity verified"
-    },
-    "file_permissions": {
-      "verified": true,
-      "issues": [],
-      "message": "File permissions secure"
-    },
-    "dependencies": {
-      "verified": true,
-      "status": ["Flask: 2.3.0 - OK", "Flask-CORS: 4.0.0 - OK"],
-      "message": "Dependencies verified"
-    },
-    "session_management": {
-      "verified": true,
-      "active_sessions": 2,
-      "timeout_configured": true,
-      "timeout_minutes": 30,
-      "warning_minutes": 5,
-      "message": "Session management active with 2 sessions"
-    },
-    "rate_limiting": {
-      "verified": true,
-      "max_requests": 5,
-      "window_seconds": 60,
-      "message": "Rate limiting configured and active"
-    },
-    "cors_configuration": {
-      "verified": true,
-      "origins_count": 3,
-      "origins": ["http://localhost:30000", "http://127.0.0.1:30000"],
-      "message": "CORS configured"
-    }
+  "service": "The Gold Box Backend",
+  "version": "0.2.3",
+  "status": "running",
+  "features": [
+    "OpenAI Compatible API support",
+    "NovelAI API support",
+    "OpenCode Compatible API support",
+    "Local LLM support",
+    "Simple chat endpoint",
+    "Admin settings management",
+    "Health check endpoint",
+    "Auto-start instructions",
+    "Advanced key management",
+    "Enhanced message context processing",
+    "Fixed JavaScript syntax errors",
+    "Improved API debugging",
+    "Better error handling and logging"
+  ],
+  "endpoints": {
+    "health": "/api/health",
+    "process": "/api/process",
+    "admin": "/api/admin",
+    "simple_chat": "/api/simple_chat",
+    "start": "/api/start"
   }
 }
 ```
 
-### POST /api/start
-Server startup instructions endpoint.
+## Integration with Foundry VTT
 
-**Response:**
-```json
-{
-  "status": "info",
-  "message": "Please start the backend manually: cd backend && source venv/bin/activate && python server.py",
-  "instructions": {
-    "step1": "Open terminal",
-    "step2": "Navigate to backend directory",
-    "step3": "Activate virtual environment: source venv/bin/activate",
-    "step4": "Start server: python server.py"
-  },
-  "note": "Automatic process spawning is blocked by browser security restrictions",
-  "environment_note": "Current environment: development",
-  "validation_status": "Universal input validation is active",
-  "cors_note": "CORS configured for 3 origins"
-}
+### 1. Module Configuration
+- Go to **Game Settings → Module Settings → The Gold Box**
+- Set **Backend URL** to `http://localhost:5000` (or your server port)
+- Configure **Backend Password** for admin operations
+- Select preferred **LLM Service** (OpenAI, NovelAI, OpenCode, Local)
+
+### 2. Using Message Context
+The module now supports full chat context:
+
+1. **Automatic Context Collection** - Recent chat messages are automatically collected
+2. **Configurable Context Length** - Set maximum messages to include (default: 15)
+3. **Chronological Ordering** - Messages are sent in proper time order
+4. **HTML Preservation** - Dice rolls and formatting are maintained
+
+### 3. AI Role Selection
+Choose the AI's role in your game:
+- **Dungeon Master** - Full GM control and narrative
+- **DM Assistant** - Supporting role for human GM
+- **Player** - Player character interaction
+
+## Security & Validation
+
+### Universal Input Validator
+Comprehensive validation system with:
+
+- **Type-Specific Validation** - Different rules for different input types
+- **Security Pattern Detection** - XSS, SQL injection, command injection
+- **Structured Data Support** - Validates JSON objects and arrays
+- **AI Parameter Validation** - Temperature, tokens, and other AI parameters
+- **Size Limits** - Configurable limits per input type
+- **Character Pattern Validation** - Allowed characters per input type
+
+### Session Management
+- **30-minute timeout** with automatic cleanup
+- **5-minute warnings** before session expiry
+- **Activity tracking** with last seen timestamps
+- **Grace period** for session recovery
+
+### Rate Limiting
+- **IP-based tracking** with configurable limits
+- **Sliding window** implementation
+- **Graceful degradation** with proper headers
+- **Automatic cleanup** of old request data
+
+## Logging & Monitoring
+
+### Log Files
+- **goldbox.log** - Main application log
+- **Structured logging** with timestamps and client IPs
+- **Security events** - Authentication failures, validation errors
+- **Performance metrics** - Request timing and response sizes
+
+### Debug Features (v0.2.3)
+- **Enhanced content logging** for API responses
+- **Context preservation verification**
+- **Error tracking with detailed stack traces**
+- **Frontend integration debugging**
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Port Already in Use**
+   - Server automatically finds next available port
+   - Check console for actual port used
+
+2. **API Key Issues**
+   - Run key management wizard: `python server.py`
+   - Verify keys are properly encrypted
+
+3. **CORS Problems**
+   - Check `CORS_ORIGINS` environment variable
+   - Verify Foundry URL is in allowed origins
+
+4. **JavaScript Errors**
+   - Check browser console for error messages
+   - Verify module is properly installed in Foundry
+
+### Debug Mode
+Enable detailed logging:
+```bash
+LOG_LEVEL=DEBUG python server.py
 ```
 
-## Integration with Foundry
+## Dependencies
 
-1. **Configure Foundry Module:**
-   - Go to Game Settings → Module Settings → The Gold Box Configuration
-   - Set Backend URL to `http://localhost:5000` (or the port where your backend is running)
-   - Click "Test Connection" to verify the backend is accessible
-   - **Note**: No API key configuration is required in the frontend - API keys are managed server-side
+### Core Dependencies
+- **FastAPI** - Modern Python web framework (MIT License)
+- **Uvicorn** - ASGI server (BSD 3-Clause License)
+- **python-dotenv** - Environment variable management (BSD 3-Clause License)
+- **cryptography** - Encryption and security (Apache 2.0 License)
+- **pydantic** - Data validation (MIT License)
 
-2. **Current Functionality:**
-   - The backend operates as a **validation and echo server**
-   - AI prompts are sanitized, validated, and echoed back unchanged
-   - All input validation and security features are active
-   - Rate limiting and session management are enforced
+### Development Dependencies
+- **pytest** - Testing framework
+- **black** - Code formatting
+- **mypy** - Type checking
 
-3. **Use the Module:**
-   - Click the "Take AI Turn" button in chat
-   - The prompt will be sent to this backend for validation
-   - The validated prompt will be returned (currently echoed back unchanged)
-   - Future versions will include actual AI processing capabilities
+## License
 
-4. **Backend Status Monitoring:**
-   - Use `GET /api/health` to check if the backend is running
-   - Use `GET /api/security` to verify all security features are active
-   - Monitor `goldbox.log` for detailed request/response information
+The Gold Box Backend is licensed under **CC-BY-NC-SA 4.0**.
 
-## Logging
+All dependencies maintain compatible open-source licenses for commercial use restrictions.
 
-- Logs are written to `goldbox.log` in the backend directory
-- Console output shows real-time activity
-- Logs include timestamps, client IPs, and request sizes
+## Support
+
+For issues and feature requests:
+- **GitHub Issues**: [Repository Issues](https://github.com/ssjmarx/Gold-Box/issues)
+- **Documentation**: [Main README](../README.md)
+- **Changelog**: [CHANGELOG.md](../CHANGELOG.md)
+
+---
+
+**Version 0.2.3** - Enhanced message context, improved debugging, and fixed JavaScript integration

@@ -18,7 +18,9 @@ class MultiKeyManager:
         self.key_file = Path(key_file)
         self.supported_services = {
             '1': {'id': 'openai_compatible', 'name': 'OpenAI Compatible'},
-            '2': {'id': 'novelai_api', 'name': 'NovelAI API'}
+            '2': {'id': 'novelai_api', 'name': 'NovelAI API'},
+            '3': {'id': 'opencode_compatible', 'name': 'OpenCode Compatible'},
+            '4': {'id': 'erase_all', 'name': 'Erase All Keys'}
         }
         self.keys_data = {}
         self.admin_password = None  # Initialize admin_password attribute
@@ -274,8 +276,13 @@ class MultiKeyManager:
         
         for service_id, api_key in self.keys_data.items():
             if api_key:
-                os.environ[f'GOLD_BOX_{service_id.upper()}_API_KEY'] = api_key
-                print(f"{service_id} API key loaded into environment")
+                # Handle both old format and new opencode format
+                if service_id == 'opencode_compatible':
+                    os.environ['GOLD_BOX_OPENCODE_COMPATIBLE_API_KEY'] = api_key
+                    print(f"OpenCode Compatible API key loaded into environment")
+                else:
+                    os.environ[f'GOLD_BOX_{service_id.upper()}_API_KEY'] = api_key
+                    print(f"{service_id} API key loaded into environment")
         
         return True
     
@@ -289,24 +296,25 @@ class MultiKeyManager:
             
             status = self.get_key_status()
             for key_id, info in status.items():
-                set_status = "set!" if info['set'] else "not set."
-                print(f"{key_id}. {info['name']} ({set_status})")
+                if info['id'] != 'erase_all':  # Skip the erase option in status display
+                    set_status = "set!" if info['set'] else "not set."
+                    print(f"{key_id}. {info['name']} ({set_status})")
             
-            print("3. Erase all keys.")
-            print("4. Done! Start the server.")
+            print("4. Erase all keys.")
+            print("5. Done! Start the server.")
             
             try:
-                choice = input("\nEnter your choice (1-4): ").strip()
+                choice = input("\nEnter your choice (1-5): ").strip()
                 
-                if choice in ['1', '2']:
+                if choice in ['1', '2', '3']:
                     self.add_key(choice)
-                elif choice == '3':
+                elif choice == '4':
                     confirm = input("This will erase ALL stored keys. Type 'ERASE' to confirm: ")
                     if confirm == 'ERASE':
                         self.erase_all_keys()
                     else:
                         print("Erase cancelled")
-                elif choice == '4':
+                elif choice == '5':
                     if not self.keys_data or all(v == '' for v in self.keys_data.values()):
                         print("No keys configured - please set at least one API key")
                         continue

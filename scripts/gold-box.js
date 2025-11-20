@@ -66,109 +66,7 @@ class GoldBoxAPI {
         continue;
       }
     }
-    
-    console.warn(`The Gold Box: No backend found on ports ${startPort}-${startPort + maxAttempts - 1}`);
     return null;
-  }
-
-  /**
-   * Auto-discover and update backend port
-   * @returns {Promise<boolean>} - True if successful, false otherwise
-   */
-  async autoDiscoverAndUpdatePort() {
-    try {
-      const discoveredPort = await this.discoverBackendPort();
-      
-      if (discoveredPort) {
-        const newUrl = `http://localhost:${discoveredPort}`;
-        
-        // Update the API URL
-        this.baseUrl = newUrl;
-        
-        // Update status only (backendUrl setting was removed)
-        if (typeof game !== 'undefined' && game.settings) {
-          console.log(`The Gold Box: Updated backend URL to: ${newUrl}`);
-          
-          // Update status
-          await game.settings.set('gold-box', 'backendStatus', 'connected');
-          
-        }
-        
-        return true;
-      } else {
-        // Update status to disconnected
-        if (typeof game !== 'undefined' && game.settings) {
-          await game.settings.set('gold-box', 'backendStatus', 'disconnected');
-        }
-        return false;
-      }
-    } catch (error) {
-      console.error('The Gold Box: Error during port discovery:', error);
-      if (typeof game !== 'undefined' && game.settings) {
-        await game.settings.set('gold-box', 'backendStatus', 'error');
-      }
-      return false;
-    }
-  }
-
-  /**
-   * Test connection to backend
-   */
-  async testConnection() {
-    try {
-      const response = await fetch(`${this.baseUrl}/api/health`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      return {
-        success: true,
-        data: data
-      };
-    } catch (error) {
-      console.error('Gold Box API Connection Error:', error);
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  /**
-   * Send prompt to backend for processing
-   */
-  async sendPrompt(prompt) {
-    try {
-      const headers = {
-        'Content-Type': 'application/json'
-      };
-      
-      const response = await fetch(`${this.baseUrl}/api/process`, {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify({ prompt: prompt })
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      return {
-        success: true,
-        data: data
-      };
-    } catch (error) {
-      console.error('Gold Box API Error:', error);
-      throw error;
-    }
   }
 
   /**
@@ -231,11 +129,103 @@ class GoldBoxAPI {
         data: data
       };
     } catch (error) {
-      console.error('Gold Box API Settings Sync Error:', error);
+      console.error('Gold Box API Connection Error:', error);
       return {
         success: false,
         error: error.message
       };
+    }
+  }
+
+  /**
+   * Test backend connection
+   */
+  async testConnection() {
+    try {
+      const response = await fetch(`${this.baseUrl}/api/health`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return {
+          success: true,
+          data: data
+        };
+      } else {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  /**
+   * Auto-discover and update port
+   */
+  async autoDiscoverAndUpdatePort() {
+    const discoveredPort = await this.discoverBackendPort();
+    if (discoveredPort) {
+      this.baseUrl = `http://localhost:${discoveredPort}`;
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Send message context to backend
+   */
+  async sendMessageContext(messages) {
+    try {
+      const headers = {
+        'Content-Type': 'application/json'
+      };
+      
+      // Get selected LLM service
+      const generalLlm = game.settings.get('gold-box', 'generalLlm') || 'openai_compatible';
+      let endpoint, requestBody;
+      
+      if (generalLlm === 'opencode_compatible') {
+        // Use simple_chat endpoint for OpenCode services
+        endpoint = '/api/simple_chat';
+        requestBody = {
+          service_key: 'z_ai', // Default to Z.AI
+          message_context: messages,
+          temperature: 0.1,
+          max_tokens: null // No limit by default
+        };
+      } else {
+        // Use legacy process endpoint for other services
+        endpoint = '/api/process';
+        requestBody = { 
+          prompt: `Chat context:\n${messages.map(m => `${m.sender}: ${m.content}`).join('\n')}\n\nNew request: Please respond to the conversation.`
+        };
+      }
+      
+      const response = await fetch(`${this.baseUrl}${endpoint}`, {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return {
+        success: true,
+        data: data
+      };
+    } catch (error) {
+      console.error('Gold Box API Error:', error);
+      throw error;
     }
   }
 }
@@ -323,14 +313,14 @@ class GoldBoxModule {
       default: ""
     });
 
-    // Register server debug prompt setting
-    game.settings.register('gold-box', 'aiPrompt', {
-      name: "Server Debug Prompt",
-      hint: "The prompt that will be sent to the AI backend when you click the AI chat button",
+    // Register maximum message context setting
+    game.settings.register('gold-box', 'maxMessageContext', {
+      name: "Maximum Message Context",
+      hint: "Number of recent chat messages to send to AI for context (default: 15)",
       scope: "world",
       config: true,
-      type: String,
-      default: "Hello! This is a test prompt. Please respond with a friendly greeting and introduce yourself as an AI assistant for tabletop RPGs."
+      type: Number,
+      default: 15
     });
 
     // Register AI role setting with dropdown
@@ -357,6 +347,7 @@ class GoldBoxModule {
       type: String,
       choices: {
         "openai_compatible": "OpenAI Compatible",
+        "opencode_compatible": "OpenCode Compatible",
         "novelai_api": "NovelAI API", 
         "local": "Local"
       },
@@ -381,6 +372,26 @@ class GoldBoxModule {
       config: true,
       type: String,
       default: "gpt-3.5-turbo"
+    });
+
+    // Register OpenCode Compatible Base URL setting
+    game.settings.register('gold-box', 'opencodeBaseUrl', {
+      name: "OpenCode Compatible - Base URL",
+      hint: "Base URL for OpenCode-compatible API (e.g., https://api.z.ai/api/coding/paas/v4)",
+      scope: "world",
+      config: true,
+      type: String,
+      default: "https://api.z.ai/api/coding/paas/v4"
+    });
+
+    // Register OpenCode Compatible Model Name setting
+    game.settings.register('gold-box', 'opencodeModelName', {
+      name: "OpenCode Compatible - Model Name",
+      hint: "Model name to use (e.g., openai/glm-4.6, etc.)",
+      scope: "world",
+      config: true,
+      type: String,
+      default: "openai/glm-4.6"
     });
 
     // Hook to add custom button to settings menu
@@ -501,23 +512,70 @@ class GoldBoxModule {
   }
 
   /**
-   * Handle "Take AI Turn" button click with sync-then-process workflow
+   * Collect recent chat messages from DOM in chronological order
+   * @param {number} maxMessages - Maximum number of messages to collect
+   * @returns {Array} - Array of message objects in chronological order
+   */
+  collectChatMessages(maxMessages = 15) {
+    const messages = [];
+    const chatElements = document.querySelectorAll('.chat-message');
+    
+    // Get LAST maxMessages elements (most recent messages - bottom of chat)
+    const recentElements = Array.from(chatElements).slice(-maxMessages);
+    
+    recentElements.forEach(element => {
+      // Extract sender from name-stacked structure
+      const nameElement = element.querySelector('.name-stacked .title');
+      const sender = nameElement ? nameElement.textContent.trim() : 'Unknown';
+      
+      // Extract FULL HTML content including dice rolls
+      const contentElement = element.querySelector('.message-content');
+      let content = '';
+      
+      if (contentElement) {
+        // Preserve complete HTML structure for dice rolls, formatting, etc.
+        content = contentElement.innerHTML.trim();
+      }
+      
+      // Extract timestamp for context
+      const timestampElement = element.querySelector('.message-timestamp');
+      const timestamp = timestampElement ? timestampElement.textContent : '';
+      
+      // Only add if we have both sender and content
+      if (sender && content) {
+        messages.push({
+          sender: sender,
+          content: content,
+          timestamp: timestamp
+        });
+      }
+    });
+    
+    // Returns in chronological order (oldest first, newest last)
+    return messages;
+  }
+
+  /**
+   * Handle "Take AI Turn" button click with message context workflow
    */
   async onTakeAITurn() {
     console.log('The Gold Box: AI turn requested');
     
-    // Get current prompt from settings
-    const prompt = game.settings.get('gold-box', 'aiPrompt');
-    
-    if (!prompt || prompt.trim() === '') {
-      if (typeof ui !== 'undefined' && ui.notifications) {
-        ui.notifications.warn('Please configure a server debug prompt in Gold Box settings first!');
-      }
-      return;
-    }
-    
     try {
-      // Step 1: Sync current settings to backend first
+      // Step 1: Collect chat context
+      const maxContext = game.settings.get('gold-box', 'maxMessageContext') || 15;
+      const chatMessages = this.collectChatMessages(maxContext);
+      
+      if (chatMessages.length === 0) {
+        if (typeof ui !== 'undefined' && ui.notifications) {
+          ui.notifications.warn('No chat messages found for context. Send a message first!');
+        }
+        return;
+      }
+      
+      console.log('The Gold Box: Collected', chatMessages.length, 'messages for context');
+      
+      // Step 2: Sync settings to backend first
       const backendPassword = game.settings.get('gold-box', 'backendPassword');
       
       if (!backendPassword || backendPassword.trim() === '') {
@@ -528,12 +586,19 @@ class GoldBoxModule {
       }
 
       // Collect all current frontend settings
+      const generalLlm = game.settings.get('gold-box', 'generalLlm') || 'openai_compatible';
       const settingsToSync = {
-        'server debug prompt': game.settings.get('gold-box', 'aiPrompt') || '',
+        'maximum message context': maxContext,
         'ai role': game.settings.get('gold-box', 'aiRole') || 'dm',
-        'general llm': game.settings.get('gold-box', 'generalLlm') || 'openai_compatible',
+        'general llm': generalLlm,
         'backend password': backendPassword
       };
+
+      // Add OpenCode-specific settings if selected
+      if (generalLlm === 'opencode_compatible') {
+        settingsToSync['opencode base url'] = game.settings.get('gold-box', 'opencodeBaseUrl') || 'https://api.z.ai/api/coding/paas/v4';
+        settingsToSync['opencode model name'] = game.settings.get('gold-box', 'opencodeModelName') || 'openai/glm-4.6';
+      }
 
       console.log('The Gold Box: Syncing settings before AI turn:', settingsToSync);
       const syncResult = await this.api.syncSettings(settingsToSync, backendPassword);
@@ -554,12 +619,12 @@ class GoldBoxModule {
         return; // Stop here if sync failed
       }
       
-      // Step 2: If sync succeeded, send prompt to AI
-      console.log('The Gold Box: Settings synced, sending prompt:', prompt);
-      const result = await this.api.sendPrompt(prompt);
+      // Step 3: Send message context to AI
+      console.log('The Gold Box: Settings synced, sending chat context:', chatMessages.length, 'messages');
+      const result = await this.api.sendMessageContext(chatMessages);
       
       if (result.success) {
-        // Display the response in chat
+        // Display the AI response as a chat message
         this.displayAIResponse(result.data.response, result.data);
       } else {
         throw new Error(result.error || 'Unknown error occurred');
@@ -724,31 +789,6 @@ class GoldBoxModule {
       }
       return false;
     }
-  }
-
-
-  /**
-   * Show module information dialog
-   */
-  showModuleInfo() {
-    const dialog = new Dialog({
-      title: 'The Gold Box',
-      content: `
-        <h2>The Gold Box v0.1.12</h2>
-        <p>An AI-powered Foundry VTT module for intelligent TTRPG assistance.</p>
-        <p><strong>Status:</strong> Basic structure loaded - AI features coming soon!</p>
-        <p><a href="https://github.com/ssjmarx/gold-Box" target="_blank">GitHub Repository</a></p>
-      `,
-      buttons: {
-        close: {
-          label: 'Close',
-          callback: () => {}
-        }
-      },
-      default: 'close'
-    });
-    
-    dialog.render(true);
   }
 }
 

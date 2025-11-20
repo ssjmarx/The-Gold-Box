@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field
 
 # Import key management from separate module
 from key_manager import MultiKeyManager
+from simple_chat import process_simple_chat
 
 # Load environment variables from .env file
 load_dotenv()
@@ -892,17 +893,17 @@ async def security_middleware(request: Request, call_next):
     
     return response
 
-@app.post("/api/process")
-async def process_prompt(request: PromptRequest, http_request: Request):
+@app.post("/api/simple_chat")
+async def simple_chat_endpoint(request: Request):
     """
-    Enhanced AI processing endpoint with comprehensive input validation
-    Note: API keys are managed server-side, not required from frontend
+    Enhanced simple chat endpoint for OpenCode-compatible APIs
+    Handles both single prompts and message context
     """
     try:
-        # Get client IP for rate limiting and session management
-        client_host = http_request.client.host if http_request.client else "unknown"
+        # Get client IP for rate limiting
+        client_host = request.client.host if request.client else "unknown"
         
-        # Rate limiting (no API key required for regular processing)
+        # Rate limiting
         if not rate_limiter.is_allowed(client_host):
             raise HTTPException(
                 status_code=429,
@@ -921,94 +922,71 @@ async def process_prompt(request: PromptRequest, http_request: Request):
                 headers={"X-Session-Timeout": "true"}
             )
         
-        # Convert FastAPI model to dict for our validator
-        request_dict = request.model_dump()
-        
-        # Use our UniversalInputValidator for comprehensive security validation
-        is_valid, error_msg, validated_request = validator.validate_ai_request(request_dict)
-        if not is_valid:
+        # Get request body
+        try:
+            request_data = await request.json()
+        except Exception:
             raise HTTPException(
                 status_code=400,
-                detail=error_msg,
-                headers={"X-Validation-Step": "input_validation"}
+                detail="Invalid JSON in request body"
             )
         
-        # Log the validated request (without sensitive content)
-        prompt_length = len(validated_request['prompt'])
-        logger.info(f"Processing AI request from {client_host}: {prompt_length} characters")
+        # Extract parameters
+        service_key = request_data.get('service_key', 'z_ai')  # Default to Z.AI
+        prompt = request_data.get('prompt', '')
+        message_context = request_data.get('message_context', [])
         
-        # For now, just echo back the sanitized prompt
-        # This will be replaced with actual AI processing later
+        # Validate that we have either prompt or message_context
+        if not prompt and not message_context:
+            raise HTTPException(
+                status_code=400,
+                detail="Either prompt or message_context is required"
+            )
         
-        # Get current frontend settings for debugging
-        current_settings = settings_manager.get_settings()
-        settings_message = ""
-        if current_settings:
-            # Format settings for display
-            settings_parts = []
-            for key, value in current_settings.items():
-                settings_parts.append(f"{key} : {value}")
-            settings_message = f"Your current settings are: {', '.join(settings_parts)}"
+        # Process using simple_chat module
+        logger.info(f"Processing simple chat request from {client_host}: service={service_key}")
+        
+        result = await process_simple_chat(
+            service_key=service_key,
+            prompt=prompt,
+            message_context=message_context,
+            temperature=request_data.get('temperature', 0.1),
+            max_tokens=request_data.get('max_tokens', None)
+        )
+        
+        if result['success']:
+            # Log the actual content for debugging
+            content = result['content']
+            logger.info(f"🔍 SERVER DEBUG: Content extracted: '{content}'")
+            logger.info(f"🔍 SERVER DEBUG: Content length: {len(content) if content else 0}")
+            logger.info(f"🔍 SERVER DEBUG: Content is empty: {not bool(content)}")
+            
+            response_data = {
+                'status': 'success',
+                'response': result['content'],
+                'timestamp': datetime.now().isoformat(),
+                'service_used': service_key,
+                'metadata': result.get('metadata', {}),
+                'message': 'OpenCode API response received successfully'
+            }
+            logger.info(f"OpenCode response sent to {client_host}: success")
+            logger.info(f"🔍 SERVER DEBUG: Response data content: '{response_data['response']}'")
         else:
-            settings_message = "No frontend settings configured"
-        
-        response_data = {
-            'status': 'success',
-            'response': validated_request['prompt'],  # Echo back sanitized prompt
-            'original_prompt': request_dict['prompt'],  # Show original for comparison
-            'timestamp': datetime.now().isoformat(),
-            'processing_time': 0.001,  # Simulated processing time
-            'message': f'AI functionality: FastAPI echo server - prompt sanitized and returned unchanged. {settings_message}',
-            'validation_passed': True,
-            'sanitization_applied': True,
-            'rate_limit_remaining': rate_limiter.max_requests - len(rate_limiter.requests.get(client_host, [])),
-            'current_frontend_settings': current_settings,
-            'ai_parameters': {
-                'max_tokens': validated_request['max_tokens'],
-                'temperature': validated_request['temperature'],
-                'top_p': validated_request['top_p'],
-                'frequency_penalty': validated_request['frequency_penalty'],
-                'presence_penalty': validated_request['presence_penalty']
+            response_data = {
+                'status': 'error',
+                'error': result.get('error', 'Unknown error occurred'),
+                'timestamp': datetime.now().isoformat(),
+                'service_used': service_key
             }
-        }
-        
-        logger.info(f"Response sent to {client_host}: Success with validation")
-        
-        # Check for session warning after response generation
-        is_valid, session_msg = session_manager.is_session_valid(client_host)
-        if is_valid and session_msg != "Session active":
-            # Add session warning to response for Foundry frontend
-            response_data['session_warning'] = session_msg
-            response_data['session_info'] = {
-                'timeout_minutes': session_manager.timeout_minutes,
-                'warning_minutes': session_manager.warning_minutes,
-                'needs_restart': False
-            }
-        
-        # Periodic cleanup of expired sessions
-        if int(time.time()) % 300 < 1:  # Every 5 minutes approximately
-            cleaned_count = session_manager.cleanup_expired_sessions()
-            if cleaned_count > 0:
-                logger.info(f"Cleaned up {cleaned_count} expired sessions")
+            logger.error(f"OpenCode response failed for {client_host}: {result.get('error')}")
         
         return response_data
         
-    except HTTPException:
-        # Re-raise HTTP exceptions
-        raise
-    except ValueError as e:
-        logger.warning(f"Validation error from {client_host}: {str(e)}")
-        raise HTTPException(
-            status_code=400,
-            detail=str(e),
-            headers={"X-Validation-Step": "input_validation"}
-        )
     except Exception as e:
-        logger.error(f"Unexpected error from {client_host}: {str(e)}")
+        logger.error(f"Simple chat endpoint error: {str(e)}")
         raise HTTPException(
             status_code=500,
-            detail="Internal server error",
-            headers={"X-Validation-Step": "server_processing"}
+            detail=str(e)
         )
 
 @app.get("/api/health", response_model=HealthResponse)
@@ -1248,26 +1226,30 @@ async def admin_endpoint(request: Request):
         if command == 'status':
             # Return server and key status
             return {
-                'status': 'success',
-                'command': 'status',
-                'timestamp': datetime.now().isoformat(),
-                'server_info': {
-                    'environment': FLASK_ENV,
-                    'version': '0.2.3',
-                    'api_keys_configured': bool(OPENAI_API_KEY) or bool(NOVELAI_API_KEY),
-                    'admin_password_set': manager.get_admin_password_status(),
-                    'cors_origins': len(CORS_ORIGINS),
-                    'rate_limiting': {
-                        'max_requests': RATE_LIMIT_MAX_REQUESTS,
-                        'window_seconds': RATE_LIMIT_WINDOW_SECONDS
-                    }
-                },
-                'keys_status': manager.get_key_status(),
-                'security_status': {
-                    'virtual_env': verify_virtual_environment(),
-                    'file_integrity': len(verify_file_integrity()) > 0,
-                    'file_permissions': len(verify_file_permissions()) == 0,
-                    'dependencies': 'MISSING' not in str(verify_dependency_integrity())
+                "service": "The Gold Box Backend",
+                "version": "0.2.3",
+                "status": "running",
+                "features": [
+                    "OpenAI Compatible API support",
+                    "NovelAI API support", 
+                    "OpenCode Compatible API support",
+                    "Local LLM support",
+                    "Simple chat endpoint",
+                    "Admin settings management",
+                    "Health check endpoint",
+                    "Auto-start instructions",
+                    "Advanced key management",
+                    "Enhanced message context processing",
+                    "Fixed JavaScript syntax errors",
+                    "Improved API debugging",
+                    "Better error handling and logging"
+                ],
+                "endpoints": {
+                    "health": "/api/health",
+                    "process": "/api/process",
+                    "admin": "/api/admin",
+                    "simple_chat": "/api/simple_chat",
+                    "start": "/api/start"
                 }
             }
         

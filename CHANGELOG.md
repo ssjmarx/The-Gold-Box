@@ -1,178 +1,151 @@
 # Changelog
 
-All notable changes to The Gold Box will be documented in this file.
+All notable changes to The Gold Box project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+## [0.2.3] - 2025-11-20
 
-## [Unreleased]
+### 🚀 Major Features
 
-## [0.2.2] - 2025-11-18
+#### Enhanced Message Context Processing
+- **Full Chat History Context** - Automatically collects recent chat messages for AI context
+- **Configurable Context Length** - User-adjustable message context window (default: 15 messages)
+- **Chronological Ordering** - Messages sent in proper time sequence (oldest to newest)
+- **HTML Content Preservation** - Maintains dice rolls, formatting, and rich content
+- **Smart Content Extraction** - Preserves Foundry's native HTML structure
 
-### Fixed
-- **Production Mode Default**: Server now correctly defaults to production mode instead of development
-- **Gunicorn Integration**: Production mode now uses Gunicorn WSGI server by default
-- **Key Management Restoration**: Fixed backend.sh to properly trigger key management on startup
-- **Server Selection Logic**: Simplified backend.sh to let server.py handle server choice internally
+#### Advanced AI Service Integration
+- **OpenCode Compatible API Support** - Full integration with Z.AI and similar services
+- **Service Selection** - User-configurable LLM service selection in settings
+- **Multi-Service Architecture** - Support for OpenAI, NovelAI, OpenCode, and Local LLMs
+- **Enhanced simple_chat Endpoint** - Improved handling of message context and structured requests
 
-### Changed
-- **Backend Launcher Simplification**: backend.sh now runs `python server.py` without complex environment manipulation
-- **Production Server**: Automatic detection and use of Gunicorn in production mode with fallback to Flask
-- **Development Server**: Flask development server only used when explicitly forced or in development environment
-- **Environment Variables**: Reduced backend.sh environment variable manipulation, server.py handles configuration internally
+### 🔧 Bug Fixes
 
-### Technical Details
-- Production mode automatically tries to use Gunicorn with optimized settings (2 workers, 30s timeout)
-- Falls back to Flask development server if Gunicorn is not available
-- Development mode uses Flask server with auto-reload disabled for stability
-- Key management wizard properly triggered on every server startup
-- Simplified backend.sh architecture for better maintainability
+#### Critical JavaScript Issues Resolved
+- **Fixed JavaScript Syntax Errors** - Resolved all syntax issues preventing module loading
+- **Restored Settings Menu** - Module settings now properly display in Foundry configuration
+- **Fixed Chat Button** - "Take AI Turn" button appears and functions correctly
+- **Enhanced Error Handling** - Better error messages and debugging information
 
-### Security
-- Production-grade server settings when running in production mode
-- Proper process management and graceful shutdown with Gunicorn
-- Maintained all existing security features while improving server deployment
+#### Backend Communication Fixes
+- **Fixed Content Display Issues** - Resolved problems with AI response content not showing
+- **Enhanced API Debugging** - Detailed logging for content extraction and processing
+- **Better Error Messages** - Smart error handling with user-friendly feedback
+- **Improved Service Integration** - Better handling of OpenCode-compatible API responses
 
-## [0.2.1] - 2025-11-17
+### 🔒 Security & Infrastructure
 
-## [0.2.0] - 2025-11-17
+#### Enhanced Backend Security
+- **Advanced Input Validation** - Comprehensive validation for all input types
+- **Session Management** - Configurable timeouts with automatic cleanup
+- **Rate Limiting** - IP-based protection with configurable limits
+- **Enhanced Security Headers** - XSS, CSRF, and injection protection
 
-### Changed
--  **API Key Architecture Refactoring**: Removed API key requirement from regular AI processing endpoints
--  **User Experience Simplification**: Frontend no longer needs to manage or send API keys
--  **Security Enhancement**: API keys now only required for administrative configuration endpoints
--  **Performance Improvement**: Removed unnecessary API key validation overhead from regular requests
+#### Improved Key Management
+- **Encrypted API Key Storage** - AES-256 encryption for secure key storage
+- **Admin Password Protection** - Secure admin operations with password authentication
+- **Multi-Service Key Support** - Separate keys for different AI services
+- **Environment Variable Loading** - Secure key injection into environment
 
-### Added
-- ️ **Configuration Endpoints**: New `/api/config/keys` endpoints (GET/POST) for API key management
--  **Admin Authentication**: Configuration endpoints now require valid API key for access
--  **API Key Status**: Endpoint to check which AI services are configured without exposing keys
--  **Endpoint-Specific Security**: Different security levels for different endpoint types
+### 🎨 User Experience
 
-### Security
--  **Principle of Least Privilege**: API keys only required where absolutely necessary
-- ️ **Reduced Attack Surface**: Fewer endpoints require authentication
--  **Secure Key Management**: Keys never exposed to frontend or logged
--  **Configuration Protection**: Admin endpoints protected by existing API key validation
+#### Enhanced Configuration
+- **Comprehensive Settings Menu** - All module options available in Foundry settings
+- **Service-Specific Configuration** - Individual settings for each AI service
+- **Backend Discovery** - Automatic port discovery with manual override
+- **Connection Testing** - Built-in backend connection verification
 
-### Technical Details
-- Regular AI processing (`/api/process`) now works without API key headers
-- Configuration management (`/api/config/keys`) requires admin API key
-- Frontend automatically works with simplified authentication model
-- Backend maintains security for sensitive operations while improving usability
-- Full backward compatibility maintained for existing configurations
+#### Improved Integration
+- **Seamless Chat Integration** - AI responses appear directly in Foundry chat
+- **Role-Based Responses** - Different AI behaviors based on selected role
+- **Context Transparency** - Users can see exactly what context is sent to AI
+- **Error Feedback** - Clear error messages and troubleshooting guidance
 
-### Breaking Changes
-- ️ **Frontend Update**: API key handling removed from frontend (no user action needed)
-- ️ **Endpoint Changes**: API key validation now only applies to configuration endpoints
+### 🛠️ Development & Debugging
 
-### Documentation
-- Updated API documentation to reflect new authentication model
-- Added configuration endpoint documentation
-- Clarified security model in README
+#### Enhanced Debugging Capabilities
+- **Comprehensive Logging** - Detailed logging for all API interactions
+- **Content Extraction Debugging** - Step-by-step content processing logs
+- **Error Tracking** - Detailed error reporting with stack traces
+- **Performance Monitoring** - Request timing and response metrics
 
-## [0.1.14] - 2025-11-17
+#### Improved Development Tools
+- **Backend Health Endpoints** - Comprehensive system status monitoring
+- **Security Verification** - Automated integrity and security checks
+- **Admin API** - Password-protected server management interface
+- **Service Status Monitoring** - Real-time API service status
 
-## [0.1.14] - 2025-11-17
+### 📚 Documentation
 
-### Security
--  **Universal Input Validation System**: Comprehensive input validation with dangerous pattern detection
--  **Enhanced CORS Security**: Environment-based CORS with security-first approach
--  **Advanced Input Sanitization**: HTML escaping, character validation, and SQL injection prevention
--  **Security Headers**: Added X-Content-Type-Options, X-Frame-Options, X-XSS-Protection
--  **Rate Limiting**: Configurable rate limiting with memory-efficient cleanup
--  **API Key Authentication**: Secure API key validation and format checking
+#### Comprehensive Documentation Updates
+- **Updated Backend README** - Complete documentation for v0.2.3 features
+- **Enhanced Main README** - Full project documentation with latest features
+- **Installation Guides** - Step-by-step setup instructions
+- **Troubleshooting Guide** - Common issues and solutions
 
-### Added
-- Universal input validator for all input types (text, prompt, API key, config, URL, email, filename)
-- Type-specific validation with regex patterns and character set enforcement
-- Structured data validation for dictionaries and lists
-- AI parameter validation with range checking (temperature, top_p, etc.)
-- Environment-based CORS configuration (development defaults vs production requirements)
-- Comprehensive security pattern detection (XSS, SQL injection, command injection, path traversal)
-- Input sanitization with HTML escaping and null byte removal
-- Size limits enforcement per input type
-- Detailed validation error reporting with step-by-step failure identification
+## [0.2.2] - 2025-11-15
 
-### Changed
-- Complete security overhaul with defense-in-depth approach
-- Enhanced error handling with security-focused response formats
-- Improved logging with security event tracking
-- Restructured validation system for maintainability and extensibility
-- Updated CORS configuration for maximum security
+### 🔧 Backend Improvements
+- **FastAPI Migration** - Migrated from Flask to FastAPI for better performance
+- **Enhanced Security** - Added comprehensive input validation and security headers
+- **Admin Password System** - Added password-protected admin operations
+- **Key Management** - Encrypted API key storage with password protection
+- **Session Management** - Added configurable session timeouts and warnings
+- **Rate Limiting** - IP-based rate limiting with configurable windows
 
-### Technical Details
-- UniversalInputValidator class with compiled regex patterns
-- Security patterns covering XSS, SQL injection, command injection, and data exfiltration
-- Input sanitization following OWASP guidelines
-- Environment-based security configuration
-- Comprehensive test suite with 36 test cases covering all validation scenarios
-- Production-ready CORS with explicit origin whitelisting
+### 🛡️ Security Enhancements
+- **Universal Input Validator** - Comprehensive validation system for all input types
+- **Security Pattern Detection** - XSS, SQL injection, and command injection protection
+- **File Integrity Verification** - SHA256 hash checking for critical files
+- **Virtual Environment Verification** - Ensures proper Python environment isolation
+- **Permission Verification** - Automated file permission security checks
 
-### Documentation
-- Added comprehensive validation documentation (VALIDATION_DOCUMENTATION.md)
-- Added CORS security guide (CORS_SECURITY_GUIDE.md)
-- Updated pre-alpha sharing checklist with completed security items
+### 📊 Monitoring & Logging
+- **Structured Logging** - Enhanced logging with timestamps and client tracking
+- **Health Check Endpoints** - Comprehensive system status monitoring
+- **Security Verification** - Automated security integrity checks
+- **Performance Metrics** - Request timing and response size tracking
 
-## [0.1.13] - 2025-11-16
+## [0.2.1] - 2025-11-10
 
-### Added
-- Python Flask backend server with CORS support
-- Virtual environment setup with requirements.txt
-- HTTP API endpoints for health check and AI processing
-- Backend auto-start functionality in plugin settings
-- Start/Stop backend buttons in configuration UI
-- Real-time connection testing and status display
-- End-to-end prompt sending and response handling
-- Basic input validation and sanitization for security
-- Rate limiting to prevent abuse
-- Styled chat messages for AI responses
-- Comprehensive error handling and user feedback
-- Backend status management (running/stopped/manual states)
+### 🚀 Initial Release Features
+- **OpenAI Compatible API** - Full support for OpenAI and compatible services
+- **NovelAI API Integration** - Specialized support for NovelAI services
+- **Simple Chat Endpoint** - Basic chat interface for AI communication
+- **Health Check System** - Basic server health monitoring
+- **Environment Configuration** - Flexible environment-based settings
+- **CORS Protection** - Environment-based origin restrictions
 
-### Changed
-- Updated default backend URL to port 5001
-- Enhanced settings menu with backend management controls
-- Improved error messages and notifications
+### 🎯 Core Functionality
+- **Basic AI Communication** - Simple prompt/response system
+- **API Key Management** - Basic API key handling
+- **Error Handling** - Basic error responses and logging
+- **Foundry Integration** - Basic module integration with chat system
 
-### Fixed
-- Port conflict issues by using alternative port 5001
-- Connection testing reliability
-- Button styling and UX improvements
+### 📝 Documentation
+- **Basic Setup Guide** - Initial installation and configuration instructions
+- **API Documentation** - Basic endpoint documentation
+- **Security Guidelines** - Basic security recommendations
 
-### Technical Details
-- Compatible with Foundry VTT v12+
-- Flask 2.3.3 with Flask-CORS 4.0.0
-- CC-BY-NC-SA 4.0 licensing maintained
-- Full backend-frontend communication workflow implemented
+---
 
-### Planned
-- Phase 2: Real AI service integration (OpenAI, Anthropic, etc.)
-- Phase 3: Conversation history and context management
-- Phase 4: Advanced AI personalities and tool integration
+## Version Summary
 
-## [0.1.12] - 2025-11-16
+### v0.2.3 - Context & Integration Release
+**Focus**: Enhanced user experience with full chat context and seamless integration
+**Key Features**: Message context processing, JavaScript fixes, multi-service support
+**Stability**: Major improvements in reliability and error handling
 
-### Added
-- Initial bare bones module structure
-- Basic manifest configuration
-- Main JavaScript module with placeholder functionality
-- Minimal CSS styling for AI controls
-- English language support
-- "Take AI Turn" button in chat sidebar
-- Module info button in settings menu
+### v0.2.2 - Security & Infrastructure Release  
+**Focus**: Enterprise-grade security and production readiness
+**Key Features**: FastAPI migration, comprehensive security, admin operations
+**Stability**: Major backend architecture improvements
 
-## [0.1.0] - 2024-11-16
+### v0.2.1 - Foundation Release
+**Focus**: Basic AI communication and module integration
+**Key Features**: OpenAI/NovelAI support, basic chat functionality
+**Stability**: Initial release with core functionality
 
-### Added
-- Initial project setup
-- Basic module structure that can be loaded by Foundry VTT
-- Placeholder UI elements for future AI functionality
-- Git repository initialization
-- Project documentation
+---
 
-### Technical Details
-- Compatible with Foundry VTT v12+
-- ES6 module structure
-- Basic styling framework
-- Internationalization support foundation
+**Note**: This changelog covers significant changes. For detailed technical documentation, see the respective README files in each component directory.
