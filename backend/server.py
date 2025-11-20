@@ -161,7 +161,7 @@ app.add_middleware(
     allow_origins=CORS_ORIGINS,
     allow_credentials=False,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "X-API-Key"],
+    allow_headers=["Content-Type", "X-API-Key", "X-Admin-Password"],
     expose_headers=[],
     max_age=86400,
 )
@@ -710,9 +710,50 @@ class UniversalInputValidator:
 # Initialize global validator
 validator = UniversalInputValidator()
 
+# Global settings dictionary for frontend configuration
+frontend_settings = {}
+
+class SettingsManager:
+    """Global settings manager for frontend configuration"""
+    
+    @staticmethod
+    def update_settings(new_settings: Dict) -> bool:
+        """Update the global frontend settings dictionary"""
+        try:
+            global frontend_settings
+            frontend_settings.clear()
+            frontend_settings.update(new_settings)
+            logger.info(f"Frontend settings updated: {len(frontend_settings)} settings loaded")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update frontend settings: {e}")
+            return False
+    
+    @staticmethod
+    def get_settings() -> Dict:
+        """Get current frontend settings"""
+        global frontend_settings
+        return frontend_settings.copy()
+    
+    @staticmethod
+    def get_setting(key: str, default=None):
+        """Get a specific frontend setting"""
+        global frontend_settings
+        return frontend_settings.get(key, default)
+    
+    @staticmethod
+    def clear_settings():
+        """Clear all frontend settings"""
+        global frontend_settings
+        frontend_settings.clear()
+        logger.info("Frontend settings cleared")
+
+# Initialize settings manager
+settings_manager = SettingsManager()
+
 
 def manage_keys(keychange=False):
-    """Key management function integrated into server startup"""
+    """Enhanced key management function with admin password"""
     print("Gold Box - Starting Key Management...")
     
     manager = MultiKeyManager()
@@ -723,13 +764,13 @@ def manage_keys(keychange=False):
         if manager.interactive_setup():
             print('\nSet encryption password for your keys.')
             print('This password will be required on every server startup.')
-            password = getpass.getpass('Encryption password (blank for unencrypted): ')
-            manager.save_keys(manager.keys_data, password if password else None)
+            encryption_password = getpass.getpass('Encryption password (blank for unencrypted): ')
+            manager.save_keys(manager.keys_data, encryption_password if encryption_password else None)
         else:
             print("Key setup cancelled or failed")
             return False
     else:
-        print("Loading API keys...")
+        print("Loading API keys and admin password...")
         if not manager.load_keys():
             print("Failed to load keys")
             return False
@@ -740,6 +781,46 @@ def manage_keys(keychange=False):
         return False
     
     print("API keys loaded successfully")
+    return True
+
+def manage_admin_password(manager):
+    """Admin password management function"""
+    print("Gold Box - Admin Password Setup")
+    print("=" * 50)
+    
+    if not manager.get_admin_password_status():
+        print("No admin password set. Setting up admin password now...")
+        if manager.set_admin_password():
+            print("Admin password set successfully")
+            return True
+        else:
+            print("Failed to set admin password")
+            return False
+    else:
+        print("Admin password already configured")
+        return True
+
+def validate_server_requirements(manager):
+    """Validate that server has required configurations"""
+    print("Gold Box - Validating Server Requirements")
+    print("=" * 50)
+    
+    # Check for valid API keys
+    valid_keys_exist = any(key for key in manager.keys_data.values() if key)
+    if not valid_keys_exist:
+        print("ERROR: No valid API keys found")
+        print("Please configure at least one API key using the key manager")
+        return False
+    
+    print(f"✓ Found {len([k for k in manager.keys_data.values() if k])} valid API key(s)")
+    
+    # Check for admin password
+    if not manager.get_admin_password_status():
+        print("ERROR: No admin password set")
+        return False
+    
+    print("✓ Admin password configured")
+    print("✓ All server requirements validated")
     return True
 
 def validate_prompt(prompt):
@@ -858,16 +939,30 @@ async def process_prompt(request: PromptRequest, http_request: Request):
         
         # For now, just echo back the sanitized prompt
         # This will be replaced with actual AI processing later
+        
+        # Get current frontend settings for debugging
+        current_settings = settings_manager.get_settings()
+        settings_message = ""
+        if current_settings:
+            # Format settings for display
+            settings_parts = []
+            for key, value in current_settings.items():
+                settings_parts.append(f"{key} : {value}")
+            settings_message = f"Your current settings are: {', '.join(settings_parts)}"
+        else:
+            settings_message = "No frontend settings configured"
+        
         response_data = {
             'status': 'success',
             'response': validated_request['prompt'],  # Echo back sanitized prompt
             'original_prompt': request_dict['prompt'],  # Show original for comparison
             'timestamp': datetime.now().isoformat(),
             'processing_time': 0.001,  # Simulated processing time
-            'message': 'AI functionality: FastAPI echo server - prompt sanitized and returned unchanged',
+            'message': f'AI functionality: FastAPI echo server - prompt sanitized and returned unchanged. {settings_message}',
             'validation_passed': True,
             'sanitization_applied': True,
             'rate_limit_remaining': rate_limiter.max_requests - len(rate_limiter.requests.get(client_host, [])),
+            'current_frontend_settings': current_settings,
             'ai_parameters': {
                 'max_tokens': validated_request['max_tokens'],
                 'temperature': validated_request['temperature'],
@@ -1106,6 +1201,157 @@ async def start_backend():
         'cors_note': f'CORS configured for {len(CORS_ORIGINS)} origins'
     }
 
+# Admin API endpoint - requires admin password in X-Admin-Password header
+@app.post("/api/admin")
+async def admin_endpoint(request: Request):
+    """
+    Password-protected admin endpoint for server management
+    Requires admin password in X-Admin-Password header
+    """
+    # Declare global variables at function level
+    global OPENAI_API_KEY, NOVELAI_API_KEY, manager
+    
+    try:
+        # Get admin password from headers
+        admin_password = request.headers.get('X-Admin-Password')
+        if not admin_password:
+            raise HTTPException(
+                status_code=401,
+                detail="Admin password required in X-Admin-Password header",
+                headers={"WWW-Authenticate": 'Basic realm="Gold Box Admin"'}
+            )
+        
+        # Verify admin password using the already loaded manager
+        is_valid, error_msg = manager.verify_admin_password(admin_password)
+        if not is_valid:
+            logger.warning(f"Invalid admin password attempt from {request.client.host if request.client else 'unknown'}")
+            raise HTTPException(
+                status_code=401,
+                detail=f"Admin authentication failed: {error_msg}",
+                headers={"WWW-Authenticate": 'Basic realm="Gold Box Admin"'}
+            )
+        
+        # Get request body for admin commands
+        try:
+            request_data = await request.json()
+        except Exception:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid JSON in request body"
+            )
+        
+        # Process admin commands
+        command = request_data.get('command', '')
+        client_host = request.client.host if request.client else "unknown"
+        logger.info(f"Admin command '{command}' from {client_host}")
+        
+        if command == 'status':
+            # Return server and key status
+            return {
+                'status': 'success',
+                'command': 'status',
+                'timestamp': datetime.now().isoformat(),
+                'server_info': {
+                    'environment': FLASK_ENV,
+                    'version': '0.2.3',
+                    'api_keys_configured': bool(OPENAI_API_KEY) or bool(NOVELAI_API_KEY),
+                    'admin_password_set': manager.get_admin_password_status(),
+                    'cors_origins': len(CORS_ORIGINS),
+                    'rate_limiting': {
+                        'max_requests': RATE_LIMIT_MAX_REQUESTS,
+                        'window_seconds': RATE_LIMIT_WINDOW_SECONDS
+                    }
+                },
+                'keys_status': manager.get_key_status(),
+                'security_status': {
+                    'virtual_env': verify_virtual_environment(),
+                    'file_integrity': len(verify_file_integrity()) > 0,
+                    'file_permissions': len(verify_file_permissions()) == 0,
+                    'dependencies': 'MISSING' not in str(verify_dependency_integrity())
+                }
+            }
+        
+        elif command == 'reload_keys':
+            # Reload environment variables (keys already loaded in global manager)
+            if manager.set_environment_variables():
+                # Reload global variables
+                OPENAI_API_KEY = os.environ.get('GOLD_BOX_OPENAI_COMPATIBLE_API_KEY', '')
+                NOVELAI_API_KEY = os.environ.get('GOLD_BOX_NOVELAI_API_API_KEY', '')
+                
+                logger.info("Environment variables reloaded successfully")
+                return {
+                    'status': 'success',
+                    'command': 'reload_keys',
+                    'message': 'Environment variables reloaded successfully',
+                    'timestamp': datetime.now().isoformat(),
+                    'keys_status': manager.get_key_status()
+                }
+            else:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to set environment variables"
+                )
+        
+        elif command == 'set_admin_password':
+            # Set new admin password
+            new_password = request_data.get('password', '')
+            if manager.set_admin_password(new_password):
+                # Save updated configuration
+                if manager.save_keys(manager.keys_data, None):  # Save without changing encryption
+                    logger.info("Admin password updated successfully")
+                    return {
+                        'status': 'success',
+                        'command': 'set_admin_password',
+                        'message': 'Admin password updated successfully',
+                        'timestamp': datetime.now().isoformat()
+                    }
+                else:
+                    raise HTTPException(
+                        status_code=500,
+                        detail="Failed to save updated admin password"
+                    )
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Failed to set new admin password"
+                )
+        
+        elif command == 'update_settings':
+            # Update frontend settings
+            frontend_settings_data = request_data.get('settings', {})
+            if settings_manager.update_settings(frontend_settings_data):
+                logger.info(f"Frontend settings updated from {client_host}")
+                return {
+                    'status': 'success',
+                    'command': 'update_settings',
+                    'message': f'Frontend settings updated: {len(frontend_settings_data)} settings loaded',
+                    'timestamp': datetime.now().isoformat(),
+                    'settings_count': len(frontend_settings_data),
+                    'current_settings': settings_manager.get_settings()
+                }
+            else:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to update frontend settings"
+                )
+        
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown admin command: {command}",
+                headers={"X-Supported-Commands": "status, reload_keys, set_admin_password, update_settings"}
+            )
+        
+    except HTTPException:
+        # Re-raise HTTP exceptions
+        raise
+    except Exception as e:
+        logger.error(f"Admin endpoint error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error in admin endpoint"
+        )
+
 # FastAPI exception handlers
 @app.exception_handler(404)
 async def not_found(request: Request, exc):
@@ -1138,17 +1384,72 @@ if __name__ == '__main__':
     print("The Gold Box Backend - Key Management")
     print("=" * 60)
     
+    manager = MultiKeyManager()
+    
     # Check for keychange environment variable
     keychange = os.environ.get('GOLD_BOX_KEYCHANGE', '').lower() in ['true', '1', 'yes']
     
-    # Run key management
-    if not manage_keys(keychange=keychange):
-        print("[ERROR] Key management failed. Server cannot start without proper key configuration.")
+    # Get encryption password once at the start
+    encryption_password = None
+    if manager.key_file.exists():
+        print("Loading API keys and admin password...")
+        encryption_password = getpass.getpass('Enter encryption password to unlock keys: ')
+        if not manager.load_keys_with_password(encryption_password):
+            print("[ERROR] Failed to load keys - invalid password or corrupted file")
+            print("If you forgot the password, you may need to delete the keys file and start over")
+            sys.exit(1)
+    else:
+        print("No keys file found. Running initial setup...")
+    
+    # Step 1: Check if valid API keys exist
+    valid_keys_exist = any(key for key in manager.keys_data.values() if key)
+    if not valid_keys_exist:
+        print("\n" + "=" * 50)
+        print("NO VALID API KEYS FOUND")
+        print("=" * 50)
+        print("No valid API keys are configured.")
+        print("Running key manager to add API keys...")
+        if not manager.interactive_setup():
+            print("[ERROR] Key setup failed")
+            sys.exit(1)
+        
+        # Get encryption password for first-time save
+        if encryption_password is None:
+            print('\nSet encryption password for your keys.')
+            print('This password will be required on every server startup.')
+            encryption_password = getpass.getpass('Encryption password (blank for unencrypted): ')
+        
+        if not manager.save_keys(manager.keys_data, encryption_password if encryption_password else None):
+            print("[ERROR] Failed to save updated keys")
+            sys.exit(1)
+    
+    # Step 2: Check if admin password is set
+    if not manager.get_admin_password_status():
+        print("\n" + "=" * 50)
+        print("ADMIN PASSWORD REQUIRED")
+        print("=" * 50)
+        print("No admin password is configured.")
+        print("Setting up admin password now...")
+        if not manage_admin_password(manager):
+            print("[ERROR] Admin password setup failed")
+            sys.exit(1)
+        
+        # Save configuration with admin password using the same password
+        if not manager.save_keys(manager.keys_data, encryption_password if encryption_password else None):
+            print("[ERROR] Failed to save configuration with admin password")
+            sys.exit(1)
+    
+    # Step 5: Set environment variables and start server
+    print("Setting up environment variables...")
+    if not manager.set_environment_variables():
+        print("[ERROR] Failed to set environment variables")
         sys.exit(1)
     
-    # Reload environment variables after key management
+    # Reload global variables
     OPENAI_API_KEY = os.environ.get('GOLD_BOX_OPENAI_COMPATIBLE_API_KEY', '')
     NOVELAI_API_KEY = os.environ.get('GOLD_BOX_NOVELAI_API_API_KEY', '')
+    
+    print("✓ All requirements validated successfully")
     
     # Check if running in development or production
     debug_mode = FLASK_DEBUG

@@ -55,8 +55,9 @@ class GoldBoxAPI {
         
         if (response.ok) {
           const data = await response.json();
-          if (data.service === 'The Gold Box Backend') {
-            console.log(`The Gold Box: Found backend running on port ${port}`);
+          // Check for our backend service identifier
+          if (data.service === 'The Gold Box Backend' || data.version === '0.2.3') {
+            console.log(`The Gold Box: Found backend running on port ${port}`, data);
             return port;
           }
         }
@@ -90,6 +91,7 @@ class GoldBoxAPI {
           
           // Update status
           await game.settings.set('gold-box', 'backendStatus', 'connected');
+          
         }
         
         return true;
@@ -197,6 +199,45 @@ class GoldBoxAPI {
       };
     }
   }
+
+  /**
+   * Sync settings to backend via admin API
+   * @param {Object} settings - Settings object to sync
+   * @param {string} adminPassword - Admin password for authentication
+   * @returns {Promise<Object>} - Result of the sync operation
+   */
+  async syncSettings(settings, adminPassword) {
+    try {
+      const response = await fetch(`${this.baseUrl}/api/admin`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Admin-Password': adminPassword
+        },
+        body: JSON.stringify({
+          command: 'update_settings',
+          settings: settings
+        })
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      return {
+        success: true,
+        data: data
+      };
+    } catch (error) {
+      console.error('Gold Box API Settings Sync Error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
 }
 
 class GoldBoxModule {
@@ -227,7 +268,7 @@ class GoldBoxModule {
   }
 
   /**
-   * Check backend connection and show instructions if needed (runs automatically)
+   * Check backend connection and show instructions if needed (health check only)
    */
   async checkBackendAndShowInstructions() {
     try {
@@ -236,9 +277,6 @@ class GoldBoxModule {
       if (testResult.success) {
         await game.settings.set('gold-box', 'backendStatus', 'connected');
         console.log('The Gold Box: Backend is running on auto-discovered URL:', this.api.baseUrl);
-        if (typeof ui !== 'undefined' && ui.notifications) {
-          ui.notifications.info('The Gold Box: Backend connected successfully!');
-        }
         return;
       }
       
@@ -247,9 +285,7 @@ class GoldBoxModule {
       const manualResult = await this.api.autoDiscoverAndUpdatePort();
       
       if (manualResult) {
-        if (typeof ui !== 'undefined' && ui.notifications) {
-          ui.notifications.info(`The Gold Box: Backend found at ${this.api.baseUrl}!`);
-        }
+        console.log('The Gold Box: Backend found at:', this.api.baseUrl);
       } else {
         // Show instructions if no backend found
         await game.settings.set('gold-box', 'backendStatus', 'disconnected');
@@ -277,6 +313,16 @@ class GoldBoxModule {
       default: "checking..."
     });
 
+    // Register Backend Password setting (moved to top)
+    game.settings.register('gold-box', 'backendPassword', {
+      name: "Backend Password",
+      hint: "Password for admin operations on backend server (used to sync settings)",
+      scope: "world",
+      config: true,
+      type: String,
+      default: ""
+    });
+
     // Register server debug prompt setting
     game.settings.register('gold-box', 'aiPrompt', {
       name: "Server Debug Prompt",
@@ -302,6 +348,41 @@ class GoldBoxModule {
       default: "dm"
     });
 
+    // Register General LLM setting with dropdown
+    game.settings.register('gold-box', 'generalLlm', {
+      name: "General LLM",
+      hint: "Select primary LLM service to use for AI processing",
+      scope: "world",
+      config: true,
+      type: String,
+      choices: {
+        "openai_compatible": "OpenAI Compatible",
+        "novelai_api": "NovelAI API", 
+        "local": "Local"
+      },
+      default: "openai_compatible"
+    });
+
+    // Register OpenAI Compatible Base URL setting
+    game.settings.register('gold-box', 'openaiBaseUrl', {
+      name: "OpenAI Compatible - Base URL",
+      hint: "Base URL for OpenAI-compatible API (e.g., https://api.openai.com/v1)",
+      scope: "world",
+      config: true,
+      type: String,
+      default: "https://api.openai.com/v1"
+    });
+
+    // Register OpenAI Compatible Model Name setting
+    game.settings.register('gold-box', 'openaiModelName', {
+      name: "OpenAI Compatible - Model Name", 
+      hint: "Model name to use (e.g., gpt-3.5-turbo, gpt-4, etc.)",
+      scope: "world",
+      config: true,
+      type: String,
+      default: "gpt-3.5-turbo"
+    });
+
     // Hook to add custom button to settings menu
     Hooks.on('renderSettingsConfig', (app, html, data) => {
       // Handle both jQuery and plain DOM objects
@@ -318,7 +399,7 @@ class GoldBoxModule {
               <button type="button" id="gold-box-discover-port" class="gold-box-discover-btn" style="background: linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FF8C00 100%); color: #1a1a1a; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 600; transition: all 0.2s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 2px 6px rgba(0,0,0,0.2);">
                 Discover Backend
               </button>
-              <p class="notes">Automatically search for and connect to Gold Box backend server</p>
+              <p class="notes">Test backend connection and discover server if port changed</p>
             </div>
           </div>
         `;
@@ -370,8 +451,8 @@ class GoldBoxModule {
       // Use hardcoded name since we removed moduleElementsName setting
       const name = 'The Gold Box';
       
-      // Build button HTML without robot emoji
-      const inner = `The Gold Box`;
+      // Build button HTML with new name
+      const inner = `Take AI Turn`;
       
       // Use ChatConsole's proven approach for v13+
       if (game.release.generation >= 13) {
@@ -420,7 +501,7 @@ class GoldBoxModule {
   }
 
   /**
-   * Handle "Take AI Turn" button click
+   * Handle "Take AI Turn" button click with sync-then-process workflow
    */
   async onTakeAITurn() {
     console.log('The Gold Box: AI turn requested');
@@ -435,38 +516,58 @@ class GoldBoxModule {
       return;
     }
     
-    // Show loading notification
-    let loadingId = null;
-    if (typeof ui !== 'undefined' && ui.notifications) {
-      loadingId = ui.notifications.info('The Gold Box: Sending request to AI...');
-    }
-    
     try {
-      // Send prompt to backend
-      console.log('The Gold Box: Sending prompt:', prompt);
+      // Step 1: Sync current settings to backend first
+      const backendPassword = game.settings.get('gold-box', 'backendPassword');
+      
+      if (!backendPassword || backendPassword.trim() === '') {
+        if (typeof ui !== 'undefined' && ui.notifications) {
+          ui.notifications.error('❌ Please configure a backend password in Gold Box settings first!');
+        }
+        return;
+      }
+
+      // Collect all current frontend settings
+      const settingsToSync = {
+        'server debug prompt': game.settings.get('gold-box', 'aiPrompt') || '',
+        'ai role': game.settings.get('gold-box', 'aiRole') || 'dm',
+        'general llm': game.settings.get('gold-box', 'generalLlm') || 'openai_compatible',
+        'backend password': backendPassword
+      };
+
+      console.log('The Gold Box: Syncing settings before AI turn:', settingsToSync);
+      const syncResult = await this.api.syncSettings(settingsToSync, backendPassword);
+      
+      if (!syncResult.success) {
+        // Handle sync failure with smart error messages
+        if (syncResult.error) {
+          if (syncResult.error.includes('401') || syncResult.error.includes('authentication')) {
+            ui.notifications.error('❌ Admin password incorrect. Please check your backend password in Gold Box settings.');
+          } else if (syncResult.error.includes('404') || syncResult.error.includes('not found')) {
+            ui.notifications.error('🚫 Backend server not responding. Please ensure backend server is running.');
+          } else if (syncResult.error.includes('403')) {
+            ui.notifications.error('🔒 Admin access denied. Check backend password configuration.');
+          } else {
+            ui.notifications.error('⚠️ Backend connection failed. Check server status and admin password.');
+          }
+        }
+        return; // Stop here if sync failed
+      }
+      
+      // Step 2: If sync succeeded, send prompt to AI
+      console.log('The Gold Box: Settings synced, sending prompt:', prompt);
       const result = await this.api.sendPrompt(prompt);
       
       if (result.success) {
         // Display the response in chat
         this.displayAIResponse(result.data.response, result.data);
-        if (typeof ui !== 'undefined' && ui.notifications) {
-          ui.notifications.info('The Gold Box: AI response received!');
-        }
       } else {
         throw new Error(result.error || 'Unknown error occurred');
       }
       
     } catch (error) {
       console.error('The Gold Box: Error processing AI turn:', error);
-      if (typeof ui !== 'undefined' && ui.notifications) {
-        ui.notifications.error(`The Gold Box Error: ${error.message}`);
-      }
       this.displayErrorResponse(error.message);
-    } finally {
-      // Clear loading notification
-      if (loadingId && typeof ui !== 'undefined' && ui.notifications) {
-        ui.notifications.remove(loadingId);
-      }
     }
   }
 
@@ -578,37 +679,53 @@ class GoldBoxModule {
   }
 
   /**
-   * Manual port discovery triggered from settings
+   * Enhanced manual port discovery with health check and port scanning
    */
   async manualPortDiscovery() {
-    if (typeof ui !== 'undefined' && ui.notifications) {
-      ui.notifications.info('The Gold Box: Searching for backend server...');
-    }
-    
     try {
-      const result = await this.api.autoDiscoverAndUpdatePort();
+      // First: Try current saved URL
+      console.log('The Gold Box: Testing current backend connection...');
+      const healthResult = await this.api.testConnection();
       
-      if (result) {
+      if (healthResult.success) {
         if (typeof ui !== 'undefined' && ui.notifications) {
-          ui.notifications.success(`The Gold Box: Backend found! Updated to ${this.api.baseUrl}`);
+          ui.notifications.info('✅ Backend connection verified!');
+        }
+        return true;
+      }
+      
+      // Second: If current URL fails, scan for new port
+      console.log('The Gold Box: Current connection failed, scanning for backend...');
+      const discoveredPort = await this.api.discoverBackendPort();
+      
+      if (discoveredPort) {
+        this.api.baseUrl = `http://localhost:${discoveredPort}`;
+        if (typeof ui !== 'undefined' && ui.notifications) {
+          ui.notifications.success(`🔍 Found backend on port ${discoveredPort}!`);
         }
         
         // Refresh settings to show updated URL
         if (game.settings && game.settings.menu) {
           game.settings.menu.render(true);
         }
-      } else {
-        if (typeof ui !== 'undefined' && ui.notifications) {
-          ui.notifications.error('The Gold Box: No backend server found. Please start the backend first.');
-        }
+        return true;
       }
-    } catch (error) {
-      console.error('The Gold Box: Manual port discovery failed:', error);
+      
+      // Third: No backend found at all
       if (typeof ui !== 'undefined' && ui.notifications) {
-        ui.notifications.error(`The Gold Box: Discovery failed - ${error.message}`);
+        ui.notifications.error('❌ No backend server found. Please start the backend server.');
       }
+      return false;
+      
+    } catch (error) {
+      console.error('The Gold Box: Backend discovery failed:', error);
+      if (typeof ui !== 'undefined' && ui.notifications) {
+        ui.notifications.error(`🚫 Backend discovery failed - ${error.message}`);
+      }
+      return false;
     }
   }
+
 
   /**
    * Show module information dialog

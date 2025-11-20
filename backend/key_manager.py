@@ -21,6 +21,7 @@ class MultiKeyManager:
             '2': {'id': 'novelai_api', 'name': 'NovelAI API'}
         }
         self.keys_data = {}
+        self.admin_password = None  # Initialize admin_password attribute
     
     def _get_encryption_password(self):
         """Get encryption password from user"""
@@ -65,7 +66,7 @@ class MultiKeyManager:
         return base64.urlsafe_b64encode(kdf.derive(password.encode()))
     
     def load_keys(self):
-        """Load and decrypt keys from file"""
+        """Load and decrypt keys from file (asks for password)"""
         if not self.key_file.exists():
             return None
         
@@ -75,28 +76,97 @@ class MultiKeyManager:
             
             if data.get('encrypted', True):
                 password = getpass.getpass("Enter encryption password to unlock keys: ")
+                return self.load_keys_with_password(password)
+            else:
+                # Unencrypted keys
+                self.keys_data = data.get('keys', {})
+                self.admin_password = data.get('admin_password', None)
+                return True
+            
+        except Exception as e:
+            print(f"Failed to load keys: {e}")
+            return False
+    
+    def load_keys_with_password(self, password):
+        """Load and decrypt keys from file with provided password"""
+        if not self.key_file.exists():
+            return None
+        
+        try:
+            with open(self.key_file, 'rb') as f:
+                data = json.load(f)
+            
+            if data.get('encrypted', True):
                 if password == "" and data.get('encrypted', True):
                     print("Keys are encrypted - password required")
-                    return None
+                    return False
                 
                 key = self._derive_key(password)
                 if key is None:
                     # Unencrypted keys
-                    self.keys_data = data['keys']
+                    self.keys_data = data.get('keys', {})
+                    self.admin_password = data.get('admin_password', None)
                 else:
                     # Decrypt keys
                     fernet = Fernet(key)
                     decrypted_data = fernet.decrypt(data['encrypted_keys'].encode()).decode()
-                    self.keys_data = json.loads(decrypted_data)
+                    parsed_data = json.loads(decrypted_data)
+                    self.keys_data = parsed_data.get('keys', {})
+                    self.admin_password = parsed_data.get('admin_password', None)
             else:
                 # Unencrypted keys
-                self.keys_data = data['keys']
+                self.keys_data = data.get('keys', {})
+                self.admin_password = data.get('admin_password', None)
             
             return True
             
         except Exception as e:
             print(f"Failed to load keys: {e}")
             return False
+    
+    def get_admin_password_status(self):
+        """Get admin password status"""
+        return self.admin_password is not None and self.admin_password != ''
+    
+    def set_admin_password(self, password=None):
+        """Set admin password"""
+        if password is None:
+            while True:
+                try:
+                    password = getpass.getpass("Set admin password: ")
+                    if password == "":
+                        print("Blank admin password - will set to empty after warning")
+                        confirm = getpass.getpass("Confirm blank admin password (press Enter): ")
+                        if confirm != "":
+                            print("Confirmation doesn't match")
+                            continue
+                        print("WARNING: Admin password will be empty - anyone can access admin functions!")
+                        confirm_blank = input("Type 'YES' to confirm empty password: ")
+                        if confirm_blank == 'YES':
+                            self.admin_password = ""
+                            return True
+                        else:
+                            continue
+                    else:
+                        confirm = getpass.getpass("Confirm admin password: ")
+                        if password != confirm:
+                            print("Passwords don't match")
+                            continue
+                        self.admin_password = password
+                        return True
+                except KeyboardInterrupt:
+                    print("\nAdmin password setup cancelled")
+                    return False
+        else:
+            self.admin_password = password
+            return True
+    
+    def verify_admin_password(self, provided_password):
+        """Verify admin password"""
+        if self.admin_password is None:
+            return False, "No admin password set"
+        
+        return provided_password == self.admin_password, None
     
     def save_keys(self, keys_data, password=None):
         """Encrypt and save keys to file"""
@@ -105,10 +175,17 @@ class MultiKeyManager:
         # Ensure directory exists
         self.key_file.parent.mkdir(parents=True, exist_ok=True)
         
+        # Prepare data to save (include admin password)
+        save_data = {
+            'keys': keys_data,
+            'admin_password': self.admin_password
+        }
+        
         if password is None:
             data = {
                 'encrypted': False,
                 'keys': keys_data,
+                'admin_password': self.admin_password,
                 'created_at': datetime.now().isoformat(),
                 'version': '1.0'
             }
@@ -117,11 +194,11 @@ class MultiKeyManager:
         else:
             key = self._derive_key(password)
             fernet = Fernet(key)
-            encrypted_keys = fernet.encrypt(json.dumps(keys_data).encode())
+            encrypted_data = fernet.encrypt(json.dumps(save_data).encode())
             
             data = {
                 'encrypted': True,
-                'encrypted_keys': encrypted_keys.decode(),
+                'encrypted_keys': encrypted_data.decode(),
                 'created_at': datetime.now().isoformat(),
                 'version': '1.0'
             }
@@ -130,6 +207,7 @@ class MultiKeyManager:
         
         os.chmod(self.key_file, 0o600)
         print(f"Keys saved to {self.key_file}")
+        return True  # Return True to indicate successful save
     
     def get_key_status(self):
         """Get current status of all keys"""
