@@ -2,36 +2,6 @@
 
 An AI-powered Foundry VTT module that provides intelligent TTRPG assistance through a sophisticated Python backend. This project creates a single-player TTRPG experience where an AI can serve as Dungeon Master, DM Assistant, or Player, with full user control and transparency.
 
-## Version 0.2.4
-
-### 🚀 Latest Features (v0.2.4) - Completed Phase One of Roadmap
-
-#### Enhanced Message Context Processing
-- **Full Chat History Context** - Automatically collects recent chat messages for AI context
-- **Configurable Context Length** - User-adjustable message context window (default: 15 messages)
-- **Chronological Ordering** - Messages sent in proper time sequence (oldest to newest)
-- **HTML Content Preservation** - Maintains dice rolls, formatting, and rich content
-- **Smart Content Extraction** - Preserves Foundry's native HTML structure
-
-#### Fixed JavaScript Integration
-- **Resolved Syntax Errors** - Fixed all JavaScript syntax issues preventing module loading
-- **Restored Settings Menu** - Module settings now properly display in Foundry configuration
-- **Fixed Chat Button** - "Take AI Turn" button appears and functions correctly
-- **Enhanced Error Handling** - Better error messages and debugging information
-
-#### Improved Backend Communication
-- **Enhanced API Debugging** - Detailed logging for content extraction and processing
-- **Better Error Messages** - Smart error handling with user-friendly feedback
-- **Fixed Content Display** - Resolved issues with AI response content not showing
-- **Improved Service Integration** - Better handling of OpenCode-compatible API responses
-
-#### Advanced AI Service Support
-- **OpenAI Compatible API** - Full support for OpenAI and compatible services
-- **NovelAI API Integration** - Specialized support for NovelAI services
-- **OpenCode Compatible API** - Support for coding-focused AI services like Z.AI
-- **Local LLM Support** - Integration with local language models
-- **Service Selection** - User-configurable LLM service selection
-
 ## Project Vision
 
 The Gold Box transforms Foundry VTT into an intelligent TTRPG assistant that will be able to:
