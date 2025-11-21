@@ -187,31 +187,36 @@ class GoldBoxAPI {
         'Content-Type': 'application/json'
       };
       
-      // Get selected LLM service
-      const generalLlm = game.settings.get('gold-box', 'generalLlm') || 'openai_compatible';
-      let endpoint, requestBody;
+      // Collect ALL frontend settings into unified object
+      const frontendSettings = {
+        'maximum message context': game.settings.get('gold-box', 'maxMessageContext') || 15,
+        'ai role': game.settings.get('gold-box', 'aiRole') || 'dm',
+        'general llm provider': game.settings.get('gold-box', 'generalLlmProvider') || '',
+        'general llm base url': game.settings.get('gold-box', 'generalLlmBaseUrl') || '',
+        'general llm model': game.settings.get('gold-box', 'generalLlmModel') || '',
+        'general llm version': game.settings.get('gold-box', 'generalLlmVersion') || 'v1',
+        'general llm timeout': game.settings.get('gold-box', 'generalLlmTimeout') || 30,
+        'general llm max retries': game.settings.get('gold-box', 'generalLlmMaxRetries') || 3,
+        'general llm custom headers': game.settings.get('gold-box', 'generalLlmCustomHeaders') || '',
+        'tactical llm provider': game.settings.get('gold-box', 'tacticalLlmProvider') || '',
+        'tactical llm base url': game.settings.get('gold-box', 'tacticalLlmBaseUrl') || '',
+        'tactical llm model': game.settings.get('gold-box', 'tacticalLlmModel') || '',
+        'tactical llm version': game.settings.get('gold-box', 'tacticalLlmVersion') || 'v1',
+        'tactical llm timeout': game.settings.get('gold-box', 'tacticalLlmTimeout') || 30,
+        'tactical llm max retries': game.settings.get('gold-box', 'tacticalLlmMaxRetries') || 3,
+        'tactical llm custom headers': game.settings.get('gold-box', 'tacticalLlmCustomHeaders') || '',
+        'backend password': game.settings.get('gold-box', 'backendPassword') || ''
+      };
       
-      if (generalLlm === 'opencode_compatible') {
-        // Use simple_chat endpoint for OpenCode services
-        endpoint = '/api/simple_chat';
-        requestBody = {
-          service_key: 'z_ai', // Default to Z.AI
-          message_context: messages,
-          temperature: 0.1,
-          max_tokens: null // No limit by default
-        };
-      } else {
-        // Use legacy process endpoint for other services
-        endpoint = '/api/process';
-        requestBody = { 
-          prompt: `Chat context:\n${messages.map(m => `${m.sender}: ${m.content}`).join('\n')}\n\nNew request: Please respond to the conversation.`
-        };
-      }
+      console.log('The Gold Box: Sending unified settings object:', Object.keys(frontendSettings).length, 'settings');
       
-      const response = await fetch(`${this.baseUrl}${endpoint}`, {
+      const response = await fetch(`${this.baseUrl}/api/simple_chat`, {
         method: 'POST',
         headers: headers,
-        body: JSON.stringify(requestBody)
+        body: JSON.stringify({
+          settings: frontendSettings,
+          messages: messages
+        })
       });
 
       if (!response.ok) {
@@ -338,60 +343,144 @@ class GoldBoxModule {
       default: "dm"
     });
 
-    // Register General LLM setting with dropdown
-    game.settings.register('gold-box', 'generalLlm', {
-      name: "General LLM",
-      hint: "Select primary LLM service to use for AI processing",
+    // Register General LLM Provider setting
+    game.settings.register('gold-box', 'generalLlmProvider', {
+      name: "General LLM - Provider",
+      hint: "Provider name for General LLM (e.g., openai, anthropic, opencode, custom-provider)",
       scope: "world",
       config: true,
       type: String,
-      choices: {
-        "openai_compatible": "OpenAI Compatible",
-        "opencode_compatible": "OpenCode Compatible",
-        "novelai_api": "NovelAI API", 
-        "local": "Local"
-      },
-      default: "openai_compatible"
+      default: ""
     });
 
-    // Register OpenAI Compatible Base URL setting
-    game.settings.register('gold-box', 'openaiBaseUrl', {
-      name: "OpenAI Compatible - Base URL",
-      hint: "Base URL for OpenAI-compatible API (e.g., https://api.openai.com/v1)",
+    // Register General LLM Base URL setting
+    game.settings.register('gold-box', 'generalLlmBaseUrl', {
+      name: "General LLM - Base URL",
+      hint: "Base URL for General LLM provider (e.g., https://api.openai.com/v1, https://api.z.ai/api/coding/paas/v4)",
       scope: "world",
       config: true,
       type: String,
-      default: "https://api.openai.com/v1"
+      default: ""
     });
 
-    // Register OpenAI Compatible Model Name setting
-    game.settings.register('gold-box', 'openaiModelName', {
-      name: "OpenAI Compatible - Model Name", 
-      hint: "Model name to use (e.g., gpt-3.5-turbo, gpt-4, etc.)",
+    // Register General LLM Model setting
+    game.settings.register('gold-box', 'generalLlmModel', {
+      name: "General LLM - Model",
+      hint: "Model name for General LLM (e.g., gpt-3.5-turbo, claude-3-5-sonnet-20241022, openai/glm-4.6)",
       scope: "world",
       config: true,
       type: String,
-      default: "gpt-3.5-turbo"
+      default: ""
     });
 
-    // Register OpenCode Compatible Base URL setting
-    game.settings.register('gold-box', 'opencodeBaseUrl', {
-      name: "OpenCode Compatible - Base URL",
-      hint: "Base URL for OpenCode-compatible API (e.g., https://api.z.ai/api/coding/paas/v4)",
+    // Register General LLM Version setting
+    game.settings.register('gold-box', 'generalLlmVersion', {
+      name: "General LLM - API Version",
+      hint: "API version for General LLM (e.g., v1, v2, custom)",
       scope: "world",
       config: true,
       type: String,
-      default: "https://api.z.ai/api/coding/paas/v4"
+      default: "v1"
     });
 
-    // Register OpenCode Compatible Model Name setting
-    game.settings.register('gold-box', 'opencodeModelName', {
-      name: "OpenCode Compatible - Model Name",
-      hint: "Model name to use (e.g., openai/glm-4.6, etc.)",
+    // Register General LLM Timeout setting
+    game.settings.register('gold-box', 'generalLlmTimeout', {
+      name: "General LLM - Timeout (seconds)",
+      hint: "Request timeout for General LLM in seconds (default: 30)",
+      scope: "world",
+      config: true,
+      type: Number,
+      default: 30
+    });
+
+    // Register General LLM Max Retries setting
+    game.settings.register('gold-box', 'generalLlmMaxRetries', {
+      name: "General LLM - Max Retries",
+      hint: "Maximum retry attempts for General LLM (default: 3)",
+      scope: "world",
+      config: true,
+      type: Number,
+      default: 3
+    });
+
+    // Register General LLM Custom Headers setting
+    game.settings.register('gold-box', 'generalLlmCustomHeaders', {
+      name: "General LLM - Custom Headers (JSON)",
+      hint: "Custom headers for General LLM in JSON format (advanced)",
       scope: "world",
       config: true,
       type: String,
-      default: "openai/glm-4.6"
+      default: ""
+    });
+
+    // Register Tactical LLM Provider setting
+    game.settings.register('gold-box', 'tacticalLlmProvider', {
+      name: "Tactical LLM - Provider",
+      hint: "Provider name for Tactical LLM (placeholder for future implementation)",
+      scope: "world",
+      config: true,
+      type: String,
+      default: ""
+    });
+
+    // Register Tactical LLM Base URL setting
+    game.settings.register('gold-box', 'tacticalLlmBaseUrl', {
+      name: "Tactical LLM - Base URL",
+      hint: "Base URL for Tactical LLM provider (placeholder for future implementation)",
+      scope: "world",
+      config: true,
+      type: String,
+      default: ""
+    });
+
+    // Register Tactical LLM Model setting
+    game.settings.register('gold-box', 'tacticalLlmModel', {
+      name: "Tactical LLM - Model",
+      hint: "Model name for Tactical LLM (placeholder for future implementation)",
+      scope: "world",
+      config: true,
+      type: String,
+      default: ""
+    });
+
+    // Register Tactical LLM Version setting
+    game.settings.register('gold-box', 'tacticalLlmVersion', {
+      name: "Tactical LLM - API Version",
+      hint: "API version for Tactical LLM (e.g., v1, v2, custom)",
+      scope: "world",
+      config: true,
+      type: String,
+      default: "v1"
+    });
+
+    // Register Tactical LLM Timeout setting
+    game.settings.register('gold-box', 'tacticalLlmTimeout', {
+      name: "Tactical LLM - Timeout (seconds)",
+      hint: "Request timeout for Tactical LLM in seconds (default: 30)",
+      scope: "world",
+      config: true,
+      type: Number,
+      default: 30
+    });
+
+    // Register Tactical LLM Max Retries setting
+    game.settings.register('gold-box', 'tacticalLlmMaxRetries', {
+      name: "Tactical LLM - Max Retries",
+      hint: "Maximum retry attempts for Tactical LLM (default: 3)",
+      scope: "world",
+      config: true,
+      type: Number,
+      default: 3
+    });
+
+    // Register Tactical LLM Custom Headers setting
+    game.settings.register('gold-box', 'tacticalLlmCustomHeaders', {
+      name: "Tactical LLM - Custom Headers (JSON)",
+      hint: "Custom headers for Tactical LLM in JSON format (advanced)",
+      scope: "world",
+      config: true,
+      type: String,
+      default: ""
     });
 
     // Hook to add custom button to settings menu
@@ -575,7 +664,7 @@ class GoldBoxModule {
       
       console.log('The Gold Box: Collected', chatMessages.length, 'messages for context');
       
-      // Step 2: Sync settings to backend first
+      // Step 2: Verify backend password is configured (required for any AI interaction)
       const backendPassword = game.settings.get('gold-box', 'backendPassword');
       
       if (!backendPassword || backendPassword.trim() === '') {
@@ -584,43 +673,9 @@ class GoldBoxModule {
         }
         return;
       }
-
-      // Collect all current frontend settings
-      const generalLlm = game.settings.get('gold-box', 'generalLlm') || 'openai_compatible';
-      const settingsToSync = {
-        'maximum message context': maxContext,
-        'ai role': game.settings.get('gold-box', 'aiRole') || 'dm',
-        'general llm': generalLlm,
-        'backend password': backendPassword
-      };
-
-      // Add OpenCode-specific settings if selected
-      if (generalLlm === 'opencode_compatible') {
-        settingsToSync['opencode base url'] = game.settings.get('gold-box', 'opencodeBaseUrl') || 'https://api.z.ai/api/coding/paas/v4';
-        settingsToSync['opencode model name'] = game.settings.get('gold-box', 'opencodeModelName') || 'openai/glm-4.6';
-      }
-
-      console.log('The Gold Box: Syncing settings before AI turn:', settingsToSync);
-      const syncResult = await this.api.syncSettings(settingsToSync, backendPassword);
       
-      if (!syncResult.success) {
-        // Handle sync failure with smart error messages
-        if (syncResult.error) {
-          if (syncResult.error.includes('401') || syncResult.error.includes('authentication')) {
-            ui.notifications.error('❌ Admin password incorrect. Please check your backend password in Gold Box settings.');
-          } else if (syncResult.error.includes('404') || syncResult.error.includes('not found')) {
-            ui.notifications.error('🚫 Backend server not responding. Please ensure backend server is running.');
-          } else if (syncResult.error.includes('403')) {
-            ui.notifications.error('🔒 Admin access denied. Check backend password configuration.');
-          } else {
-            ui.notifications.error('⚠️ Backend connection failed. Check server status and admin password.');
-          }
-        }
-        return; // Stop here if sync failed
-      }
-      
-      // Step 3: Send message context to AI
-      console.log('The Gold Box: Settings synced, sending chat context:', chatMessages.length, 'messages');
+      // Step 3: Send message context to AI with unified settings
+      console.log('The Gold Box: Sending chat context with unified settings:', chatMessages.length, 'messages');
       const result = await this.api.sendMessageContext(chatMessages);
       
       if (result.success) {
@@ -753,6 +808,11 @@ class GoldBoxModule {
       const healthResult = await this.api.testConnection();
       
       if (healthResult.success) {
+        // Process configured providers from health check
+        if (healthResult.data && healthResult.data.configured_providers) {
+          this.displayAvailableProviders(healthResult.data.configured_providers);
+        }
+        
         if (typeof ui !== 'undefined' && ui.notifications) {
           ui.notifications.info('✅ Backend connection verified!');
         }
@@ -765,6 +825,13 @@ class GoldBoxModule {
       
       if (discoveredPort) {
         this.api.baseUrl = `http://localhost:${discoveredPort}`;
+        
+        // Test connection to get provider info
+        const newHealthResult = await this.api.testConnection();
+        if (newHealthResult.success && newHealthResult.data && newHealthResult.data.configured_providers) {
+          this.displayAvailableProviders(newHealthResult.data.configured_providers);
+        }
+        
         if (typeof ui !== 'undefined' && ui.notifications) {
           ui.notifications.success(`🔍 Found backend on port ${discoveredPort}!`);
         }
@@ -788,6 +855,71 @@ class GoldBoxModule {
         ui.notifications.error(`🚫 Backend discovery failed - ${error.message}`);
       }
       return false;
+    }
+  }
+
+  /**
+   * Display available providers as chat message after discovery
+   * @param {Array} configuredProviders - Array of configured provider objects
+   */
+  displayAvailableProviders(configuredProviders) {
+    try {
+      console.log('The Gold Box: Displaying available providers:', configuredProviders);
+      
+      if (configuredProviders.length === 0) {
+        // No providers configured
+        const messageContent = `
+          <div class="gold-box-info">
+            <div class="gold-box-header">
+              <strong>The Gold Box - Provider Status</strong>
+              <div class="gold-box-timestamp">${new Date().toLocaleTimeString()}</div>
+            </div>
+            <div class="gold-box-content">
+              <p><strong>No LLM providers configured</strong></p>
+              <p>Please configure API keys in the backend to use AI features.</p>
+              <p>Use the key manager to add providers like OpenAI, Anthropic, or others.</p>
+            </div>
+          </div>
+        `;
+        
+        ChatMessage.create({
+          user: game.user.id,
+          content: messageContent,
+          speaker: {
+            alias: 'The Gold Box'
+          }
+        });
+      } else {
+        // Display configured providers
+        const providerList = configuredProviders.map(provider => 
+          `<li><strong>${provider.provider_name}</strong> (${provider.provider_id})</li>`
+        ).join('');
+        
+        const messageContent = `
+          <div class="gold-box-info">
+            <div class="gold-box-header">
+              <strong>The Gold Box - Available Providers</strong>
+              <div class="gold-box-timestamp">${new Date().toLocaleTimeString()}</div>
+            </div>
+            <div class="gold-box-content">
+              <p><strong>✅ Found ${configuredProviders.length} configured LLM provider(s):</strong></p>
+              <ul>${providerList}</ul>
+              <p><em>Configure your desired provider in the Gold Box settings.</em></p>
+            </div>
+          </div>
+        `;
+        
+        ChatMessage.create({
+          user: game.user.id,
+          content: messageContent,
+          speaker: {
+            alias: 'The Gold Box'
+          }
+        });
+      }
+      
+    } catch (error) {
+      console.error('The Gold Box: Error displaying providers:', error);
     }
   }
 }

@@ -2,9 +2,9 @@
 
 An AI-powered Foundry VTT module that provides intelligent TTRPG assistance through a sophisticated Python backend. This project creates a single-player TTRPG experience where an AI can serve as Dungeon Master, DM Assistant, or Player, with full user control and transparency.
 
-## Version 0.2.3
+## Version 0.2.4
 
-### 🚀 Latest Features (v0.2.3)
+### 🚀 Latest Features (v0.2.4) - Completed Phase One of Roadmap
 
 #### Enhanced Message Context Processing
 - **Full Chat History Context** - Automatically collects recent chat messages for AI context
@@ -34,7 +34,7 @@ An AI-powered Foundry VTT module that provides intelligent TTRPG assistance thro
 
 ## Project Vision
 
-The Gold Box transforms Foundry VTT into an intelligent TTRPG assistant that can:
+The Gold Box transforms Foundry VTT into an intelligent TTRPG assistant that will be able to:
 - Act as a complete Dungeon Master for solo play (or group play when no traditional GM is available)
 - Serve as a DM Assistant to help human DMs
 - Play as an AI-controlled Player character
@@ -45,7 +45,7 @@ The Gold Box transforms Foundry VTT into an intelligent TTRPG assistant that can
 ## Architecture Overview
 
 ```
-+-----------+      (1) User Action     +---------------------+       (2) Request (Prompt + Context)    +-------------------+   (3) API Call      +----------+
++-----------+      (1) User Action     +---------------------+       (2) Request (Prompt + Context)  +-------------------+   (3) API Call      +----------+
 |           |------------------------->|                     |-------------------------------------->|                   |-------------------->|          |
 |   User    |                          | Foundry VTT Module  |                                       | Python Backend    |                     |   LLM    |
 |           |<-------------------------|    (JavaScript)     |<--------------------------------------|  (FastAPI/Flask)  |<--------------------|  APIs    |
@@ -65,21 +65,25 @@ The user interface and game interaction layer that:
 - Provides detailed AI responses with role-based formatting
 - Displays contextual responses based on recent chat messages
 - Supports multiple AI roles (DM, DM Assistant, Player)
+- Auto-discovers backend ports for seamless connection
+- Manages comprehensive settings for multiple LLM providers
 
 ### 2. Python Backend (FastAPI)
 The intelligence layer that:
 - Manages API keys securely with encrypted storage
 - Handles prompt engineering and context management
-- Communicates with various AI services (LLM, Image Generation, TTS)
+- Communicates with various AI services through LiteLLM integration
 - Maintains AI turn/thread state
 - Orchestrates multiple AI agents for different tasks
 - Provides comprehensive validation and security features
+- Supports 70+ AI providers through unified interface
 
-### 3. External APIs
+### 3. External APIs (via LiteLLM)
 The AI services that provide:
 - Language models (GPT, Novel AI, OpenCode/GLM, etc.)
 - Image generation (DALL-E, Stable Diffusion)
 - Text-to-Speech/Speech-to-Text (ElevenLabs, Whisper)
+- Access to 70+ providers through single interface
 
 ## Implementation Phases
 
@@ -88,19 +92,14 @@ The AI services that provide:
 - ✅ Create Foundry UI with input/output areas
 - ✅ Implement "Take AI Turn" button with proper functionality
 - ✅ Set up FastAPI backend with `/simple_chat` endpoint
-- ✅ Display AI responses in both UI module and Foundry chat
-- ✅ **NEW**: Full message context collection and processing
-- ✅ **NEW**: Enhanced debugging and error handling
-- ✅ **NEW**: Fixed JavaScript syntax errors
+- ✅ Display AI responses in Foundry chat
 
 ### 🔄 Phase 2: The "Observer" - Context-Aware Responses
 **Status: IN PROGRESS**
-- ✅ Expand game state gathering (chat history with context)
-- ✅ Add AI Role selection (DM, DM Assistant, Player)
-- ✅ Implement sophisticated prompt engineering
-- ✅ **NEW**: Create `/simple_chat` endpoint with rich context processing
-- 🔄 Implement `/contextual_action` endpoint with scene/token context
-- 🔄 Add character and scene awareness
+- Expand game state gathering (more than just chat history)
+- Functional AI Role selection (DM, DM Assistant, Player)
+- Create new API endpoint `/ai_turn`
+- Implement sophisticated prompt engineering for data in `/ai_turn`
 
 ### ⏳ Phase 3: The "Actor" - Tool-Driven Actions
 **Goal:** Allow AI to perform actions in the game world
@@ -149,32 +148,38 @@ The AI now receives full chat context:
 
 ### Frontend (Foundry VTT Module)
 - JavaScript/ES6+ with modern syntax
-- Foundry VTT API integration
+- Foundry VTT API integration (v12+ supported, v13 verified)
 - CSS for responsive styling
-- Message context collection from DOM
-- Multi-service API communication
+- Message context collection from DOM with HTML preservation
+- Provider-agnostic API communication via unified settings
+- Auto-discovery of backend ports
+- Comprehensive settings management for multiple LLM providers
 
 ### Backend (Python)
-- FastAPI for modern web framework
+- FastAPI for modern web framework (primary)
 - Uvicorn ASGI server for production
+- Flask fallback for legacy compatibility
+- LiteLLM integration for 70+ AI provider support
 - Universal Input Validation system with comprehensive protection
 - Flask-CORS with environment-based origin restrictions
-- HTTP clients for multiple AI service APIs
 - Rate limiting and security headers
 - Environment-based configuration management
 - Encrypted API key storage with admin password protection
+- ProviderManager for multi-provider configuration
+- Enhanced message context processing
 
-### AI Services
-- **OpenAI Compatible**: GPT-3.5, GPT-4, and compatible models
-- **NovelAI**: Specialized TTRPG-focused models
-- **OpenCode Compatible**: GLM-4.6 and other coding-focused models
-- **Local LLM**: Self-hosted model support
+### AI Services (via LiteLLM)
+- **70+ Providers**: OpenAI, Anthropic, Google AI, Azure OpenAI, Cohere, Groq, Together AI, Replicate, Fireworks AI, xAI, AWS Bedrock, Google Vertex AI, Mistral AI, Perplexity AI, OpenRouter, NovelAI, and many more
+- **Custom Providers**: Support for self-hosted and custom endpoints
+- **Provider-Agnostic**: Single interface for all AI services
+- **OpenCode Compatible**: GLM-4.6, Z.AI, and other coding-focused models
+- **Local LLM**: Self-hosted model support through LiteLLM
 
 ## Development Setup
 
 ### Prerequisites
 - Foundry VTT installation (v12+ recommended, v13 supported)
-- Python 3.8+
+- Python 3.8+ (3.13 compatible)
 - Node.js 16+ (for development)
 - API keys for chosen AI services
 
@@ -185,55 +190,66 @@ The AI now receives full chat context:
 4. Enable "The Gold Box" in Foundry world settings
 5. Configure module through Foundry settings menu
 
+> **Note**: For detailed environmental variable configuration options, see [USAGE.md](USAGE.md).
+
 ### Configuration
 - **Backend URL**: Set to `http://localhost:5000` (or your server port)
 - **Backend Password**: Admin password for secure operations
 - **AI Role**: Choose DM, DM Assistant, or Player
-- **LLM Service**: Select OpenAI, NovelAI, OpenCode, or Local
-- **Message Context**: Configure how many recent messages to include
-- **Service-Specific Settings**: API endpoints and model names per service
+- **General LLM Provider**: Select from 70+ available providers
+- **General LLM Model**: Choose specific model for selected provider
+- **General LLM Base URL**: Custom endpoint for providers
+- **Maximum Message Context**: Configure how many recent messages to include (default: 15)
+- **Service-Specific Settings**: API endpoints, models, timeouts, retries, and custom headers
 
 ## Usage Instructions
 
-### 1. Start the Backend
+## 1. Install in Foundry
+In foundry, select "add on modules" in the setup menu, and paste this into the "manifest url"
+
+https://github.com/ssjmarx/Gold-Box/releases/download/latest/module.json
+
+This will register the plugin with your copy of Foundry, allowing it to be enabled in your game worlds and recieve auto-updates.
+
+### 2. Start the Backend
 ```bash
-# Navigate to backend directory
-cd backend
+# Navigate to the module directory
+(on linux) cd ~/.local/share/FoundryVTT/Data/modules/gold-box/
 
-# Install dependencies
-pip install -r requirements.txt
+# Run setup script
+./backend.sh
 
-# Start the server
-python server.py
+# Setup script will automatically install all requirements and start the server
+# Or, you can start the server manually
+source ./backend/venv/bin/activate && python ./backend/server.py
+
+# If no API key file exists, the server will guide you through the key registration process
+
+# Once server is running, launch your Foundry world with the plugin installed and activated
+# Or if it is already running, navigate to the plugin settings and click "Rediscover Backend"
 ```
 
-### 2. Configure Foundry Module
+### 3. Configure Foundry Module
 1. Go to **Game Settings → Module Settings**
 2. Find **The Gold Box** in the list
 3. Configure:
-   - **Backend URL**: `http://localhost:5000`
-   - **Backend Password**: Your admin password
-   - **General LLM**: Choose your AI service
+   - **Backend Password**: Your server password (configured by the server when it starts for the first time)
    - **AI Role**: DM, DM Assistant, or Player
-   - **Maximum Message Context**: Number of recent messages (default: 15)
+    - This project uses litellm, view litellm's list of supported models/providers at https://docs.litellm.ai/docs/providers or https://models.litellm.ai/
+    - For some providers, connectivity may be possible even if it's not officially documented.  Contact your AI service's customer support if you are having issues connecting.
+   - **General LLM Provider**: Input your provider name
+   - **General LLM Model**: Select specific model
+   - **General LLM Base URL**: Custom endpoint if needed
+   - **Maximum Message Context**: Number of recent Foundry messages to send as context (default: 15)
+    - WARNING: If you exceed the context limit of your subscription, your request may be denied, or your service may choose to charge you for excess tokens.  It is your responsibility to monitor your usage to ensure that you remain within the bounds of your subscription and budget.
 
-### 3. Use the Module
-1. **Configure API Keys**: First-time setup will prompt for API keys
-2. **Test Connection**: Use "Discover Backend" button to verify connection
-3. **Take AI Turn**: Click the button in chat sidebar
-4. **View Responses**: AI responses appear in chat with full context awareness
-
-### 4. Message Context Features
-The module automatically:
-- **Collects Recent Messages**: Gathers last N messages from chat
-- **Preserves Formatting**: Maintains dice rolls and HTML content
-- **Sends Chronologically**: Orders messages oldest to newest
-- **Includes Metadata**: Sender information and timestamps
-- **Context Window**: Configurable size for context length
+### 4. Take AI Turn
+Press the `Take AI Turn` button, located under the chat window in Foundry, to send your current settings and chat context to the server.  If everything is configured correctly, you will recieve a response in a few seconds depending on the model you are connected to and your internet speed.
+  - NOTE: If you are unsure of whether your message was sent to the AI service, check the server terminal.  If you see a message like `Sending to OpenRouter API: openrouter with model: openai/glm-4.6`, keep waiting as the message has been sent and the server is waiting for the response.  If your message fails for any reason, you should see the recieved error code in both the server log and the Foundry chat.
 
 ## Privacy & Security
 
-**Important**: The Gold Box is designed with privacy-first principles. Your AI prompts and responses are handled securely.
+**Important**: The Gold Box is designed with privacy-first principles. Your AI prompts and responses are handled securely, and neither the module nor the server collect any user data.  Nothing gets sent to any web servers except for the AI API endpoints that you specifically configure, however you should be aware of your chosen AI service's privacy policy before conducting chats that contain sensitive information.
 
 ### 🔒 Security Features
 - **Encrypted Key Storage**: API keys encrypted with AES-256
@@ -244,10 +260,9 @@ The module automatically:
 - **Session Management**: Secure session handling
 
 ### 🔐 Privacy Protection
-- **No Content Logging**: Chat content is not stored permanently
+- **No Content Logging**: Chat content is not stored permanantly by the server, however it may be stored by Foundry.
 - **Local Processing**: You control server exposure
 - **User Control**: Explicit action required for AI responses
-- **Transparent Context**: You can see exactly what context is sent
 
 ### 🛡️ Production Security
 - **Environment-Based Config**: Different security for dev/prod
@@ -275,33 +290,16 @@ The module automatically:
 - **Previous**: AI responses appearing empty
 - **Solution**: Enhanced content extraction and logging
 
-### Connection Issues
-1. **Backend Not Running**
-   - Start backend: `cd backend && python server.py`
-   - Check port is available (default: 5000)
-
-2. **CORS Problems**
-   - Verify Foundry URL is in allowed origins
-   - Check backend CORS configuration
-
-3. **API Key Issues**
-   - Run backend key management wizard
-   - Verify keys are properly encrypted
-
-### Debug Mode
-Enable detailed logging:
-```bash
-LOG_LEVEL=DEBUG python server.py
-```
-
 ## Dependencies
 
 ### Core Backend Dependencies
 - **FastAPI** - Modern Python web framework (MIT License)
 - **Uvicorn** - ASGI server (BSD 3-Clause License)
+- **LiteLLM** - Unified LLM interface (MIT License)
 - **python-dotenv** - Environment variable management (BSD 3-Clause License)
 - **cryptography** - Encryption and security (Apache 2.0 License)
 - **pydantic** - Data validation (MIT License)
+- **slowapi** - Rate limiting for FastAPI (MIT License)
 
 ### Frontend Dependencies
 - **Foundry VTT API** - Game system integration
@@ -310,12 +308,7 @@ LOG_LEVEL=DEBUG python server.py
 
 ## Contributing
 
-This project is actively developed. Contributions are welcome in:
-- Additional AI service integrations
-- New tool implementations for Foundry VTT
-- Improved prompt engineering
-- UI/UX enhancements
-- Bug fixes and performance improvements
+This project is actively developed. Contributions are welcome in all areas, contact me via Github if you would like to contribute.
 
 ## License
 
@@ -324,11 +317,9 @@ This project is licensed under **Creative Commons Attribution-NonCommercial-Shar
 ## Roadmap
 
 ### ✅ Completed (v0.2.3)
-- [x] Basic LLM communication with context
-- [x] JavaScript syntax error fixes
+- [x] Basic LLM communication with chat context
 - [x] Enhanced debugging and logging
-- [x] Message context collection
-- [x] Multi-service AI support
+- [x] Multi-service AI support (70+ providers)
 - [x] Secure key management
 
 ### 🔄 In Progress
@@ -352,4 +343,4 @@ For issues and feature requests:
 
 ---
 
-**Version 0.2.3** - Enhanced message context, fixed JavaScript integration, and improved debugging capabilities
+**Version 0.2.3** - Enhanced message context, fixed JavaScript integration, improved debugging capabilities, and LiteLLM integration for 70+ AI providers

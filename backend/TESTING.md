@@ -1,11 +1,16 @@
-# Testing The Gold Box Backend Server
+# Testing The Gold Box Backend Server (v0.2.4)
 
 This document provides curl commands to test all API endpoints of The Gold Box backend server from the terminal.
+
+> **Important**: Before testing the `/api/simple_chat` endpoint, you must configure an API key through the key management system. Run the server without API keys configured and follow the interactive setup wizard, or set the `GOLD_BOX_KEYCHANGE=true` environment variable to force the key management interface.
+
+> **Note**: For comprehensive environmental variable configuration options, see [USAGE.md](../USAGE.md).
 
 ## Prerequisites
 1. Make sure the server is running (should be on localhost:5000 or the next available port)
 2. The server will display the actual port when it starts
 3. Install curl if not already available on your system
+4. **Configure API keys** through the key management system before testing chat endpoints
 
 ## Basic Endpoint Tests
 
@@ -33,126 +38,111 @@ curl -X POST http://localhost:5000/api/start
 ```
 *Expected*: Manual startup instructions and environment information
 
-## Testing the Main Processing Endpoint
+## Main Chat Endpoint Test
 
-### 5. Basic Process Test (Simple Text)
+### 5. Basic Simple Chat Test
 ```bash
-curl -X POST http://localhost:5000/api/process \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "Hello world, this is a test prompt"}'
-```
-*Expected*: Sanitized prompt echoed back with validation success message
-
-### 6. Process Test with AI Parameters
-```bash
-curl -X POST http://localhost:5000/api/process \
+curl -X POST http://localhost:5000/api/simple_chat \
   -H "Content-Type: application/json" \
   -d '{
-    "prompt": "Generate a fantasy character description",
-    "max_tokens": 150,
-    "temperature": 0.8,
-    "top_p": 0.9,
-    "frequency_penalty": 0.1,
-    "presence_penalty": 0.1
+    "settings": {
+      "general llm provider": "openai",
+      "general llm model": "gpt-3.5-turbo"
+    },
+    "messages": [
+      {"sender": "User", "content": "Hello world, this is a test prompt"}
+    ]
   }'
 ```
-*Expected*: Validated AI request with parameters echoed back
+*Expected*: AI response from configured provider with success status
 
-## Security & Validation Tests
+## Admin Endpoint Test
 
-### 7. Test XSS Protection (Should be blocked/sanitized)
+### 6. Admin Status Test
 ```bash
-curl -X POST http://localhost:5000/api/process \
+curl -X POST http://localhost:5000/api/admin \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "<script>alert(\"xss\")</script>Test prompt"}'
+  -H "X-Admin-Password: your-admin-password" \
+  -d '{"command": "status"}'
+```
+*Expected*: Server status and features list
+
+## Major Security Feature Tests
+
+### 7. XSS Protection Test
+```bash
+curl -X POST http://localhost:5000/api/simple_chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "settings": {
+      "general llm provider": "openai"
+    },
+    "messages": [
+      {"sender": "User", "content": "<script>alert(\"xss\")</script>Test prompt"}
+    ]
+  }'
 ```
 *Expected*: Sanitized output with script tags escaped or blocked
 
-### 8. Test SQL Injection Protection (Should be blocked)
+### 8. SQL Injection Protection Test
 ```bash
-curl -X POST http://localhost:5000/api/process \
+curl -X POST http://localhost:5000/api/simple_chat \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "SELECT * FROM users WHERE 1=1; DROP TABLE users;"}'
+  -d '{
+    "settings": {
+      "general llm provider": "openai"
+    },
+    "messages": [
+      {"sender": "User", "content": "SELECT * FROM users WHERE 1=1; DROP TABLE users;"}
+    ]
+  }'
 ```
 *Expected*: Error response indicating dangerous content detected
 
-### 9. Test Command Injection Protection (Should be blocked)
+### 9. Command Injection Protection Test
 ```bash
-curl -X POST http://localhost:5000/api/process \
+curl -X POST http://localhost:5000/api/simple_chat \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "test; rm -rf /; echo done"}'
+  -d '{
+    "settings": {
+      "general llm provider": "openai"
+    },
+    "messages": [
+      {"sender": "User", "content": "test; rm -rf /; echo done"}
+    ]
+  }'
 ```
 *Expected*: Error response indicating dangerous content detected
 
-### 10. Test Rate Limiting (Run multiple times quickly)
+### 10. Rate Limiting Test
 ```bash
 for i in {1..6}; do
   echo "Request $i:"
-  curl -X POST http://localhost:5000/api/process \
+  curl -X POST http://localhost:5000/api/simple_chat \
     -H "Content-Type: application/json" \
-    -d "{\"prompt\": \"Test request number $i\"}"
+    -d '{
+      "settings": {"general llm provider": "openai"},
+      "messages": [{"sender": "User", "content": "Test request number $i"}]
+    }'
   echo ""
   sleep 0.1
 done
 ```
 *Expected*: First 5 requests succeed, 6th returns rate limit error (429)
 
-## Error Handling Tests
+## Error Handling Test
 
-### 11. Test Invalid JSON
+### 11. Invalid Request Test
 ```bash
-curl -X POST http://localhost:5000/api/process \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "test", invalid json}'
-```
-*Expected*: 400 error about invalid JSON
-
-### 12. Test Missing Required Field
-```bash
-curl -X POST http://localhost:5000/api/process \
-  -H "Content-Type: application/json" \
-  -d '{"not_prompt": "test"}'
-```
-*Expected*: 400 error about missing required prompt field
-
-### 13. Test Too Long Prompt
-```bash
-curl -X POST http://localhost:5000/api/process \
-  -H "Content-Type: application/json" \
-  -d '{"prompt": "'$(printf 'a'%.s {1..11000})'"}'
-```
-*Expected*: 400 error about prompt being too long (exceeds 10000 character limit)
-
-## Parameter Validation Tests
-
-### 14. Test Invalid AI Parameters
-```bash
-curl -X POST http://localhost:5000/api/process \
+curl -X POST http://localhost:5000/api/simple_chat \
   -H "Content-Type: application/json" \
   -d '{
-    "prompt": "Test prompt",
-    "temperature": 5.0,
-    "max_tokens": -100
+    "settings": {
+      "general llm provider": "openai"
+    }
   }'
 ```
-*Expected*: 400 error about invalid parameter ranges
-
-### 15. Test Nonexistent Endpoint
-```bash
-curl -X GET http://localhost:5000/api/nonexistent
-```
-*Expected*: 404 error with list of available endpoints
-
-## Advanced Testing with Headers
-
-### 16. Test with Custom Headers
-```bash
-curl -X POST http://localhost:5000/api/process \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: test-key-123" \
-  -d '{"prompt": "Test with API key header"}'
-```
-*Expected*: Will process but API key validation depends on server configuration
+*Expected*: 400 error about missing required messages field
 
 ## Utility Commands
 
@@ -163,25 +153,19 @@ curl -X GET http://localhost:5000/api/info | jq .
 ```
 
 ### Testing Different Ports
-If the server starts on a different port (like 5001), just update the URLs:
+If the server starts on a different port (like 5001), just update URLs:
 ```bash
 curl -X GET http://localhost:5001/api/health
 ```
 
 ### Monitoring Server Logs
-You can monitor the server logs in real-time while testing:
+You can monitor server logs in real-time while testing:
 ```bash
 tail -f goldbox.log
 ```
 
-### Save Responses to File
-```bash
-curl -X GET http://localhost:5000/api/info > response.json
-```
+## Quick Test Script
 
-## Test Script Automation
-
-### Quick Test Script
 Save this as `test_server.sh` and make it executable:
 ```bash
 #!/bin/bash
@@ -189,7 +173,6 @@ Save this as `test_server.sh` and make it executable:
 echo "=== The Gold Box Backend Test Suite ==="
 echo
 
-# Test basic endpoints
 echo "1. Testing health check..."
 curl -s -X GET http://localhost:5000/api/health | jq .
 echo
@@ -198,16 +181,29 @@ echo "2. Testing service info..."
 curl -s -X GET http://localhost:5000/api/info | jq '.name, .version, .status'
 echo
 
-echo "3. Testing basic process..."
-curl -s -X POST http://localhost:5000/api/process \
+echo "3. Testing simple chat..."
+curl -s -X POST http://localhost:5000/api/simple_chat \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "Test prompt"}' | jq '.status, .validation_passed'
+  -d '{
+    "settings": {"general llm provider": "openai"},
+    "messages": [{"sender": "User", "content": "Test prompt"}]
+  }' | jq '.status'
 echo
 
 echo "4. Testing security validation..."
-curl -s -X POST http://localhost:5000/api/process \
+curl -s -X POST http://localhost:5000/api/simple_chat \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "<script>alert(\"xss\")</script>"}' | jq '.status, .error'
+  -d '{
+    "settings": {"general llm provider": "openai"},
+    "messages": [{"sender": "User", "content": "<script>alert(\"xss\")</script>"}]
+  }' | jq '.status, .error'
+echo
+
+echo "5. Testing admin endpoint..."
+curl -s -X POST http://localhost:5000/api/admin \
+  -H "Content-Type: application/json" \
+  -H "X-Admin-Password: your-admin-password" \
+  -d '{"command": "status"}' | jq '.service, .version'
 echo
 
 echo "=== Test Suite Complete ==="
@@ -225,6 +221,7 @@ chmod +x test_server.sh
 - Status code: 200
 - JSON format with `status: "success"`
 - Validated and sanitized input returned
+- AI response from configured provider
 
 ### Error Responses
 - Status codes: 400, 401, 404, 429, 500
@@ -260,4 +257,4 @@ chmod +x test_server.sh
 - Verify input length limits
 - Ensure no dangerous content patterns
 
-These tests will help you verify all the security features, validation logic, and functionality of The Gold Box backend server.
+These essential tests will help you verify the core functionality and security features of The Gold Box backend server.

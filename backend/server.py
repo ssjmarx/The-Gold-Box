@@ -125,6 +125,7 @@ class HealthResponse(BaseModel):
     universal_validator: bool
     rate_limiting: Dict[str, int]
     cors: Dict[str, Union[int, List[str], bool]]
+    configured_providers: Optional[List[Dict[str, Union[str, bool]]]] = None
 
 class InfoResponse(BaseModel):
     name: str
@@ -789,9 +790,9 @@ def manage_admin_password(manager):
     print("Gold Box - Admin Password Setup")
     print("=" * 50)
     
-    if not manager.get_admin_password_status():
+    if not manager.get_password_status():
         print("No admin password set. Setting up admin password now...")
-        if manager.set_admin_password():
+        if manager.set_password():
             print("Admin password set successfully")
             return True
         else:
@@ -813,15 +814,15 @@ def validate_server_requirements(manager):
         print("Please configure at least one API key using the key manager")
         return False
     
-    print(f"✓ Found {len([k for k in manager.keys_data.values() if k])} valid API key(s)")
+    print(f"Found {len([k for k in manager.keys_data.values() if k])} valid API key(s)")
     
     # Check for admin password
-    if not manager.get_admin_password_status():
+    if not manager.get_password_status():
         print("ERROR: No admin password set")
         return False
     
-    print("✓ Admin password configured")
-    print("✓ All server requirements validated")
+    print("Admin password configured")
+    print("All server requirements validated")
     return True
 
 def validate_prompt(prompt):
@@ -870,6 +871,31 @@ def verify_api_key(request):
     logger.info(f"Valid {service_name} API key from {request.remote_addr}")
     return True, None
 
+def get_configured_providers():
+    """Get list of configured providers with API keys from already loaded data"""
+    try:
+        # Use the global manager that's already loaded during server startup
+        # Don't load from file - just check what's already in memory
+        if hasattr(manager, 'keys_data') and manager.keys_data:
+            configured_providers = []
+            for provider_id, key_value in manager.keys_data.items():
+                if key_value and key_value.strip():  # Only include providers with non-empty keys
+                    provider_info = manager.provider_manager.get_provider(provider_id)
+                    if provider_info:
+                        provider_name = provider_info.get('name', provider_id.replace('_', ' ').title())
+                    else:
+                        provider_name = provider_id.replace('_', ' ').title()
+                    configured_providers.append({
+                        'provider_id': provider_id,
+                        'provider_name': provider_name,
+                        'has_key': True
+                    })
+            return configured_providers
+        return []
+    except Exception as e:
+        logger.error(f"Error getting configured providers: {e}")
+        return []
+
 # FastAPI middleware for security headers and request logging
 @app.middleware("http")
 async def security_middleware(request: Request, call_next):
@@ -896,8 +922,8 @@ async def security_middleware(request: Request, call_next):
 @app.post("/api/simple_chat")
 async def simple_chat_endpoint(request: Request):
     """
-    Enhanced simple chat endpoint for OpenCode-compatible APIs
-    Handles both single prompts and message context
+    Provider-agnostic simple chat endpoint
+    Handles unified frontend settings and message context
     """
     try:
         # Get client IP for rate limiting
@@ -931,54 +957,87 @@ async def simple_chat_endpoint(request: Request):
                 detail="Invalid JSON in request body"
             )
         
-        # Extract parameters
-        service_key = request_data.get('service_key', 'z_ai')  # Default to Z.AI
-        prompt = request_data.get('prompt', '')
-        message_context = request_data.get('message_context', [])
+        # Extract unified frontend settings and messages
+        frontend_settings = request_data.get('settings', {})
+        messages = request_data.get('messages', [])
         
-        # Validate that we have either prompt or message_context
-        if not prompt and not message_context:
+        # Validate that we have settings
+        if not frontend_settings:
             raise HTTPException(
                 status_code=400,
-                detail="Either prompt or message_context is required"
+                detail="Settings object is required"
             )
         
-        # Process using simple_chat module
-        logger.info(f"Processing simple chat request from {client_host}: service={service_key}")
+        # Validate that we have messages
+        if not messages:
+            raise HTTPException(
+                status_code=400,
+                detail="Messages array is required"
+            )
+        
+        # Extract provider configuration from settings
+        provider_id = frontend_settings.get('general llm provider', 'openai')
+        model = frontend_settings.get('general llm model', 'gpt-3.5-turbo')
+        base_url = frontend_settings.get('general llm base url', '')
+        api_version = frontend_settings.get('general llm version', 'v1')
+        timeout = frontend_settings.get('general llm timeout', 30)
+        max_retries = frontend_settings.get('general llm max retries', 3)
+        custom_headers_str = frontend_settings.get('general llm custom headers', '{}')
+        
+        # Parse custom headers if provided
+        custom_headers = {}
+        try:
+            if custom_headers_str and custom_headers_str.strip():
+                import json
+                custom_headers = json.loads(custom_headers_str)
+        except (json.JSONDecodeError, Exception) as e:
+            logger.warning(f"Invalid custom headers JSON: {e}")
+            custom_headers = {}
+        
+        # For now, always use General LLM settings (tactical will be implemented later)
+        logger.info(f"Processing provider-agnostic request from {client_host}: provider={provider_id}, model={model}")
+        logger.info(f"Settings: base_url={base_url}, api_version={api_version}, timeout={timeout}, max_retries={max_retries}")
         
         result = await process_simple_chat(
-            service_key=service_key,
-            prompt=prompt,
-            message_context=message_context,
-            temperature=request_data.get('temperature', 0.1),
-            max_tokens=request_data.get('max_tokens', None)
+            provider_id=provider_id,
+            model=model,
+            prompt=None,  # Will be set from message context
+            message_context=messages,
+            temperature=0.1,  # Default temperature
+            max_tokens=None,  # No token limit by default
+            base_url=base_url,  # Pass base URL if provided
+            api_version=api_version,  # Pass API version
+            timeout=timeout,  # Pass timeout
+            max_retries=max_retries,  # Pass max retries
+            custom_headers=custom_headers_str  # Pass custom headers as JSON string
         )
         
         if result['success']:
             # Log the actual content for debugging
             content = result['content']
-            logger.info(f"🔍 SERVER DEBUG: Content extracted: '{content}'")
-            logger.info(f"🔍 SERVER DEBUG: Content length: {len(content) if content else 0}")
-            logger.info(f"🔍 SERVER DEBUG: Content is empty: {not bool(content)}")
+            # logger.info(f"SERVER DEBUG: Content extracted: '{content}'")
+            # logger.info(f"SERVER DEBUG: Content length: {len(content) if content else 0}")
+            # logger.info(f"SERVER DEBUG: Content is empty: {not bool(content)}")
             
             response_data = {
                 'status': 'success',
                 'response': result['content'],
                 'timestamp': datetime.now().isoformat(),
-                'service_used': service_key,
-                'metadata': result.get('metadata', {}),
-                'message': 'OpenCode API response received successfully'
+                'provider_used': provider_id,
+                'model_used': model,
+                'metadata': result.get('metadata', {})
             }
-            logger.info(f"OpenCode response sent to {client_host}: success")
-            logger.info(f"🔍 SERVER DEBUG: Response data content: '{response_data['response']}'")
+            logger.info(f"Provider-agnostic response sent to {client_host}: success")
+            # logger.info(f"SERVER DEBUG: Response data content: '{response_data['response']}'")
         else:
             response_data = {
                 'status': 'error',
                 'error': result.get('error', 'Unknown error occurred'),
                 'timestamp': datetime.now().isoformat(),
-                'service_used': service_key
+                'provider_used': provider_id,
+                'model_used': model
             }
-            logger.error(f"OpenCode response failed for {client_host}: {result.get('error')}")
+            logger.error(f"Provider-agnostic response failed for {client_host}: {result.get('error')}")
         
         return response_data
         
@@ -994,6 +1053,8 @@ async def health_check():
     """
     Health check endpoint
     """
+    configured_providers = get_configured_providers()
+    
     return HealthResponse(
         status='healthy',
         timestamp=datetime.now().isoformat(),
@@ -1011,7 +1072,8 @@ async def health_check():
             'origins_count': len(CORS_ORIGINS),
             'configured': len(CORS_ORIGINS) > 0,
             'methods': ['GET', 'POST', 'OPTIONS']
-        }
+        },
+        configured_providers=configured_providers
     )
 
 @app.get("/api/info", response_model=InfoResponse)
@@ -1200,7 +1262,7 @@ async def admin_endpoint(request: Request):
             )
         
         # Verify admin password using the already loaded manager
-        is_valid, error_msg = manager.verify_admin_password(admin_password)
+        is_valid, error_msg = manager.verify_password(admin_password)
         if not is_valid:
             logger.warning(f"Invalid admin password attempt from {request.client.host if request.client else 'unknown'}")
             raise HTTPException(
@@ -1277,7 +1339,7 @@ async def admin_endpoint(request: Request):
         elif command == 'set_admin_password':
             # Set new admin password
             new_password = request_data.get('password', '')
-            if manager.set_admin_password(new_password):
+            if manager.set_password(new_password):
                 # Save updated configuration
                 if manager.save_keys(manager.keys_data, None):  # Save without changing encryption
                     logger.info("Admin password updated successfully")
@@ -1383,19 +1445,18 @@ if __name__ == '__main__':
     else:
         print("No keys file found. Running initial setup...")
     
-    # Step 1: Check if valid API keys exist
-    valid_keys_exist = any(key for key in manager.keys_data.values() if key)
-    if not valid_keys_exist:
+    # Force key manager if keychange is set
+    if keychange:
         print("\n" + "=" * 50)
-        print("NO VALID API KEYS FOUND")
+        print("KEYCHANGE FLAG DETECTED")
         print("=" * 50)
-        print("No valid API keys are configured.")
-        print("Running key manager to add API keys...")
+        print("Forcing key manager to run due to GOLD_BOX_KEYCHANGE=true")
+        print("This allows you to modify API keys and settings.")
         if not manager.interactive_setup():
-            print("[ERROR] Key setup failed")
+            print("[ERROR] Key setup cancelled or failed")
             sys.exit(1)
         
-        # Get encryption password for first-time save
+        # Get encryption password for saving if needed
         if encryption_password is None:
             print('\nSet encryption password for your keys.')
             print('This password will be required on every server startup.')
@@ -1405,21 +1466,44 @@ if __name__ == '__main__':
             print("[ERROR] Failed to save updated keys")
             sys.exit(1)
     
-    # Step 2: Check if admin password is set
-    if not manager.get_admin_password_status():
-        print("\n" + "=" * 50)
-        print("ADMIN PASSWORD REQUIRED")
-        print("=" * 50)
-        print("No admin password is configured.")
-        print("Setting up admin password now...")
-        if not manage_admin_password(manager):
-            print("[ERROR] Admin password setup failed")
-            sys.exit(1)
+    # Step 1: Check if valid API keys exist (only if NOT keychange)
+    if not keychange:
+        valid_keys_exist = any(key for key in manager.keys_data.values() if key)
+        if not valid_keys_exist:
+            print("\n" + "=" * 50)
+            print("NO VALID API KEYS FOUND")
+            print("=" * 50)
+            print("No valid API keys are configured.")
+            print("Running key manager to add API keys...")
+            if not manager.interactive_setup():
+                print("[ERROR] Key setup failed")
+                sys.exit(1)
+            
+            # Get encryption password for first-time save
+            if encryption_password is None:
+                print('\nSet encryption password for your keys.')
+                print('This password will be required on every server startup.')
+                encryption_password = getpass.getpass('Encryption password (blank for unencrypted): ')
+            
+            if not manager.save_keys(manager.keys_data, encryption_password if encryption_password else None):
+                print("[ERROR] Failed to save updated keys")
+                sys.exit(1)
         
-        # Save configuration with admin password using the same password
-        if not manager.save_keys(manager.keys_data, encryption_password if encryption_password else None):
-            print("[ERROR] Failed to save configuration with admin password")
-            sys.exit(1)
+        # Step 2: Check if admin password is set (only if NOT keychange)
+        if not manager.get_password_status():
+            print("\n" + "=" * 50)
+            print("ADMIN PASSWORD REQUIRED")
+            print("=" * 50)
+            print("No admin password is configured.")
+            print("Setting up admin password now...")
+            if not manage_admin_password(manager):
+                print("[ERROR] Admin password setup failed")
+                sys.exit(1)
+            
+            # Save configuration with admin password using the same password
+            if not manager.save_keys(manager.keys_data, encryption_password if encryption_password else None):
+                print("[ERROR] Failed to save configuration with admin password")
+                sys.exit(1)
     
     # Step 5: Set environment variables and start server
     print("Setting up environment variables...")
@@ -1431,7 +1515,7 @@ if __name__ == '__main__':
     OPENAI_API_KEY = os.environ.get('GOLD_BOX_OPENAI_COMPATIBLE_API_KEY', '')
     NOVELAI_API_KEY = os.environ.get('GOLD_BOX_NOVELAI_API_API_KEY', '')
     
-    print("✓ All requirements validated successfully")
+    print("All requirements validated successfully")
     
     # Check if running in development or production
     debug_mode = FLASK_DEBUG
@@ -1446,14 +1530,29 @@ if __name__ == '__main__':
         print("[ERROR] Please check if another application is using these ports")
         sys.exit(1)
     
+    # Clear terminal for clean startup display
+    import os
+    os.system('clear' if os.name == 'posix' else 'cls')
+    
     print("=" * 60)
     print("The Gold Box FastAPI Backend Server")
     print("=" * 60)
     print(f"Environment: {FLASK_ENV}")
-    print(f"Debug mode: {debug_mode}")
-    print(f"API Keys Required: {bool(OPENAI_API_KEY) or bool(NOVELAI_API_KEY)}")
-    print(f"OpenAI API Key: {'CONFIGURED' if OPENAI_API_KEY else 'NOT SET'}")
-    print(f"NovelAI API Key: {'CONFIGURED' if NOVELAI_API_KEY else 'NOT SET'}")
+    
+    # List all loaded API keys from provider manager
+    loaded_keys = []
+    if hasattr(manager, 'keys_data') and manager.keys_data:
+        for provider_id, key_value in manager.keys_data.items():
+            if key_value:  # Check if key has a value (any length)
+                # Get provider name from provider manager for better display
+                provider_info = manager.provider_manager.get_provider(provider_id)
+                if provider_info:
+                    provider_name = provider_info.get('name', provider_id.upper())
+                else:
+                    provider_name = provider_id.upper().replace('_API_KEY', '')
+                loaded_keys.append(provider_name)
+    
+    print(f"Loaded API Keys: {', '.join(loaded_keys) if loaded_keys else 'None'}")
     print(f"Rate Limiting: {RATE_LIMIT_MAX_REQUESTS} requests per {RATE_LIMIT_WINDOW_SECONDS} seconds")
     
     # CORS Configuration Summary
