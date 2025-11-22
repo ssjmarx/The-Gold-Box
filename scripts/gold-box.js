@@ -10,6 +10,7 @@ class GoldBoxAPI {
   constructor() {
     // Initialize with default URL - settings will be applied later
     this.baseUrl = 'http://localhost:5000';
+    this.sessionId = this.generateSessionId();
   }
 
   /**
@@ -106,12 +107,11 @@ class GoldBoxAPI {
    */
   async syncSettings(settings, adminPassword) {
     try {
+      const headers = await this.getSecurityHeaders('/api/admin');
+      
       const response = await fetch(`${this.baseUrl}/api/admin`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Admin-Password': adminPassword
-        },
+        headers: headers,
         body: JSON.stringify({
           command: 'update_settings',
           settings: settings
@@ -179,17 +179,21 @@ class GoldBoxAPI {
   }
 
   /**
-   * Send message context to backend
+   * Send message context to backend with processing mode support
    */
   async sendMessageContext(messages) {
     try {
-      const headers = {
-        'Content-Type': 'application/json'
-      };
+      // Choose endpoint based on processing mode
+      const processingMode = game.settings.get('gold-box', 'chatProcessingMode') || 'simple';
+      const endpoint = processingMode === 'processed' ? '/api/process_chat' : '/api/simple_chat';
+      
+      // Get security headers for this request
+      const headers = await this.getSecurityHeaders(endpoint);
       
       // Collect ALL frontend settings into unified object
       const frontendSettings = {
         'maximum message context': game.settings.get('gold-box', 'maxMessageContext') || 15,
+        'chat processing mode': game.settings.get('gold-box', 'chatProcessingMode') || 'simple',
         'ai role': game.settings.get('gold-box', 'aiRole') || 'dm',
         'general llm provider': game.settings.get('gold-box', 'generalLlmProvider') || '',
         'general llm base url': game.settings.get('gold-box', 'generalLlmBaseUrl') || '',
@@ -209,8 +213,9 @@ class GoldBoxAPI {
       };
       
       console.log('The Gold Box: Sending unified settings object:', Object.keys(frontendSettings).length, 'settings');
+      console.log('The Gold Box: Using security headers for endpoint:', endpoint);
       
-      const response = await fetch(`${this.baseUrl}/api/simple_chat`, {
+      const response = await fetch(`${this.baseUrl}${endpoint}`, {
         method: 'POST',
         headers: headers,
         body: JSON.stringify({
@@ -220,7 +225,14 @@ class GoldBoxAPI {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        // Handle security-related errors specifically
+        if (response.status === 429) {
+          throw new Error(`Rate limit exceeded. Please wait before trying again.`);
+        } else if (response.status === 401) {
+          throw new Error(`Session required or expired. Please refresh the page.`);
+        } else {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
       }
 
       const data = await response.json();
@@ -232,6 +244,151 @@ class GoldBoxAPI {
       console.error('Gold Box API Error:', error);
       throw error;
     }
+  }
+
+  /**
+   * Send message context to backend with visual indicators and timeout handling
+   */
+  async sendMessageContextWithVisuals(messages, moduleInstance) {
+    const button = document.getElementById('gold-box-launcher');
+    const timeout = game.settings.get('gold-box', 'aiResponseTimeout') || 60;
+    
+    try {
+      // Step 1: Disable button and show waiting state
+      this.setButtonProcessingState(button, true);
+      this.showProcessingIndicator();
+      
+      // Step 2: Send request with timeout and retry logic
+      const response = await Promise.race([
+        this.sendMessageContextWithRetry(messages),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('AI response timeout')), timeout * 1000))
+      ]);
+      
+      // Step 3: Re-enable button and hide indicators
+      this.setButtonProcessingState(button, false);
+      this.hideProcessingIndicator();
+      
+      if (response.success) {
+        // Display success response
+        moduleInstance.displayAIResponse(response.data.response, response.data);
+      } else {
+        // Display error response
+        moduleInstance.displayErrorResponse(response.error || 'Unknown error occurred');
+      }
+      
+    } catch (error) {
+      // Step 4: Ensure button is re-enabled on error
+      this.setButtonProcessingState(button, false);
+      this.hideProcessingIndicator();
+      
+      console.error('The Gold Box: Error processing AI turn:', error);
+      moduleInstance.displayErrorResponse(error.message);
+    }
+  }
+
+  /**
+   * Send message context to backend with retry logic
+   */
+  async sendMessageContextWithRetry(messages, maxRetries = 1) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await this.sendMessageContext(messages);
+        return response;
+      } catch (error) {
+        // For non-CSRF errors, implement basic retry logic
+        if (attempt === maxRetries) {
+          throw error;
+        }
+        
+        // Wait a moment before retrying
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+  }
+
+  /**
+   * Set button processing state with visual feedback
+   */
+  setButtonProcessingState(button, isProcessing) {
+    if (!button) return;
+    
+    if (isProcessing) {
+      button.disabled = true;
+      button.innerHTML = '🤔 AI Thinking...';
+      button.style.opacity = '0.6';
+      button.style.cursor = 'not-allowed';
+    } else {
+      button.disabled = false;
+      button.innerHTML = 'Take AI Turn';
+      button.style.opacity = '1';
+      button.style.cursor = 'pointer';
+    }
+  }
+
+  /**
+   * Show processing indicator
+   */
+  showProcessingIndicator() {
+    // Remove existing indicator
+    const existing = document.querySelector('.gold-box-processing');
+    if (existing) {
+      existing.remove();
+    }
+    
+    // Create and show new indicator
+    const indicator = document.createElement('div');
+    indicator.className = 'gold-box-processing';
+    indicator.style.cssText = `
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 20px;
+      border-radius: 8px;
+      z-index: 1000;
+      font-weight: bold;
+      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+    `;
+    indicator.innerHTML = '🧠 AI Processing...';
+    
+    document.body.appendChild(indicator);
+  }
+
+  /**
+   * Hide processing indicator
+   */
+  hideProcessingIndicator() {
+    const indicator = document.querySelector('.gold-box-processing');
+    if (indicator) {
+      indicator.remove();
+    }
+  }
+
+  /**
+   * Generate session ID for security
+   */
+  generateSessionId() {
+    // Generate a random session ID using browser crypto if available
+    if (crypto && crypto.randomUUID) {
+      return crypto.randomUUID();
+    } else {
+      // Fallback for older browsers
+      return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    }
+  }
+
+  /**
+   * Get security headers for requests
+   */
+  async getSecurityHeaders(endpoint = '') {
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-Session-ID': this.sessionId
+    };
+    
+    return headers;
   }
 }
 
@@ -298,6 +455,14 @@ class GoldBoxModule {
    * Register Foundry VTT hooks
    */
   registerHooks() {
+    console.log('The Gold Box: Starting settings registration...');
+    
+    // Check if settings are available
+    if (!game.settings) {
+      console.error('The Gold Box: game.settings not available during hook registration');
+      return;
+    }
+    
     // Register backend status setting (display-only)
     game.settings.register('gold-box', 'backendStatus', {
       name: "Backend Status",
@@ -309,13 +474,32 @@ class GoldBoxModule {
     });
 
     // Register Backend Password setting (moved to top)
-    game.settings.register('gold-box', 'backendPassword', {
-      name: "Backend Password",
-      hint: "Password for admin operations on backend server (used to sync settings)",
+    try {
+      game.settings.register('gold-box', 'backendPassword', {
+        name: "Backend Password",
+        hint: "Password for admin operations on backend server (used to sync settings)",
+        scope: "world",
+        config: true,
+        type: String,
+        default: ""
+      });
+      console.log('The Gold Box: Successfully registered backendPassword setting');
+    } catch (error) {
+      console.error('The Gold Box: Failed to register backendPassword setting:', error);
+    }
+
+    // Register Chat Processing Mode setting
+    game.settings.register('gold-box', 'chatProcessingMode', {
+      name: "Chat Processing Mode",
+      hint: "Choose how AI processes chat messages",
       scope: "world",
       config: true,
       type: String,
-      default: ""
+      choices: {
+        "simple": "Simple (existing /api/simple_chat)",
+        "processed": "Processed (new /api/process_chat)"
+      },
+      default: "simple"
     });
 
     // Register maximum message context setting
@@ -326,6 +510,16 @@ class GoldBoxModule {
       config: true,
       type: Number,
       default: 15
+    });
+
+    // Register AI Response Timeout setting
+    game.settings.register('gold-box', 'aiResponseTimeout', {
+      name: "AI Response Timeout (seconds)",
+      hint: "Maximum time to wait for AI response before re-enabling button (default: 60)",
+      scope: "world",
+      config: true,
+      type: Number,
+      default: 60
     });
 
     // Register AI role setting with dropdown
@@ -650,45 +844,10 @@ class GoldBoxModule {
   async onTakeAITurn() {
     console.log('The Gold Box: AI turn requested');
     
-    try {
-      // Step 1: Collect chat context
-      const maxContext = game.settings.get('gold-box', 'maxMessageContext') || 15;
-      const chatMessages = this.collectChatMessages(maxContext);
-      
-      if (chatMessages.length === 0) {
-        if (typeof ui !== 'undefined' && ui.notifications) {
-          ui.notifications.warn('No chat messages found for context. Send a message first!');
-        }
-        return;
-      }
-      
-      console.log('The Gold Box: Collected', chatMessages.length, 'messages for context');
-      
-      // Step 2: Verify backend password is configured (required for any AI interaction)
-      const backendPassword = game.settings.get('gold-box', 'backendPassword');
-      
-      if (!backendPassword || backendPassword.trim() === '') {
-        if (typeof ui !== 'undefined' && ui.notifications) {
-          ui.notifications.error('❌ Please configure a backend password in Gold Box settings first!');
-        }
-        return;
-      }
-      
-      // Step 3: Send message context to AI with unified settings
-      console.log('The Gold Box: Sending chat context with unified settings:', chatMessages.length, 'messages');
-      const result = await this.api.sendMessageContext(chatMessages);
-      
-      if (result.success) {
-        // Display the AI response as a chat message
-        this.displayAIResponse(result.data.response, result.data);
-      } else {
-        throw new Error(result.error || 'Unknown error occurred');
-      }
-      
-    } catch (error) {
-      console.error('The Gold Box: Error processing AI turn:', error);
-      this.displayErrorResponse(error.message);
-    }
+    // Use enhanced method with visual indicators
+    await this.api.sendMessageContextWithVisuals(this.collectChatMessages(
+      game.settings.get('gold-box', 'maxMessageContext') || 15
+    ), this);
   }
 
   /**
@@ -701,7 +860,7 @@ class GoldBoxModule {
     
     const roleDisplay = {
       'dm': 'Dungeon Master',
-      'dm_assistant': 'DM Assistant', 
+      'dm_assistant': 'DM Assistant',
       'player': 'Player'
     };
     
@@ -774,8 +933,8 @@ class GoldBoxModule {
         </div>
         <div class="gold-box-content">
           <p><strong>Backend Server Not Running or Not Reachable</strong></p>
-          <p><strong>Option 1: Run the automation script</strong></p>
-          <p>Run <code>./start-backend.py</code> from the Gold Box module directory to automatically set up and start the backend server.</p>
+          <p><strong>Option 1: Run</strong> automation script</p>
+          <p>Run <code>./start-backend.py</code> from Gold Box module directory to automatically set up and start the backend server.</p>
           <p><strong>Option 2: Manual setup</strong></p>
           <p>See the README.md file for manual setup instructions.</p>
           <p><strong>Option 3: Auto-discover port</strong></p>
@@ -904,7 +1063,7 @@ class GoldBoxModule {
             <div class="gold-box-content">
               <p><strong>✅ Found ${configuredProviders.length} configured LLM provider(s):</strong></p>
               <ul>${providerList}</ul>
-              <p><em>Configure your desired provider in the Gold Box settings.</em></p>
+              <p><em>Configure your desired provider in Gold Box settings.</em></p>
             </div>
           </div>
         `;
@@ -932,10 +1091,19 @@ GoldBoxModule.prototype.tearDown = function() {
 // Create and register the module
 const goldBox = new GoldBoxModule();
 
-// Initialize the module when Foundry is ready
+// Initialize module when Foundry is ready
 Hooks.once('init', () => {
-  game.goldBox = goldBox;
-  goldBox.init();
+  console.log('The Gold Box: Initializing module...');
+  console.log('The Gold Box: game object available:', typeof game !== 'undefined');
+  console.log('The Gold Box: game.settings available:', typeof game.settings !== 'undefined');
+  
+  if (typeof game !== 'undefined' && game.settings) {
+    game.goldBox = goldBox;
+    goldBox.init();
+    console.log('The Gold Box: Module initialization complete');
+  } else {
+    console.error('The Gold Box: game or game.settings not available during init');
+  }
 });
 
 // Clean up when the module is disabled
