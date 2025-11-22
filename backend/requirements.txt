@@ -16,6 +16,9 @@ gunicorn==21.2.0             # BSD 3-Clause License - Production WSGI server (la
 python-dotenv==1.2.1         # BSD 3-Clause License - Environment variable management
 cryptography>=41.0.0        # BSD 3-Clause License - Encryption and security
 
+# HTML Parsing (Phase 1)
+beautifulsoup4==4.12.3       # MIT License - HTML parsing for Foundry chat messages
+
 # AI Integration (Phase 1)
 litellm==1.80.0              # MIT License - Unified LLM interface (major update!)
 slowapi==0.1.9               # MIT License - Rate limiting for FastAPI

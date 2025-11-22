@@ -69,3 +69,7 @@ temp/
 
 # Sensitive files
 backend/keys.enc
+patch 0.2.5 planv2.md
+.gitignore
+SECURITY_MIDDLEWARE_PLAN.md
+PATCH_0.2.5_SECURITY_PLAN.md
