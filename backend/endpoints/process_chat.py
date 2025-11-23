@@ -16,9 +16,9 @@ import json
 import asyncio
 from datetime import datetime
 
-from processor import ChatContextProcessor
-from provider_manager import ProviderManager
-from ai_service import AIService
+from server.processor import ChatContextProcessor
+from server.provider_manager import ProviderManager
+from server.ai_service import AIService
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -75,10 +75,9 @@ async def process_chat(
     Process chat messages using compact JSON translation
     
     Security is now handled by UniversalSecurityMiddleware:
-    - CSRF protection validated
+    - Session validation enforced
     - Rate limiting applied
     - Input validation performed
-    - Session management enforced
     - Audit logging active
     
     This endpoint:

@@ -31,6 +31,7 @@ ENV/
 .idea/
 *.swp
 *.swo
+*~
 
 # OS
 .DS_Store
@@ -58,18 +59,54 @@ config.json
 *.key
 *.pem
 
-# Logs
+# Logs - Comprehensive coverage
 logs/
 *.log
+backend/logs/*.log
+backend/server_files/*.log
 
 # Temporary files
 tmp/
 temp/
 *.tmp
+*.temp
+cache/
+.cache/
 
-# Sensitive files
-backend/keys.enc
-patch 0.2.5 planv2.md
-.gitignore
-SECURITY_MIDDLEWARE_PLAN.md
-PATCH_0.2.5_SECURITY_PLAN.md
+# Runtime and session data
+backend/server_files/sessions.json
+backend/server_files/rate_limits.json
+
+# Sensitive files (encrypted keys and planning docs)
+backend/server_files/keys.enc
+backend/server_files/*_audit.log
+
+# Build and distribution artifacts
+*.zip
+*.tar.gz
+*.rar
+
+# Test coverage and profiling
+.coverage
+htmlcov/
+.profile
+*.prof
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Lock files (keep package managers consistent)
+package-lock.json
+yarn.lock
+
+# Python virtual environment specifics
+.env.venv
+venv.bak/
+env.bak/

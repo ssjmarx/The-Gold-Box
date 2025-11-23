@@ -11,11 +11,21 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 import hashlib
 
+# Get absolute path to backend directory (where server.py is located)
+BACKEND_DIR = Path(__file__).parent.parent.absolute()
+
+def get_absolute_path(relative_path: str) -> Path:
+    """
+    Convert a relative path to an absolute path based on backend directory.
+    This ensures consistent file operations regardless of where script is called from.
+    """
+    return (BACKEND_DIR / relative_path).resolve()
+
 class ProviderManager:
     """Manages both default litellm providers and custom providers"""
     
     def __init__(self, custom_providers_file='custom_providers.json'):
-        self.custom_providers_file = Path(custom_providers_file)
+        self.custom_providers_file = get_absolute_path(custom_providers_file)
         self.default_providers = {}
         self.custom_providers = {}
         self.all_providers = {}
@@ -31,7 +41,7 @@ class ProviderManager:
         
         try:
             # Load comprehensive provider list from file as single source of truth
-            with open('litellm_providers.json', 'r') as f:
+            with open(get_absolute_path('server_files/litellm_providers.json'), 'r') as f:
                 provider_data = json.load(f)
                 providers_list = provider_data['providers']
                 provider_details = provider_data['provider_details']

@@ -14,11 +14,21 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.backends import default_backend
 import base64
 from datetime import datetime
-from provider_manager import ProviderManager
+from .provider_manager import ProviderManager
+
+# Get absolute path to backend directory (where server.py is located)
+BACKEND_DIR = Path(__file__).parent.parent.absolute()
+
+def get_absolute_path(relative_path: str) -> Path:
+    """
+    Convert a relative path to an absolute path based on backend directory.
+    This ensures consistent file operations regardless of where script is called from.
+    """
+    return (BACKEND_DIR / relative_path).resolve()
 
 class MultiKeyManager:
-    def __init__(self, key_file='keys.enc'):
-        self.key_file = Path(key_file)
+    def __init__(self, key_file='server_files/keys.enc'):
+        self.key_file = get_absolute_path(key_file)
         self.keys_data = {}
         self.master_password = None  # Consolidated password for encryption and admin
         self.provider_manager = ProviderManager()
