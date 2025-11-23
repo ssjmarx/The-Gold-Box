@@ -16,6 +16,7 @@ import time
 import hashlib
 import secrets
 import json
+import configparser
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 from datetime import datetime, timedelta, UTC
@@ -23,6 +24,17 @@ import logging
 from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+from .input_validator import UniversalInputValidator
+
+# Get absolute path to backend directory (where server.py is located)
+BACKEND_DIR = Path(__file__).parent.parent.absolute()
+
+def get_absolute_path(relative_path: str) -> Path:
+    """
+    Convert a relative path to an absolute path based on backend directory.
+    This ensures consistent file operations regardless of where script is called from.
+    """
+    return (BACKEND_DIR / relative_path).resolve()
 
 logger = logging.getLogger(__name__)
 
@@ -53,370 +65,13 @@ class RateLimiter:
         self.requests[client_id].append(now)
         return True
 
-class SessionManager:
-    """Session management with timeout"""
-    
-    def __init__(self, timeout_minutes=30, warning_minutes=5):
-        self.timeout_minutes = timeout_minutes
-        self.warning_minutes = warning_minutes
-        self.sessions = {}  # client_id -> {'last_activity': timestamp, 'warnings_sent': int}
-    
-    def update_activity(self, client_id):
-        """Update client activity timestamp"""
-        now = time.time()
-        if client_id not in self.sessions:
-            self.sessions[client_id] = {
-                'last_activity': now,
-                'warnings_sent': 0,
-                'created': now
-            }
-        else:
-            self.sessions[client_id]['last_activity'] = now
-        return True
-    
-    def is_session_valid(self, client_id):
-        """Check if session is still valid"""
-        if client_id not in self.sessions:
-            return False, "No active session"
-        
-        session = self.sessions[client_id]
-        now = time.time()
-        elapsed_minutes = (now - session['last_activity']) / 60
-        
-        # Check if session has timed out
-        if elapsed_minutes >= self.timeout_minutes:
-            return False, f"Session timed out after {elapsed_minutes:.1f} minutes"
-        
-        # Check if we should send a warning
-        time_until_timeout = self.timeout_minutes - elapsed_minutes
-        if (time_until_timeout <= self.warning_minutes and 
-            time_until_timeout > 0 and 
-            session['warnings_sent'] == 0):
-            session['warnings_sent'] = 1
-            return True, f"Session will timeout in {time_until_timeout:.1f} minutes"
-        
-        return True, "Session active"
-    
-    def cleanup_expired_sessions(self):
-        """Remove expired sessions"""
-        now = time.time()
-        expired_clients = []
-        
-        for client_id, session in self.sessions.items():
-            elapsed_minutes = (now - session['last_activity']) / 60
-            if elapsed_minutes >= self.timeout_minutes + 10:  # Extra 10 minutes grace period
-                expired_clients.append(client_id)
-        
-        for client_id in expired_clients:
-            del self.sessions[client_id]
-            logger.info(f"Cleaned up expired session for {client_id}")
-        
-        return len(expired_clients)
-
-class UniversalInputValidator:
-    """
-    Universal input validation system for The Gold Box
-    Handles various input types and prepares for AI API integration
-    """
-    
-    # Security patterns for dangerous content (more specific to avoid false positives)
-    DANGEROUS_PATTERNS = [
-        # Script injection patterns
-        r'<script[^>]*>.*?</script>',
-        r'javascript:',
-        r'vbscript:',
-        r'onload\s*=',
-        r'onerror\s*=',
-        r'onclick\s*=',
-        # SQL injection patterns (more specific to avoid false positives like "D&D")
-        r'\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|UNION|SCRIPT)\s+(?:\*|\w+)\s+(?:FROM|INTO|TABLE)',
-        r"[';]\s*(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|UNION)\s+(?:\*|\w+)",
-        # Command injection patterns
-        r'[;&|`$(){}[\]]\s*(rm|del|format|shutdown|reboot|cat)',
-        r'\|\s*(rm|del|format|shutdown|reboot)',
-        # Path traversal patterns
-        r'\.\.[\\/]',
-        r'[\\/]\.\.[\\/]',
-        # XSS patterns
-        r'on\w+\s*=',
-        r'expression\s*\(',
-        r'@import',
-        # Data exfiltration patterns (more specific)
-        r'base64\s*decode',
-        r'hex\s*:\s*[0-9a-fA-F]{20,}',  # Only flag long hex strings
-    ]
-    
-    # Allowed characters for different input types
-    ALLOWED_CHAR_PATTERNS = {
-        'text': r'^[\w\s\.\,\!\?\;\:\-\(\)\[\]\"\'\/\n\r\t]*$',  # Text with punctuation
-        'prompt': r'^[\s\S]*$',  # Prompts allow ANY characters (including newlines, Unicode, etc.)
-        'api_key': r'^[a-zA-Z0-9\-_\.]+$',  # API keys
-        'config': r'^[a-zA-Z0-9\-_\.\/\:\s]*$',  # Configuration values
-    }
-    
-    # Size limits for different input types
-    SIZE_LIMITS = {
-        'prompt': 10000,  # AI prompts can be longer
-        'text': 50000,     # General text
-        'api_key': 500,    # API keys
-        'config': 1000,     # Configuration values
-        'url': 2048,        # URLs
-        'email': 254,       # Email addresses
-        'filename': 255,     # Filenames
-    }
-    
-    def __init__(self):
-        """Initialize validator with compiled regex patterns"""
-        self.compiled_patterns = [re.compile(pattern, re.IGNORECASE | re.MULTILINE | re.DOTALL) 
-                               for pattern in self.DANGEROUS_PATTERNS]
-        self.compiled_allowed = {key: re.compile(pattern) 
-                              for key, pattern in self.ALLOWED_CHAR_PATTERNS.items()}
-    
-    def validate_input(self, 
-                   input_data: Any, 
-                   input_type: str = 'text',
-                   field_name: str = 'input',
-                   required: bool = True,
-                   min_length: int = 0,
-                   max_length: Optional[int] = None) -> Tuple[bool, str, Any]:
-        """
-        Universal input validation function
-        
-        Args:
-            input_data: The input data to validate
-            input_type: Type of input ('text', 'prompt', 'api_key', 'config', 'url', 'email', 'filename')
-            field_name: Name of the field for error messages
-            required: Whether the field is required
-            min_length: Minimum allowed length
-            max_length: Maximum allowed length (overrides default)
-            
-        Returns:
-            Tuple[bool, str, Any]: (is_valid, error_message, sanitized_data)
-        """
-        
-        # Type checking and conversion
-        if input_data is None:
-            if required:
-                return False, f"{field_name} is required", None
-            return True, "", None
-        
-        # Convert to string if not already
-        try:
-            if isinstance(input_data, (dict, list)):
-                # Handle structured data
-                return self._validate_structured_data(input_data, input_type, field_name)
-            else:
-                input_str = str(input_data).strip()
-        except Exception as e:
-            return False, f"{field_name}: Invalid data format", None
-        
-        # Length validation
-        if max_length is None:
-            max_length = self.SIZE_LIMITS.get(input_type, 1000)
-        
-        if len(input_str) < min_length:
-            return False, f"{field_name} must be at least {min_length} characters", None
-        
-        if len(input_str) > max_length:
-            return False, f"{field_name} too long (max {max_length} characters)", None
-        
-        # FIX: Allow empty strings for non-required fields (like custom headers)
-        if required and not input_str:
-            return False, f"{field_name} cannot be empty", None
-        
-        if not required and not input_str:
-            return True, "", None
-        
-        # Security validation
-        is_safe, security_error = self._check_security(input_str)
-        if not is_safe:
-            return False, f"{field_name}: {security_error}", None
-        
-        # Character pattern validation
-        pattern_error = self._check_allowed_characters(input_str, input_type)
-        if pattern_error:
-            return False, f"{field_name}: {pattern_error}", None
-        
-        # Type-specific validation
-        type_error = self._validate_type_specific(input_str, input_type)
-        if type_error:
-            return False, f"{field_name}: {type_error}", None
-        
-        # Sanitization
-        sanitized = self._sanitize_input(input_str, input_type)
-        
-        return True, "", sanitized
-    
-    def _validate_structured_data(self, 
-                               data: Union[Dict, List], 
-                               input_type: str, 
-                               field_name: str) -> Tuple[bool, str, Any]:
-        """Validate structured data (dict/list)"""
-        if isinstance(data, dict):
-            # Validate each key-value pair
-            sanitized_dict = {}
-            for key, value in data.items():
-                # FIX: ALL settings fields should be optional
-                is_optional_field = key.startswith('general llm') or key.startswith('tactical llm')
-                field_required = not is_optional_field
-                
-                is_valid, error, sanitized_value = self.validate_input(
-                    value, input_type, f"{field_name}.{key}", required=field_required
-                )
-                if not is_valid:
-                    return False, error, None
-                sanitized_dict[key] = sanitized_value
-            return True, "", sanitized_dict
-        
-        elif isinstance(data, list):
-            # Validate each item in list
-            sanitized_list = []
-            for i, item in enumerate(data):
-                # FIX: Chat messages should use 'prompt' type for longer content (10,000 chars vs 1,000)
-                validation_type = 'prompt' if isinstance(item, dict) and 'content' in item else input_type
-                is_valid, error, sanitized_value = self.validate_input(
-                    item, validation_type, f"{field_name}[{i}]"
-                )
-                if not is_valid:
-                    return False, error, None
-                sanitized_list.append(sanitized_value)
-            return True, "", sanitized_list
-        
-        else:
-            return False, f"{field_name}: Unsupported data structure", None
-    
-    def _check_security(self, input_str: str) -> Tuple[bool, str]:
-        """Check for dangerous patterns"""
-        for pattern in self.compiled_patterns:
-            if pattern.search(input_str):
-                return False, "Contains potentially dangerous content"
-        return True, ""
-    
-    def _check_allowed_characters(self, input_str: str, input_type: str) -> str:
-        """Check if input contains only allowed characters"""
-        if input_type in self.compiled_allowed:
-            pattern = self.compiled_allowed[input_type]
-            if not pattern.fullmatch(input_str):
-                return "Contains invalid characters"
-        return ""
-    
-    def _validate_type_specific(self, input_str: str, input_type: str) -> str:
-        """Type-specific validation"""
-        if input_type == 'url':
-            # Basic URL validation
-            url_pattern = re.compile(
-                r'^https?://[^\s/$.?#].[^\s]*$',
-                re.IGNORECASE
-            )
-            if not url_pattern.match(input_str):
-                return "Invalid URL format"
-        
-        elif input_type == 'email':
-            # Basic email validation
-            email_pattern = re.compile(
-                r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
-                re.IGNORECASE
-            )
-            if not email_pattern.match(input_str):
-                return "Invalid email format"
-        
-        elif input_type == 'filename':
-            # Filename validation
-            if input_str in ['.', '..', '/', '\\', '']:
-                return "Invalid filename"
-            # Check for reserved names (Windows)
-            reserved_names = [
-                'CON', 'PRN', 'AUX', 'NUL',
-                'COM1', 'COM2', 'COM3', 'COM4', 'COM5', 'COM6', 'COM7', 'COM8', 'COM9',
-                'LPT1', 'LPT2', 'LPT3', 'LPT4', 'LPT5', 'LPT6', 'LPT7', 'LPT8', 'LPT9'
-            ]
-            base_name = os.path.splitext(input_str)[0].upper()
-            if base_name in reserved_names:
-                return "Reserved filename"
-        
-        return ""
-    
-    def _sanitize_input(self, input_str: str, input_type: str) -> str:
-        """Sanitize input based on type"""
-        # HTML escaping for text types
-        if input_type in ['text', 'prompt', 'config']:
-            input_str = html.escape(input_str)
-        
-        # Remove null bytes
-        input_str = input_str.replace('\x00', '')
-        
-        # Normalize whitespace
-        if input_type in ['text', 'prompt']:
-            input_str = ' '.join(input_str.split())
-        
-        # Trim based on type
-        max_length = self.SIZE_LIMITS.get(input_type, 1000)
-        if len(input_str) > max_length:
-            input_str = input_str[:max_length]
-        
-        return input_str
-    
-    def validate_ai_request(self, request_data: Dict) -> Tuple[bool, str, Dict]:
-        """
-        Validate AI-specific request data
-        Prepares for future AI API integration
-        """
-        sanitized_request = {}
-        
-        # Validate prompt (required)
-        prompt = request_data.get('prompt')
-        is_valid, error, sanitized_prompt = self.validate_input(
-            prompt, 'prompt', 'prompt', required=True
-        )
-        if not is_valid:
-            return False, error, None
-        sanitized_request['prompt'] = sanitized_prompt
-        
-        # Validate optional parameters
-        optional_params = {
-            'max_tokens': ('int', 100, 8192),
-            'temperature': ('float', 0.7, 0.0, 2.0),
-            'top_p': ('float', 1.0, 0.0, 1.0),
-            'frequency_penalty': ('float', 0.0, -2.0, 2.0),
-            'presence_penalty': ('float', 0.0, -2.0, 2.0),
-        }
-        
-        for param, (param_type, default_val, *ranges) in optional_params.items():
-            value = request_data.get(param, default_val)
-            
-            try:
-                if param_type == 'int':
-                    value = int(float(value))  # Handle string numbers
-                    if ranges and len(ranges) == 1 and (value < 0 or value > ranges[0]):
-                        return False, f"{param} must be between 0 and {ranges[0]}", None
-                elif param_type == 'float':
-                    value = float(value)
-                    if ranges and len(ranges) == 2 and (value < ranges[0] or value > ranges[1]):
-                        return False, f"{param} must be between {ranges[0]} and {ranges[1]}", None
-                
-                sanitized_request[param] = value
-                
-            except (ValueError, TypeError):
-                return False, f"{param} must be a valid {param_type}", None
-        
-        return True, "", sanitized_request
-    
-    def validate_api_key(self, api_key: str) -> Tuple[bool, str]:
-        """Validate API key format"""
-        if not api_key:
-            return True, ""  # Empty API key is allowed in development mode
-        
-        is_valid, error, sanitized = self.validate_input(
-            api_key, 'api_key', 'API key', required=True, min_length=8
-        )
-        return is_valid, error
-
+# SessionManager replaced by SessionValidator in sessionvalidator.py
 
 class PersistentRateLimiter:
     """File-based rate limiting that survives server restarts"""
     
-    def __init__(self, storage_file: str = "rate_limits.json"):
-        self.storage_file = Path(storage_file)
+    def __init__(self, storage_file: str = "server_files/rate_limits.json"):
+        self.storage_file = get_absolute_path(storage_file)
         self.data = {}
         self.load_limits()
         
@@ -472,8 +127,8 @@ class PersistentRateLimiter:
 class SecurityAuditor:
     """Structured security event logging for comprehensive audit trails"""
     
-    def __init__(self, log_file: str = "security_audit.log"):
-        self.log_file = Path(log_file)
+    def __init__(self, log_file: str = "server_files/security_audit.log"):
+        self.log_file = get_absolute_path(log_file)
         
     def log_event(self, event_type: str, details: Dict):
         """Log structured security event"""
@@ -503,6 +158,9 @@ class UniversalSecurityMiddleware(BaseHTTPMiddleware):
         self.rate_limiter = PersistentRateLimiter()
         self.auditor = SecurityAuditor()
         self.input_validator = UniversalInputValidator()
+        # Import SessionValidator here to avoid circular imports
+        from .sessionvalidator import session_validator
+        self.session_validator = session_validator
     
     def get_endpoint_config(self, path: str) -> Dict:
         """Get security configuration for endpoint"""
@@ -557,11 +215,18 @@ class UniversalSecurityMiddleware(BaseHTTPMiddleware):
             if request.method.upper() == 'OPTIONS':
                 logger.info(f"Skipping session validation for OPTIONS request to {path}")
             else:
-                # For now, basic session validation
-                # In production, implement proper session management
+                # Use SessionValidator for proper session validation
                 session_id = self.get_session_id(request)
-                if session_id == "unknown":
-                    logger.warning(f"Session validation failed for {path} - unknown session ID")
+                
+                # Extract session ID from header/cookie
+                session_id = self.get_session_id(request)
+                if session_id.startswith("header:"):
+                    actual_session_id = session_id.replace("header:", "")
+                elif session_id.startswith("cookie:"):
+                    actual_session_id = session_id.replace("cookie:", "")
+                else:
+                    # IP-based sessions are not valid for protected endpoints
+                    logger.warning(f"Session validation failed for {path} - IP-based session not allowed")
                     self.auditor.log_event('session_invalid', {
                         'client_ip': client_host,
                         'endpoint': path,
@@ -569,9 +234,53 @@ class UniversalSecurityMiddleware(BaseHTTPMiddleware):
                     })
                     raise HTTPException(
                         status_code=401,
-                        detail="Valid session required"
+                        detail="Valid session ID required (from header or cookie)"
                     )
-                logger.info(f"Session validation passed for {path}")
+                
+                # Validate session with SessionValidator
+                session_info = self.session_validator.get_session_info(actual_session_id)
+                if not session_info:
+                    logger.warning(f"Session validation failed for {path} - session not found: {actual_session_id}")
+                    self.auditor.log_event('session_invalid', {
+                        'client_ip': client_host,
+                        'endpoint': path,
+                        'method': request.method,
+                        'session_id': actual_session_id
+                    })
+                    return JSONResponse(
+                        status_code=401,
+                        content={"error": "Invalid or expired session", "detail": "Session not found - please initialize a session"}
+                    )
+                
+                if not self.session_validator.is_session_valid(actual_session_id):
+                    logger.warning(f"Session validation failed for {path} - session expired: {actual_session_id}")
+                    self.auditor.log_event('session_expired', {
+                        'client_ip': client_host,
+                        'endpoint': path,
+                        'method': request.method,
+                        'session_id': actual_session_id
+                    })
+                    return JSONResponse(
+                        status_code=401,
+                        content={"error": "Session expired", "detail": "Your session has expired - please initialize a new session"}
+                    )
+                
+                # Check client IP match for security
+                if session_info['client_ip'] != client_host:
+                    logger.warning(f"Session validation failed for {path} - IP mismatch: {session_info['client_ip']} vs {client_host}")
+                    self.auditor.log_event('session_ip_mismatch', {
+                        'client_ip': client_host,
+                        'endpoint': path,
+                        'method': request.method,
+                        'session_id': actual_session_id,
+                        'expected_ip': session_info['client_ip']
+                    })
+                    return JSONResponse(
+                        status_code=401,
+                        content={"error": "Session IP mismatch", "detail": "Session IP address has changed"}
+                    )
+                
+                logger.info(f"Session validation passed for {path} - session: {actual_session_id}")
         else:
             logger.info(f"Session validation NOT required for {path}")
         
@@ -587,7 +296,7 @@ class UniversalSecurityMiddleware(BaseHTTPMiddleware):
             try:
                 request_body = await request.json()
                 is_valid, error, sanitized = self.input_validator.validate_input(
-                    request_body, validation_level, 'request_body', required=False
+                    request_body, 'text', 'request_body', required=False, validation_level=validation_level
                 )
                 if not is_valid:
                     logger.error(f"Input validation failed for {path}: {error}")
@@ -665,7 +374,7 @@ class UniversalSecurityMiddleware(BaseHTTPMiddleware):
 def get_session_id_from_request(request: Request) -> str:
     """
     Shared session ID extraction function for consistent session identification
-    Used by both CSRF token endpoint and middleware
+    Used by session validation middleware
     """
     # Try to get session ID from various sources in order of preference
     # 1. Check for session cookie
@@ -690,84 +399,135 @@ rate_limiter = RateLimiter()
 auditor = SecurityAuditor()
 validator = UniversalInputValidator()
 
-# Security configuration for universal middleware
-SECURITY_CONFIG = {
-    "global": {
-        "enabled": True,
-        "audit_logging": True
-    },
-    "endpoints": {
-        # Critical: Process chat endpoints (currently NO security)
-        "/api/process_chat": {
-            "rate_limiting": None,
-            "input_validation": "none",
-            "session_required": False,
-            "security_headers": False
-        },
-        "/api/process_chat/validate": {
-            "rate_limiting": {"requests": 20, "window": 60},
-            "input_validation": "strict",
-            "session_required": True,
-            "security_headers": True
-        },
-        "/api/process_chat/status": {
-            "rate_limiting": {"requests": 30, "window": 60},
-            "input_validation": "basic",
-            "session_required": True,
-            "security_headers": True
-        },
-        "/api/process_chat/schemas": {
-            "rate_limiting": {"requests": 50, "window": 60},
-            "input_validation": "none",  # Public endpoint
-            "session_required": False,
-            "security_headers": True
-        },
+def load_security_config(config_file: str = "security_config.ini") -> Dict:
+    """
+    Load security configuration from INI file
+    
+    Args:
+        config_file: Path to INI configuration file
         
-        # Existing: Simple chat endpoint (ALL SECURITY DISABLED FOR TESTING)
-        "/api/simple_chat": {
-            "rate_limiting": None,
-            "input_validation": "none",
-            "session_required": False,
-            "security_headers": False
-        },
+    Returns:
+        Dict: Security configuration dictionary
+    """
+    config = configparser.ConfigParser()
+    config_path = get_absolute_path(config_file)
+    
+    if not config_path.exists():
+        logger.warning(f"Security config file not found: {config_path}, using defaults")
+        return get_default_security_config()
+    
+    try:
+        config.read(config_path)
+        logger.info(f"Loaded security configuration from {config_path}")
         
-        # Admin endpoints
-        "/api/admin": {
-            "rate_limiting": {"requests": 3, "window": 60},
-            "input_validation": "strict",
-            "session_required": True,
-            "security_headers": True
-        },
+        # Parse configuration
+        security_config = {"global": {}, "endpoints": {}}
         
-        # Public endpoints (basic security)
-        "/api/health": {
-            "rate_limiting": {"requests": 100, "window": 60},
-            "input_validation": "none",
-            "session_required": False,
-            "security_headers": True
-        },
-        "/api/info": {
-            "rate_limiting": {"requests": 50, "window": 60},
-            "input_validation": "none",
-            "session_required": False,
-            "security_headers": True
-        },
-        "/api/start": {
-            "rate_limiting": {"requests": 10, "window": 60},
-            "input_validation": "none",
-            "session_required": False,
-            "security_headers": True
-        },
+        # Parse global settings
+        if 'global' in config:
+            global_section = config['global']
+            security_config["global"]["enabled"] = global_section.getboolean('enabled', True)
+            security_config["global"]["audit_logging"] = global_section.getboolean('audit_logging', True)
         
-        # Session initialization endpoint
-        "/api/session/init": {
-            "rate_limiting": {"requests": 20, "window": 60},
-            "input_validation": "none",
-            "session_required": False,
-            "security_headers": True
+        # Parse endpoint configurations
+        for section_name in config.sections():
+            if section_name.startswith('endpoint:'):
+                endpoint_path = section_name[9:]  # Remove 'endpoint:' prefix
+                section = config[section_name]
+                
+                endpoint_config = {
+                    "rate_limiting": {
+                        "requests": section.getint('rate_limit_requests', 10),
+                        "window": section.getint('rate_limit_window', 60)
+                    },
+                    "input_validation": section.get('input_validation', 'basic'),
+                    "session_required": section.getboolean('session_required', False),
+                    "security_headers": section.getboolean('security_headers', True)
+                }
+                
+                security_config["endpoints"][endpoint_path] = endpoint_config
+        
+        return security_config
+        
+    except Exception as e:
+        logger.error(f"Error loading security config: {e}, using defaults")
+        return get_default_security_config()
+
+def get_default_security_config() -> Dict:
+    """
+    Get default security configuration
+    
+    Returns:
+        Dict: Default security configuration
+    """
+    return {
+        "global": {
+            "enabled": True,
+            "audit_logging": True
+        },
+        "endpoints": {
+            "/api/process_chat": {
+                "rate_limiting": {"requests": 10, "window": 60},
+                "input_validation": "basic",
+                "session_required": True,
+                "security_headers": True
+            },
+            "/api/process_chat/validate": {
+                "rate_limiting": {"requests": 20, "window": 60},
+                "input_validation": "strict",
+                "session_required": True,
+                "security_headers": True
+            },
+            "/api/process_chat/status": {
+                "rate_limiting": {"requests": 30, "window": 60},
+                "input_validation": "basic",
+                "session_required": True,
+                "security_headers": True
+            },
+            "/api/process_chat/schemas": {
+                "rate_limiting": {"requests": 50, "window": 60},
+                "input_validation": "none",
+                "session_required": False,
+                "security_headers": True
+            },
+            "/api/simple_chat": {
+                "rate_limiting": {"requests": 10, "window": 60},
+                "input_validation": "strict",
+                "session_required": False,
+                "security_headers": True
+            },
+            "/api/admin": {
+                "rate_limiting": {"requests": 10, "window": 60},
+                "input_validation": "strict",
+                "session_required": True,
+                "security_headers": True
+            },
+            "/api/health": {
+                "rate_limiting": {"requests": 100, "window": 60},
+                "input_validation": "none",
+                "session_required": False,
+                "security_headers": True
+            },
+            "/api/info": {
+                "rate_limiting": {"requests": 50, "window": 60},
+                "input_validation": "none",
+                "session_required": False,
+                "security_headers": True
+            },
+            "/api/start": {
+                "rate_limiting": {"requests": 10, "window": 60},
+                "input_validation": "none",
+                "session_required": False,
+                "security_headers": True
+            },
+            "/api/session/init": {
+                "rate_limiting": {"requests": 20, "window": 60},
+                "input_validation": "none",
+                "session_required": False,
+                "security_headers": True
+            }
         }
     }
-}
 
 def verify_virtual_environment():
     """Verify that we're running in a proper virtual environment"""
@@ -806,7 +566,7 @@ def verify_file_integrity():
         integrity_checks = []
         
         # Check requirements.txt integrity
-        req_file = Path(__file__).parent / 'requirements.txt'
+        req_file = get_absolute_path('requirements.txt')
         if req_file.exists():
             with open(req_file, 'r') as f:
                 req_content = f.read()
@@ -815,7 +575,7 @@ def verify_file_integrity():
                 logger.info(f"requirements.txt hash: {req_hash}")
         
         # Check server.py integrity
-        server_file = Path(__file__).parent / 'server.py'
+        server_file = get_absolute_path('server.py')
         if server_file.exists():
             with open(server_file, 'r') as f:
                 server_content = f.read()
@@ -824,7 +584,7 @@ def verify_file_integrity():
                 logger.info(f"server.py hash: {server_hash}")
         
         # Check security.py integrity (self-check)
-        security_file = Path(__file__)
+        security_file = get_absolute_path('security/security.py')
         if security_file.exists():
             with open(security_file, 'r') as f:
                 security_content = f.read()
@@ -844,7 +604,7 @@ def verify_file_permissions():
         permission_issues = []
         
         # Check log file permissions
-        log_file_path = Path('goldbox.log')
+        log_file_path = get_absolute_path('goldbox.log')
         if log_file_path.exists():
             current_perms = stat.filemode(log_file_path.stat().st_mode)
             # Log files should be readable/writeable by owner, not by others
@@ -860,7 +620,7 @@ def verify_file_permissions():
                     logger.error(f"Failed to fix log file permissions: {perm_error}")
         
         # Check key file permissions if it exists
-        key_file_path = Path(__file__).parent / 'keys.enc'
+        key_file_path = get_absolute_path('server_files/keys.enc')
         if key_file_path.exists():
             current_perms = stat.filemode(key_file_path.stat().st_mode)
             # Key files should be restricted to owner only
@@ -932,3 +692,6 @@ def validate_prompt(prompt, validator=None):
     if not is_valid:
         raise ValueError(error)
     return sanitized
+
+# Security configuration for universal middleware (loaded from INI)
+SECURITY_CONFIG = load_security_config()

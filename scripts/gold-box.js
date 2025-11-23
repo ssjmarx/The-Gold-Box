@@ -8,9 +8,8 @@
  */
 class GoldBoxAPI {
   constructor() {
-    // Initialize with default URL - settings will be applied later
-    this.baseUrl = 'http://localhost:5000';
-    this.sessionId = this.generateSessionId();
+    // Use ConnectionManager for all backend communication
+    this.connectionManager = new ConnectionManager();
   }
 
   /**
@@ -107,9 +106,9 @@ class GoldBoxAPI {
    */
   async syncSettings(settings, adminPassword) {
     try {
-      const headers = await this.getSecurityHeaders('/api/admin');
+      const headers = this.connectionManager.getSecurityHeaders();
       
-      const response = await fetch(`${this.baseUrl}/api/admin`, {
+      const response = await fetch(`${this.connectionManager.baseUrl}/api/admin`, {
         method: 'POST',
         headers: headers,
         body: JSON.stringify({
@@ -141,29 +140,7 @@ class GoldBoxAPI {
    * Test backend connection
    */
   async testConnection() {
-    try {
-      const response = await fetch(`${this.baseUrl}/api/health`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        return {
-          success: true,
-          data: data
-        };
-      } else {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-    } catch (error) {
-      return {
-        success: false,
-        error: error.message
-      };
-    }
+    return await this.connectionManager.testConnection();
   }
 
   /**
@@ -186,9 +163,6 @@ class GoldBoxAPI {
       // Choose endpoint based on processing mode
       const processingMode = game.settings.get('gold-box', 'chatProcessingMode') || 'simple';
       const endpoint = processingMode === 'processed' ? '/api/process_chat' : '/api/simple_chat';
-      
-      // Get security headers for this request
-      const headers = await this.getSecurityHeaders(endpoint);
       
       // Collect ALL frontend settings into unified object
       const frontendSettings = {
@@ -213,33 +187,16 @@ class GoldBoxAPI {
       };
       
       console.log('The Gold Box: Sending unified settings object:', Object.keys(frontendSettings).length, 'settings');
-      console.log('The Gold Box: Using security headers for endpoint:', endpoint);
+      console.log('The Gold Box: Using connection manager for endpoint:', endpoint);
       
-      const response = await fetch(`${this.baseUrl}${endpoint}`, {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify({
-          settings: frontendSettings,
-          messages: messages
-        })
+      // Use ConnectionManager for the request
+      const response = await this.connectionManager.makeRequest(endpoint, {
+        settings: frontendSettings,
+        messages: messages
       });
-
-      if (!response.ok) {
-        // Handle security-related errors specifically
-        if (response.status === 429) {
-          throw new Error(`Rate limit exceeded. Please wait before trying again.`);
-        } else if (response.status === 401) {
-          throw new Error(`Session required or expired. Please refresh the page.`);
-        } else {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-      }
-
-      const data = await response.json();
-      return {
-        success: true,
-        data: data
-      };
+      
+      return response;
+      
     } catch (error) {
       console.error('Gold Box API Error:', error);
       throw error;
@@ -365,31 +322,6 @@ class GoldBoxAPI {
       indicator.remove();
     }
   }
-
-  /**
-   * Generate session ID for security
-   */
-  generateSessionId() {
-    // Generate a random session ID using browser crypto if available
-    if (crypto && crypto.randomUUID) {
-      return crypto.randomUUID();
-    } else {
-      // Fallback for older browsers
-      return 'session_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-    }
-  }
-
-  /**
-   * Get security headers for requests
-   */
-  async getSecurityHeaders(endpoint = '') {
-    const headers = {
-      'Content-Type': 'application/json',
-      'X-Session-ID': this.sessionId
-    };
-    
-    return headers;
-  }
 }
 
 class GoldBoxModule {
@@ -420,28 +352,24 @@ class GoldBoxModule {
   }
 
   /**
-   * Check backend connection and show instructions if needed (health check only)
+   * Check backend connection and show instructions if needed (using ConnectionManager)
    */
   async checkBackendAndShowInstructions() {
     try {
-      // Test connection to auto-discovered URL
-      const testResult = await this.api.testConnection();
-      if (testResult.success) {
+      // Initialize connection through ConnectionManager
+      await this.api.connectionManager.initialize();
+      
+      // Get connection info for status
+      const connectionInfo = this.api.connectionManager.getConnectionInfo();
+      
+      if (connectionInfo.state === ConnectionState.CONNECTED) {
         await game.settings.set('gold-box', 'backendStatus', 'connected');
-        console.log('The Gold Box: Backend is running on auto-discovered URL:', this.api.baseUrl);
+        console.log('The Gold Box: Backend connected via ConnectionManager:', connectionInfo);
         return;
-      }
-      
-      // If auto-discovery failed, try manual discovery
-      console.log('The Gold Box: Auto-discovery failed, trying manual discovery...');
-      const manualResult = await this.api.autoDiscoverAndUpdatePort();
-      
-      if (manualResult) {
-        console.log('The Gold Box: Backend found at:', this.api.baseUrl);
       } else {
-        // Show instructions if no backend found
+        // Show instructions if connection failed
         await game.settings.set('gold-box', 'backendStatus', 'disconnected');
-        console.log('The Gold Box: No backend server found');
+        console.log('The Gold Box: Connection failed, ConnectionManager state:', connectionInfo.state);
         this.displayStartupInstructions();
       }
     } catch (error) {
@@ -958,17 +886,21 @@ class GoldBoxModule {
   }
 
   /**
-   * Enhanced manual port discovery with health check and port scanning
+   * Enhanced manual port discovery using ConnectionManager
    */
   async manualPortDiscovery() {
     try {
-      // First: Try current saved URL
-      console.log('The Gold Box: Testing current backend connection...');
-      const healthResult = await this.api.testConnection();
+      // Use ConnectionManager to initialize connection
+      await this.api.connectionManager.initialize();
       
-      if (healthResult.success) {
-        // Process configured providers from health check
-        if (healthResult.data && healthResult.data.configured_providers) {
+      // Get connection info for status
+      const connectionInfo = this.api.connectionManager.getConnectionInfo();
+      
+      if (connectionInfo.state === ConnectionState.CONNECTED) {
+        // Test connection to get provider info
+        const healthResult = await this.api.connectionManager.testConnection();
+        
+        if (healthResult.success && healthResult.data && healthResult.data.configured_providers) {
           this.displayAvailableProviders(healthResult.data.configured_providers);
         }
         
@@ -976,37 +908,13 @@ class GoldBoxModule {
           ui.notifications.info('✅ Backend connection verified!');
         }
         return true;
-      }
-      
-      // Second: If current URL fails, scan for new port
-      console.log('The Gold Box: Current connection failed, scanning for backend...');
-      const discoveredPort = await this.api.discoverBackendPort();
-      
-      if (discoveredPort) {
-        this.api.baseUrl = `http://localhost:${discoveredPort}`;
-        
-        // Test connection to get provider info
-        const newHealthResult = await this.api.testConnection();
-        if (newHealthResult.success && newHealthResult.data && newHealthResult.data.configured_providers) {
-          this.displayAvailableProviders(newHealthResult.data.configured_providers);
-        }
-        
+      } else {
+        // No backend found
         if (typeof ui !== 'undefined' && ui.notifications) {
-          ui.notifications.success(`🔍 Found backend on port ${discoveredPort}!`);
+          ui.notifications.error('❌ No backend server found. Please start the backend server.');
         }
-        
-        // Refresh settings to show updated URL
-        if (game.settings && game.settings.menu) {
-          game.settings.menu.render(true);
-        }
-        return true;
+        return false;
       }
-      
-      // Third: No backend found at all
-      if (typeof ui !== 'undefined' && ui.notifications) {
-        ui.notifications.error('❌ No backend server found. Please start the backend server.');
-      }
-      return false;
       
     } catch (error) {
       console.error('The Gold Box: Backend discovery failed:', error);

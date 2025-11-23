@@ -29,17 +29,28 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from pathlib import Path
 from pydantic import BaseModel, Field
 
-# Import key management from separate module
-from key_manager import MultiKeyManager
-from simple_chat import process_simple_chat
-from process_chat import router as process_chat_router
+# Get the absolute path to the backend directory (where server.py is located)
+BACKEND_DIR = Path(__file__).parent.absolute()
+
+def get_absolute_path(relative_path: str) -> Path:
+    """
+    Convert a relative path to an absolute path based on the backend directory.
+    This ensures consistent file operations regardless of where the script is called from.
+    """
+    return (BACKEND_DIR / relative_path).resolve()
+
+# Get the absolute path to the backend directory (where server.py is located)
+from server.key_manager import MultiKeyManager
+from endpoints.simple_chat import process_simple_chat
+from endpoints.process_chat import router as process_chat_router
 # Import security module
-from security import (
-    RateLimiter, SessionManager, UniversalInputValidator, 
+from security.security import (
+    RateLimiter, UniversalInputValidator, 
     UniversalSecurityMiddleware, SECURITY_CONFIG,
     verify_virtual_environment, verify_file_integrity, verify_file_permissions, 
     verify_dependency_integrity, validate_prompt, get_session_id_from_request
 )
+from security.sessionvalidator import session_validator
 
 # Load environment variables from .env file
 load_dotenv()
@@ -51,15 +62,15 @@ GOLD_BOX_PORT = int(os.environ.get('GOLD_BOX_PORT', 5000))
 FLASK_DEBUG = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
 FLASK_ENV = os.environ.get('FLASK_ENV', 'production')
 LOG_LEVEL = os.environ.get('LOG_LEVEL', 'INFO')
-LOG_FILE = os.environ.get('LOG_FILE', 'goldbox.log')
+LOG_FILE = str(get_absolute_path('server_files/goldbox.log'))
 
 # Rate limiting configuration
 RATE_LIMIT_MAX_REQUESTS = int(os.environ.get('RATE_LIMIT_MAX_REQUESTS', 5))
 RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get('RATE_LIMIT_WINDOW_SECONDS', 60))
 
 # Session timeout configuration
-SESSION_TIMEOUT_MINUTES = int(os.environ.get('SESSION_TIMEOUT_MINUTES', 30))
-SESSION_WARNING_MINUTES = int(os.environ.get('SESSION_WARNING_MINUTES', 5))
+SESSION_TIMEOUT_MINUTES = int(os.environ.get('SESSION_TIMEOUT_MINUTES', 60))  # Increased to 60 minutes
+SESSION_WARNING_MINUTES = int(os.environ.get('SESSION_WARNING_MINUTES', 10))  # Increased to 10 minutes
 
 # Configure logging first
 log_level = getattr(logging, LOG_LEVEL.upper(), logging.INFO)
@@ -188,8 +199,8 @@ logger.info("Universal Security Middleware integrated")
 # Initialize rate limiter with environment variables
 rate_limiter = RateLimiter(max_requests=RATE_LIMIT_MAX_REQUESTS, window_seconds=RATE_LIMIT_WINDOW_SECONDS)
 
-# Initialize session manager
-session_manager = SessionManager(timeout_minutes=SESSION_TIMEOUT_MINUTES, warning_minutes=SESSION_WARNING_MINUTES)
+# Initialize session manager using global instance
+session_manager = session_validator
 
 def find_available_port(start_port=5000, max_attempts=10):
     """
@@ -260,10 +271,10 @@ def manage_keys(keychange=False):
     if keychange or not manager.key_file.exists():
         print("Running key setup wizard...")
         if manager.interactive_setup():
-            print('\nSet encryption password for your keys.')
-            print('This password will be required on every server startup.')
-            encryption_password = getpass.getpass('Encryption password (blank for unencrypted): ')
-            manager.save_keys(manager.keys_data, encryption_password if encryption_password else None)
+            # Save configuration (password is already set in manager)
+            if not manager.save_keys(manager.keys_data):
+                print("[ERROR] Failed to save updated keys")
+                return False
         else:
             print("Key setup cancelled or failed")
             return False
@@ -472,7 +483,7 @@ async def simple_chat_endpoint(request: Request):
         )
         
         if result['success']:
-            # Log the actual content for debugging
+            # Log actual content for debugging
             content = result.get('response', '')  # AI service returns 'response' not 'content'
             response_data = {
                 'status': 'success',
@@ -693,6 +704,72 @@ async def security_verification():
             detail=str(e)
         )
 
+@app.post("/api/session/init")
+async def initialize_session(request: Request):
+    """
+    Initialize or refresh a session for the frontend
+    Supports both creating new sessions and extending existing ones
+    Returns session ID and expiry time for session management
+    Security is handled by UniversalSecurityMiddleware
+    """
+    try:
+        # Get request body for parameters
+        request_data = {}
+        try:
+            request_data = await request.json()
+        except Exception:
+            # If no JSON body, treat as empty object
+            request_data = {}
+        
+        # Get client information for session creation
+        client_host = request.client.host if request.client else "unknown"
+        
+        # Check if we should try to extend existing session
+        extend_existing = request_data.get('extend_existing', False)
+        preferred_session_id = request_data.get('session_id', None)
+        
+        session_id = None
+        was_extended = False
+        
+        # Try to extend existing session if requested and session_id provided
+        if extend_existing and preferred_session_id:
+            if session_manager.is_session_valid(preferred_session_id):
+                # Update session activity and extend expiry
+                session_manager.update_session_activity(preferred_session_id)
+                session_id = preferred_session_id
+                was_extended = True
+                logger.info(f"Session extended for {client_host}: {session_id}")
+            else:
+                logger.info(f"Preferred session {preferred_session_id} invalid, creating new session for {client_host}")
+        
+        # Create new session if extension wasn't possible or requested
+        if not session_id:
+            session_id = session_manager.create_session(request)
+            was_extended = False
+            logger.info(f"New session created for {client_host}: {session_id}")
+        
+        # Generate expiry time (default 30 minutes from now)
+        expiry_time = datetime.now() + timedelta(minutes=SESSION_TIMEOUT_MINUTES)
+        
+        # Generate CSRF token for session
+        csrf_token = session_manager.generate_csrf_token(session_id)
+        
+        return {
+            'session_id': session_id,
+            'expires_at': expiry_time.isoformat(),
+            'csrf_token': csrf_token,
+            'timeout_minutes': SESSION_TIMEOUT_MINUTES,
+            'was_extended': was_extended,
+            'message': 'Session initialized successfully' if not was_extended else 'Session extended successfully'
+        }
+        
+    except Exception as e:
+        logger.error(f"Session initialization error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to initialize session"
+        )
+
 @app.post("/api/start")
 async def start_backend():
     """
@@ -704,7 +781,7 @@ async def start_backend():
         'message': 'Please start the backend manually: cd backend && source venv/bin/activate && python server.py',
         'instructions': {
             'step1': 'Open terminal',
-            'step2': 'Navigate to backend directory',
+            'step2': 'Navigate to the backend directory',
             'step3': 'Activate virtual environment: source venv/bin/activate',
             'step4': 'Start server: python server.py'
         },
@@ -826,7 +903,7 @@ async def admin_endpoint(request: Request):
             new_password = request_data.get('password', '')
             if manager.set_password(new_password):
                 # Save updated configuration
-                if manager.save_keys(manager.keys_data, None):  # Save without changing encryption
+                if manager.save_keys(manager.keys_data):
                     logger.info("Admin password updated successfully")
                     return {
                         'status': 'success',
@@ -889,7 +966,7 @@ async def not_found(request: Request, exc):
         content={
             'error': 'Endpoint not found',
             'status': 'error',
-            'available_endpoints': ['/api/simple_chat', '/api/health', '/api/info', '/api/security', '/api/start', '/api/admin'],
+            'available_endpoints': ['/api/simple_chat', '/api/health', '/api/info', '/api/security', '/api/session/init', '/api/start', '/api/admin'],
             'security': 'Protected by Universal Security Middleware'
         }
     )
@@ -919,12 +996,11 @@ if __name__ == '__main__':
     # Check for keychange environment variable
     keychange = os.environ.get('GOLD_BOX_KEYCHANGE', '').lower() in ['true', '1', 'yes']
     
-    # Get encryption password once at start
-    encryption_password = None
+    # Check if keys file exists and load it
     if manager.key_file.exists():
         print("Loading API keys and admin password...")
-        encryption_password = getpass.getpass('Enter encryption password to unlock keys: ')
-        if not manager.load_keys_with_password(encryption_password):
+        if not manager.load_keys():
+            # load_keys() will prompt for password if needed
             print("[ERROR] Failed to load keys - invalid password or corrupted file")
             print("If you forgot the password, you may need to delete the keys file and start over")
             sys.exit(1)
@@ -942,13 +1018,8 @@ if __name__ == '__main__':
             print("[ERROR] Key setup cancelled or failed")
             sys.exit(1)
         
-        # Get encryption password for saving if needed
-        if encryption_password is None:
-            print('\nSet encryption password for your keys.')
-            print('This password will be required on every server startup.')
-            encryption_password = getpass.getpass('Encryption password (blank for unencrypted): ')
-        
-        if not manager.save_keys(manager.keys_data, encryption_password if encryption_password else None):
+        # Save configuration (password is already set in manager)
+        if not manager.save_keys(manager.keys_data):
             print("[ERROR] Failed to save updated keys")
             sys.exit(1)
     
@@ -965,13 +1036,8 @@ if __name__ == '__main__':
                 print("[ERROR] Key setup failed")
                 sys.exit(1)
             
-            # Get encryption password for first-time save
-            if encryption_password is None:
-                print('\nSet encryption password for your keys.')
-                print('This password will be required on every server startup.')
-                encryption_password = getpass.getpass('Encryption password (blank for unencrypted): ')
-            
-            if not manager.save_keys(manager.keys_data, encryption_password if encryption_password else None):
+            # Save configuration (password is already set in manager)
+            if not manager.save_keys(manager.keys_data):
                 print("[ERROR] Failed to save updated keys")
                 sys.exit(1)
         
@@ -987,7 +1053,7 @@ if __name__ == '__main__':
                 sys.exit(1)
             
             # Save configuration with admin password using same password
-            if not manager.save_keys(manager.keys_data, encryption_password if encryption_password else None):
+            if not manager.save_keys(manager.keys_data):
                 print("[ERROR] Failed to save configuration with admin password")
                 sys.exit(1)
     

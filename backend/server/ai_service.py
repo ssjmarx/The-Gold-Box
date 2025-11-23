@@ -10,7 +10,7 @@ import os
 import asyncio
 import litellm
 from typing import Dict, Any, Optional, List
-from provider_manager import ProviderManager
+from .provider_manager import ProviderManager
 
 class AIService:
     """
@@ -77,12 +77,12 @@ class AIService:
             
             print(f"Sending to {provider.get('name', provider_id)} API: {provider_id} with model: {model}")
             
-            # Prepare LiteLLM completion parameters
+            # Prepare LiteLLM completion parameters with proper type conversion
             completion_params = {
                 "model": model,
                 "messages": messages,
                 "api_key": api_key,
-                "temperature": float(config.get('temperature', 0.1)),
+                "temperature": float(config.get('temperature', 0.1)) if config.get('temperature') is not None else 0.1,
                 "max_tokens": int(config.get('max_tokens', 0)) if config.get('max_tokens') is not None else None,  # No limit by default
                 "stream": False  # Stream internally but wait for complete response
             }
@@ -95,8 +95,8 @@ class AIService:
                 completion_params['custom_llm_provider'] = "openai"  # Use OpenAI format for custom headers
                 completion_params['headers'] = config['headers']
             
-            # Apply timeout
-            timeout = config.get('timeout', 30)
+            # Apply timeout with proper type conversion
+            timeout = int(config.get('timeout', 30)) if config.get('timeout') is not None else 30
             
             # Use LiteLLM to call any provider API
             response = await asyncio.wait_for(
@@ -107,7 +107,7 @@ class AIService:
             if response and response.choices:
                 print("SUCCESS: Provider API responded!")
                 
-                # Extract the content
+                # Extracts content
                 content = ""
                 choice = response.choices[0]
                 
@@ -179,7 +179,7 @@ class AIService:
             base_url = settings.get('general llm base url')
             custom_headers = settings.get('general llm custom headers')
             timeout = settings.get('general llm timeout', 30)
-            max_retries = settings.get('general llm max retries', 3)
+            max_retries = settings.get('general llm max retries',3)
             
             # Use provider's default model if none specified
             if not model:
@@ -264,7 +264,7 @@ class AIService:
             base_url = settings.get('general llm base url')
             custom_headers = settings.get('general llm custom headers')
             timeout = settings.get('general llm timeout', 30)
-            max_retries = settings.get('general llm max retries', 3)
+            max_retries = settings.get('general llm max retries',3)
             
             # Use provider's default model if none specified
             if not model:
@@ -312,3 +312,81 @@ class AIService:
                 'success': False,
                 'error': f'Error processing compact context: {str(e)}'
             }
+
+# Global AI service instance
+_ai_service = None
+
+def get_ai_service() -> 'AIService':
+    """Get or create global AI service instance"""
+    global _ai_service
+    if _ai_service is None:
+        from .provider_manager import ProviderManager
+        provider_manager = ProviderManager()
+        _ai_service = AIService(provider_manager)
+    return _ai_service
+
+async def process_ai_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Process AI request - main entry point for external callers
+    
+    Args:
+        request_data: Dictionary containing:
+            - provider: Provider ID (e.g., 'openrouter')
+            - model: Model name (e.g., 'openai/glm-4.6')
+            - prompt: Prompt text (optional, will use message_context if not provided)
+            - message_context: List of messages (optional)
+            - base_url: Custom API base URL (optional)
+            - api_key: API key (optional, will use environment if not provided)
+            - temperature: Temperature for generation (optional)
+            - max_tokens: Maximum tokens (optional)
+            - timeout: Request timeout in seconds (optional)
+            
+    Returns:
+        Dictionary with response data and metadata
+    """
+    try:
+        ai_service = get_ai_service()
+        
+        # Extract configuration with proper type conversion
+        provider_id = request_data.get('provider', 'openai')
+        model = request_data.get('model', 'gpt-3.5-turbo')
+        prompt = request_data.get('prompt')
+        message_context = request_data.get('message_context')
+        base_url = request_data.get('base_url')
+        api_key = request_data.get('api_key')
+        temperature = request_data.get('temperature', 0.1)
+        max_tokens = request_data.get('max_tokens')
+        timeout = request_data.get('timeout', 30)
+        
+        # Prepare provider configuration with type safety
+        provider_config = {
+            "provider": provider_id,
+            "model": model,
+            "base_url": base_url,
+            "api_key": api_key,
+            "temperature": float(temperature) if temperature is not None else 0.1,
+            "max_tokens": int(max_tokens) if max_tokens is not None else None,
+            "timeout": int(timeout) if timeout is not None else 30
+        }
+        
+        # Prepare messages
+        if prompt:
+            # Use simple prompt
+            messages = [{"role": "user", "content": prompt}]
+        elif message_context:
+            # Use message context
+            messages = message_context
+        else:
+            return {
+                'success': False,
+                'error': 'Either prompt or message_context must be provided'
+            }
+        
+        # Make AI call
+        return await ai_service.call_ai_provider(messages, provider_config)
+        
+    except Exception as e:
+        return {
+            'success': False,
+            'error': f'Error in process_ai_request: {str(e)}'
+        }

@@ -24,10 +24,11 @@ GOLD_BOX_PORT=8080 FLASK_ENV=development python server.py
 | `GOLD_BOX_PORT` | `5000` | Server port number | `GOLD_BOX_PORT=8080` |
 | `FLASK_ENV` | `production` | Environment mode (`development`/`production`) | `FLASK_ENV=development` |
 | `FLASK_DEBUG` | `False` | Enable debug mode (`true`/`false`) | `FLASK_DEBUG=true` |
+| `USE_DEVELOPMENT_SERVER` | `false` | Force development mode via environment | `USE_DEVELOPMENT_SERVER=true` |
 
 ### Environment Modes
 
-**Development Mode (`FLASK_ENV=development`)**:
+**Development Mode (`FLASK_ENV=development` or `USE_DEVELOPMENT_SERVER=true`)**:
 - CORS automatically configured for localhost Foundry VTT ports
 - Debug endpoints enabled (`/docs`, `/redoc`)
 - Verbose logging enabled
@@ -83,8 +84,8 @@ GOLD_BOX_PORT=8080 FLASK_ENV=development python server.py
 
 | Variable | Default | Description | Example |
 |-----------|----------|-------------|----------|
-| `SESSION_TIMEOUT_MINUTES` | `30` | Session timeout in minutes | `SESSION_TIMEOUT_MINUTES=60` |
-| `SESSION_WARNING_MINUTES` | `5` | Warning before timeout (minutes) | `SESSION_WARNING_MINUTES=10` |
+| `SESSION_TIMEOUT_MINUTES` | `60` | Session timeout in minutes | `SESSION_TIMEOUT_MINUTES=120` |
+| `SESSION_WARNING_MINUTES` | `10` | Warning before timeout (minutes) | `SESSION_WARNING_MINUTES=15` |
 
 ## API Keys Configuration
 
@@ -103,17 +104,6 @@ GOLD_BOX_PORT=8080 FLASK_ENV=development python server.py
 - Together AI
 - Any OpenAI-compatible API service
 
-### NovelAI Integration
-
-| Variable | Description | Example |
-|-----------|-------------|----------|
-| `GOLD_BOX_NOVELAI_API_API_KEY` | NovelAI API key | `GOLD_BOX_NOVELAI_API_API_KEY=...` |
-
-**Supported NovelAI Features**:
-- Text generation with specialized TTRPG models
-- Image generation
-- Custom model training data
-
 ### OpenCode Compatible Services
 
 | Variable | Description | Example |
@@ -124,6 +114,27 @@ GOLD_BOX_PORT=8080 FLASK_ENV=development python server.py
 - Z.AI (GLM-4.6)
 - Other coding-focused AI services
 - Local model servers with OpenAI-compatible endpoints
+
+### Dynamic API Key Loading
+
+The Gold Box supports dynamic API key loading for any provider:
+
+| Variable Pattern | Description | Example |
+|----------------|-------------|----------|
+| `{PROVIDER}_API_KEY` | Generic API key pattern | `ANTHROPIC_API_KEY=sk-ant-...` |
+| `{provider}_API_KEY` | Lowercase variant | `anthropic_api_key=sk-ant-...` |
+
+**Supported Provider Variables**:
+- `OPENAI_API_KEY` - OpenAI services
+- `ANTHROPIC_API_KEY` - Anthropic Claude
+- `GOOGLE_API_KEY` - Google Gemini
+- `GROQ_API_KEY` - Groq
+- `TOGETHER_AI_API_KEY` - Together AI
+- `REPLICATE_API_TOKEN` - Replicate
+- `FIREWORKS_AI_API_KEY` - Fireworks AI
+- `XAI_API_KEY` - xAI (Grok)
+- `COHERE_API_KEY` - Cohere
+- `MISTRAL_API_KEY` - Mistral AI
 
 ## Key Management
 
@@ -138,6 +149,7 @@ GOLD_BOX_PORT=8080 FLASK_ENV=development python server.py
 - **Admin Password Protection**: Single password for encryption and admin operations
 - **Multiple Service Support**: Configure keys for multiple AI services
 - **Environment Variable Loading**: Secure key injection from environment
+- **Dynamic Provider Support**: Add new providers without code changes
 
 ### Setup Commands
 
@@ -150,7 +162,22 @@ GOLD_BOX_KEYCHANGE=true python server.py
 
 # Start with existing keys
 python server.py  # Will prompt for encryption password
+
+# Start with environment variables
+export OPENAI_API_KEY=sk-your-key
+export ANTHROPIC_API_KEY=sk-ant-your-key
+python server.py
 ```
+
+### Key Management Interface
+
+The interactive key management wizard provides:
+- **Add New Keys**: Securely add API keys for any supported provider
+- **Update Existing Keys**: Change encrypted stored keys
+- **Delete Keys**: Remove unused provider keys
+- **Test Connections**: Verify API key validity
+- **Import from Environment**: Load keys from environment variables
+- **Export to Environment**: Export keys to environment variables
 
 ## AI Service Configuration
 
@@ -180,7 +207,6 @@ The Gold Box supports 70+ AI providers through LiteLLM integration:
 
 **Specialized Services**:
 - OpenRouter (model routing)
-- NovelAI (TTRPG-focused)
 - Local LLM servers
 - Custom provider endpoints
 - Z.AI (GLM-4.6 and coding models)
@@ -224,6 +250,24 @@ export LOG_LEVEL=DEBUG
 export GOLD_BOX_OPENAI_COMPATIBLE_API_KEY=your-dev-key
 
 python server.py
+```
+
+### Backend Script Configuration
+
+```bash
+# Using backend.sh script with environment variables
+export FLASK_ENV=development
+export GOLD_BOX_PORT=5000
+export LOG_LEVEL=DEBUG
+
+# Run the setup script
+./backend.sh
+
+# Force development mode via script
+./backend.sh --dev
+
+# Force development mode via environment
+USE_DEVELOPMENT_SERVER=true ./backend.sh
 ```
 
 ### Docker Configuration
@@ -281,7 +325,51 @@ SESSION_TIMEOUT_MINUTES=60
 GOLD_BOX_OPENAI_COMPATIBLE_API_KEY=your-openai-key
 GOLD_BOX_NOVELAI_API_API_KEY=your-novelai-key
 GOLD_BOX_OPENCODE_COMPATIBLE_API_KEY=your-opencode-key
+USE_DEVELOPMENT_SERVER=true
 ```
+
+## Security Configuration File
+
+The `backend/security_config.ini` file provides endpoint-specific security settings:
+
+### Security Sections
+
+```ini
+[global]
+enabled = True
+audit_logging = False
+
+[endpoint:/api/process_chat]
+rate_limit_requests = 10
+rate_limit_window = 60
+input_validation = basic
+session_required = True
+security_headers = True
+
+[endpoint:/api/simple_chat]
+rate_limit_requests = 10
+rate_limit_window = 60
+input_validation = strict
+session_required = True
+security_headers = True
+
+[endpoint:/api/admin]
+rate_limit_requests = 10
+rate_limit_window = 60
+input_validation = strict
+session_required = True
+security_headers = True
+```
+
+### Security Options
+
+- **`enabled`**: Global security switch
+- **`audit_logging`**: Enable security event logging
+- **`rate_limit_requests`**: Max requests per endpoint
+- **`rate_limit_window`**: Time window for rate limiting
+- **`input_validation`**: `none`, `basic`, or `strict` validation
+- **`session_required`**: Require authenticated session
+- **`security_headers`**: Enable security HTTP headers
 
 ## Troubleshooting
 
@@ -303,6 +391,9 @@ GOLD_BOX_OPENCODE_COMPATIBLE_API_KEY=your-opencode-key
    ```bash
    # Force key management wizard
    GOLD_BOX_KEYCHANGE=true python server.py
+   
+   # Check environment variables
+   python server.py --check-keys
    ```
 
 4. **Rate Limiting Too Strict**
@@ -310,6 +401,14 @@ GOLD_BOX_OPENCODE_COMPATIBLE_API_KEY=your-opencode-key
    # Increase rate limits
    export RATE_LIMIT_MAX_REQUESTS=20
    export RATE_LIMIT_WINDOW_SECONDS=30
+   ```
+
+5. **Development Mode Issues**
+   ```bash
+   # Force development mode
+   export USE_DEVELOPMENT_SERVER=true
+   # or
+   ./backend.sh --dev
    ```
 
 ### Debug Mode
@@ -333,6 +432,9 @@ curl http://localhost:5000/api/info
 
 # Security verification
 curl http://localhost:5000/api/security
+
+# Test with specific environment
+GOLD_BOX_PORT=5001 python server.py
 ```
 
 ## Security Best Practices
@@ -356,8 +458,8 @@ curl http://localhost:5000/api/security
 
 4. **Session Management**
    ```bash
-   export SESSION_TIMEOUT_MINUTES=30  # Reasonable timeout
-   export SESSION_WARNING_MINUTES=5   # User warning
+   export SESSION_TIMEOUT_MINUTES=60  # Reasonable timeout
+   export SESSION_WARNING_MINUTES=10  # User warning
    ```
 
 ### Key Storage Security
@@ -409,6 +511,9 @@ grep "rate limit" goldbox.log
 
 # Monitor API usage
 grep "API call" goldbox.log
+
+# Monitor session activity
+grep "session" goldbox.log
 ```
 
 ### Health Monitoring
@@ -433,7 +538,7 @@ fi
    - Backend URL: `http://localhost:5000`
    - Backend Password: Your admin password
    - AI Role: DM, DM Assistant, or Player
-   - LLM Service: Choose from 73+ providers
+   - LLM Service: Choose from 70+ providers
 
 2. **Message Context Configuration**:
    - Maximum Message Context: 15 (default)
@@ -463,6 +568,42 @@ export GOLD_BOX_PORT=80
 export CORS_ORIGINS=https://foundry.example.com
 ```
 
+## Advanced Usage Patterns
+
+### Custom Provider Integration
+
+```bash
+# Add support for custom provider
+export CUSTOM_PROVIDER_API_KEY=your-custom-key
+export CUSTOM_PROVIDER_BASE_URL=https://api.custom.com/v1
+export CUSTOM_PROVIDER_MODEL=custom-model-name
+
+# Server will automatically detect and configure
+python server.py
+```
+
+### Load Balancing Configuration
+
+```bash
+# Multiple instances for load balancing
+export GOLD_BOX_PORT=5000  # Instance 1
+export GOLD_BOX_PORT=5001  # Instance 2
+export GOLD_BOX_PORT=5002  # Instance 3
+
+# Configure reverse proxy (nginx, etc.) to distribute load
+```
+
+### Backup and Recovery
+
+```bash
+# Backup encrypted keys
+cp backend/server_files/keys.enc backup/keys-$(date +%Y%m%d).enc
+
+# Recovery with new password
+GOLD_BOX_KEYCHANGE=true python server.py
+# Follow prompts to restore from backup
+```
+
 ## Support
 
 For configuration help:
@@ -473,4 +614,4 @@ For configuration help:
 
 ---
 
-**Last Updated**: Version 0.2.4 - Completed Phase One of Roadmap with 70+ AI providers supported
+**Last Updated**: Version 0.2.5 - Enhanced security framework, comprehensive chat context processor, and multi-provider support

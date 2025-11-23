@@ -7,8 +7,8 @@ Handles all AI providers via unified AI service
 import os
 import asyncio
 from typing import Dict, Any, Optional, List
-from provider_manager import ProviderManager
-from ai_service import AIService
+from server.provider_manager import ProviderManager
+from server.ai_service import AIService
 
 async def process_simple_chat(provider_id: str = None, model: str = None, prompt: str = None, message_context: list = None, base_url: str = None, api_version: str = None, timeout: int = 30, max_retries: int = 3, custom_headers: str = None, **kwargs) -> Dict[str, Any]:
     """
