@@ -450,7 +450,7 @@ async def simple_chat_endpoint(request: Request):
         base_url = frontend_settings.get('general llm base url', '')
         api_version = frontend_settings.get('general llm version', 'v1')
         timeout = frontend_settings.get('general llm timeout', 30)
-        max_retries = frontend_settings.get('general llm max retries',3)
+        max_retries = frontend_settings.get('general llm max retries', 3)
         custom_headers_str = frontend_settings.get('general llm custom headers', '{}')
         
         # Parse custom headers if provided

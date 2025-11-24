@@ -173,7 +173,7 @@ class GoldBoxAPI {
         'general llm base url': game.settings.get('gold-box', 'generalLlmBaseUrl') || '',
         'general llm model': game.settings.get('gold-box', 'generalLlmModel') || '',
         'general llm version': game.settings.get('gold-box', 'generalLlmVersion') || 'v1',
-        'general llm timeout': game.settings.get('gold-box', 'generalLlmTimeout') || 30,
+        'general llm timeout': game.settings.get('gold-box', 'aiResponseTimeout') || 60,
         'general llm max retries': game.settings.get('gold-box', 'generalLlmMaxRetries') || 3,
         'general llm custom headers': game.settings.get('gold-box', 'generalLlmCustomHeaders') || '',
         'tactical llm provider': game.settings.get('gold-box', 'tacticalLlmProvider') || '',
@@ -724,6 +724,7 @@ class GoldBoxModule {
 
   /**
    * Collect recent chat messages from DOM in chronological order
+   * Enhanced for patch 0.2.6 with complete HTML preservation
    * @param {number} maxMessages - Maximum number of messages to collect
    * @returns {Array} - Array of message objects in chronological order
    */
@@ -739,21 +740,53 @@ class GoldBoxModule {
       // This preserves Foundry's rich HTML structure for backend processing
       const fullHtml = element.outerHTML.trim();
       
-      // Extract timestamp for context (optional metadata)
+      // Enhanced metadata extraction for patch 0.2.6
       const timestampElement = element.querySelector('.message-timestamp');
-      const timestamp = timestampElement ? timestampElement.textContent : '';
+      const timestamp = timestampElement ? timestampElement.textContent : new Date().toISOString();
+      
+      // Extract sender information for better context preservation
+      const senderElement = element.querySelector('.message-sender, .sender, h4');
+      const sender = senderElement ? senderElement.textContent.trim() : 'Unknown';
       
       // Only add if we have HTML content
       if (fullHtml) {
         messages.push({
           content: fullHtml,  // Send complete HTML, not extracted content
-          timestamp: timestamp
+          timestamp: timestamp,
+          sender: sender,  // Add sender for better backend processing
+          type: this.detectMessageType(element)  // Add type hint for backend
         });
       }
     });
     
+    console.log('The Gold Box: Collected messages:', messages.length, 'messages with full HTML content');
+    console.log('The Gold Box: Sample message structure:', messages[0] ? 'content length: ' + messages[0].content.length + ', sender: ' + messages[0].sender + ', type: ' + messages[0].type : 'No messages');
+    
     // Returns in chronological order (oldest first, newest last)
     return messages;
+  }
+
+  /**
+   * Detect message type from DOM element for enhanced backend processing
+   * Helps backend processor with classification hints
+   * @param {Element} element - Chat message DOM element
+   * @returns {string} - Detected message type
+   */
+  detectMessageType(element) {
+    const classList = element.className;
+    
+    // Check for specific message types in order of priority
+    if (classList.includes('whisper')) return 'whisper';
+    if (classList.includes('gm-message')) return 'gm-message';
+    if (classList.includes('dice-roll')) return 'dice-roll';
+    if (classList.includes('attack-card')) return 'attack-roll';
+    if (classList.includes('save-card')) return 'saving-throw';
+    if (classList.includes('spell-card') || classList.includes('activation-card')) return 'chat-card';
+    if (classList.includes('condition-card')) return 'condition-card';
+    if (classList.includes('roll-table-result')) return 'table-result';
+    
+    // Default to player chat if no specific type detected
+    return 'player-chat';
   }
 
   /**
