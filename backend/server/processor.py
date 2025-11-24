@@ -14,7 +14,7 @@ import html as html_module
 from typing import Dict, List, Any, Optional, Tuple
 from bs4 import BeautifulSoup
 import logging
-
+ 
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -86,16 +86,31 @@ class ChatContextProcessor:
     
     def extract_dice_roll_data(self, soup: BeautifulSoup) -> Dict[str, Any]:
         """
-        Extract data from dice roll HTML
+        Extract data from dice roll HTML with enhanced flavor text support
         
         Expected structure:
-        <div class="dice-roll">
-            <div class="dice-formula">1d20 + 3 + 2</div>
-            <div class="dice-tooltip">...</div>
-            <h4 class="dice-total">6</h4>
-        </div>
+        <li class="chat-message">
+            <header class="message-header">
+                <h4 class="message-sender">Speaker Name</h4>
+                <span class="flavor-text">Intelligence (Investigation) Check</span>
+            </header>
+            <div class="message-content">
+                <div class="dice-roll">
+                    <div class="dice-formula">1d20 + 3 + 2</div>
+                    <div class="dice-tooltip">...</div>
+                    <h4 class="dice-total">6</h4>
+                </div>
+            </div>
+        </li>
         """
         data = {}
+        
+        # Extract flavor text from header (roll context like "Intelligence (Investigation) Check")
+        flavor_elem = soup.select_one('.flavor-text')
+        if flavor_elem:
+            flavor_text = flavor_elem.get_text(strip=True)
+            if flavor_text:
+                data['ft'] = flavor_text
         
         # Extract formula
         formula_elem = soup.select_one('.dice-formula')
@@ -150,33 +165,64 @@ class ChatContextProcessor:
             if results:
                 data['r'] = results
         
+        # Extract sender from the chat message structure
+        sender_elem = (soup.select_one('.message-sender .title') or
+                       soup.select_one('.name-stacked .title') or
+                       soup.select_one('.message-sender') or
+                       soup.select_one('.sender'))
+        
+        if sender_elem:
+            data['s'] = sender_elem.get_text(strip=True)
+        
         return data
     
     def extract_player_chat_data(self, soup: BeautifulSoup) -> Dict[str, Any]:
         """
-        Extract data from player chat message
-        
+        Extract data from complete chat-message li element
         Expected structure:
-        <div class="chat-message">
+        <li class="chat-message">
             <header class="message-header">
-                <h4 class="message-speaker">Character Name</h4>
+                <h4 class="message-sender">Speaker Name</h4>
             </header>
-            <div class="message-content">Message content</div>
-        </div>
+            <div class="message-content">Content</div>
+        </li>
         """
         data = {}
         
-        # Extract speaker name
-        speaker_elem = soup.select_one('.message-speaker')
-        if speaker_elem:
-            data['s'] = speaker_elem.get_text(strip=True)
+        # Extract sender from header with multiple fallback selectors
+        sender_elem = (soup.select_one('.message-sender .title') or
+                       soup.select_one('.name-stacked .title') or
+                       soup.select_one('.message-sender') or
+                       soup.select_one('.sender') or
+                       soup.select_one('header h4'))
         
-        # Extract content
-        content_elem = soup.select_one('.message-content')
+        if sender_elem:
+            data['s'] = sender_elem.get_text(strip=True)
+        
+        # Extract content with multiple fallback selectors
+        content_elem = (soup.select_one('.message-content') or
+                       soup.select_one('.content') or
+                       soup.select_one('div.message-text') or
+                       soup)  # Fallback to full text
+        
         if content_elem:
-            # Clean HTML and get text content
-            content_text = content_elem.get_text(strip=True)
-            data['c'] = content_text
+            # Get all text content, preserving structure
+            content_text = content_elem.get_text(separator=' ', strip=True)
+            # Remove duplicate chat card content that might be included
+            # Look for the main paragraph content, not card descriptions
+            if content_elem != soup:  # Only if we found a specific content element
+                paragraphs = content_elem.find_all('p')
+                if paragraphs:
+                    # Use the first paragraph as the main content, exclude card content
+                    main_content = paragraphs[0].get_text(separator=' ', strip=True)
+                    if main_content and main_content.strip():
+                        data['c'] = main_content.strip()
+                    else:
+                        data['c'] = content_text.strip()
+                else:
+                    data['c'] = content_text.strip()
+            else:
+                data['c'] = content_text.strip()
         
         return data
     
@@ -334,42 +380,69 @@ class ChatContextProcessor:
         Extract data from chat card (items, spells, etc.)
         
         Expected structure:
-        <div class="chat-card activation-card">
-            <header class="card-header">
-                <img class="gold-icon" src="...">
-                <div class="name-stacked">
-                    <span class="title">Dagger</span>
-                    <span class="subtitle">Simple Melee</span>
-                </div>
+        <li class="chat-message">
+            <header class="message-header">
+                <h4 class="message-sender">Speaker Name</h4>
             </header>
-            <section class="details">
-                <div class="wrapper">
-                    <p>Attack description...</p>
+            <div class="message-content">
+                <div class="chat-card activation-card">
+                    <header class="card-header">
+                        <img class="gold-icon" src="...">
+                        <div class="name-stacked border">
+                            <span class="title">Dagger</span>
+                            <span class="subtitle">Simple Melee</span>
+                        </div>
+                    </header>
+                    <section class="details">
+                        <div class="wrapper">
+                            <p>Attack description...</p>
+                        </div>
+                    </section>
                 </div>
-            </section>
-        </div>
+            </div>
+        </li>
         """
         data = {}
         
-        # Find the main chat card element (might be soup itself or a child)
-        card_element = soup
-        if soup.name == '[document]':  # If soup is the whole document
-            card_element = soup.find('div') or soup.find('section') or soup
+        # Find the chat card element within the message structure
+        card_element = soup.select_one('.chat-card') or soup.select_one('.activation-card')
+        if not card_element:
+            # Fallback: look for any div with activation-card class
+            card_element = soup.find('div', class_=lambda x: x and 'activation-card' in str(x))
         
         # Determine card type from classes
-        classes = card_element.get('class', [])
-        if 'spell-card' in classes:
-            data['ct'] = 'spell'
-        elif 'activation-card' in classes:
-            data['ct'] = 'item'
+        if card_element:
+            classes = card_element.get('class', [])
+            class_str = ' '.join(classes)
+            if 'spell-card' in class_str:
+                data['ct'] = 'spell'
+            elif 'activation-card' in class_str:
+                data['ct'] = 'item'
+            else:
+                data['ct'] = 'generic'
         else:
             data['ct'] = 'generic'
         
-        # Extract name - try multiple selectors for actual Foundry structure
-        name_elem = (soup.select_one('.title') or 
-                     soup.select_one('.item-name') or 
-                     soup.select_one('.card-header h3') or 
-                     soup.select_one('h3'))
+        # Extract speaker from the message header (not the card)
+        speaker_elem = (soup.select_one('.message-sender .title') or
+                       soup.select_one('.name-stacked .title') or
+                       soup.select_one('.message-sender'))
+        
+        if speaker_elem:
+            data['s'] = speaker_elem.get_text(strip=True)
+        
+        # Extract name from the card header, not the message header
+        # Look for the title within the card structure
+        if card_element:
+            name_elem = (card_element.select_one('.card-header .title') or
+                        card_element.select_one('.name-stacked .title') or
+                        card_element.select_one('.item-name') or
+                        card_element.select_one('h3'))
+        else:
+            # Fallback to searching in the full soup but be more specific
+            name_elem = (soup.select_one('.chat-card .card-header .title') or
+                        soup.select_one('.activation-card .card-header .title') or
+                        soup.select_one('.chat-card .name-stacked .title'))
         
         if name_elem:
             data['n'] = name_elem.get_text(strip=True)
@@ -380,17 +453,34 @@ class ChatContextProcessor:
                     soup.select_one('.item-description'))
         
         if desc_elem:
-            # Get text content and clean up roll links
-            desc_text = desc_elem.get_text(strip=True)
-            # Remove more comprehensive roll patterns from description
-            desc_text = re.sub(r'\d+d\d*(?:\s*[-+]\s*\d+)?', '', desc_text)  # 1d20+4, 1d4 + 2, etc.
-            desc_text = re.sub(r'\+[+\d]*', '', desc_text)  # Remove stray +4, +2 patterns
-            # Clean up extra spaces and punctuation
-            desc_text = re.sub(r'\s+', ' ', desc_text)
+            # Get text content with proper spacing
+            desc_text = desc_elem.get_text(separator=' ', strip=True)
+            # Fix spacing between words (especially around HTML links)
+            desc_text = re.sub(r'([a-z])([A-Z])', r'\1 \2', desc_text)  # Add space before capitals
+            desc_text = re.sub(r'([a-z])([A-Z])', r'\1 \2', desc_text)  # Add space before capitals (backup)
+            desc_text = re.sub(r'\s+', ' ', desc_text)  # Normalize whitespace
+            # Remove roll patterns while preserving spacing
+            desc_text = re.sub(r'\s*\d+d\d*(?:\s*[-+]\s*\d+)?\s*', ' ', desc_text)  # 1d20+4, 1d4 + 2, etc.
+            desc_text = re.sub(r'\s*\+[+\d]*\s*', ' ', desc_text)  # Remove stray +4, +2 patterns
             desc_text = re.sub(r'Roll:\s*,', 'Roll:', desc_text)  # Fix "Roll:" followed by comma
             desc_text = re.sub(r'\.\s*\(', '. (', desc_text)  # Fix period spacing before parenthesis
             desc_text = desc_text.strip()
+            # Unescape HTML entities for better readability
+            import html as html_module
+            desc_text = html_module.unescape(desc_text)
             data['d'] = desc_text
+        
+        # Check if this is a mixed message (chat message + card) and extract main content
+        # This handles cases where a player says something AND includes a card
+        message_content_elem = soup.select_one('.message-content p')
+        if message_content_elem:
+            content_text = message_content_elem.get_text(separator=' ', strip=True)
+            # Check if this is the main message content (not card description)
+            # by ensuring it's not the same as the card description
+            if 'd' in data and content_text != data['d']:
+                # Also check if it contains the card description by looking for key phrases
+                if not any(phrase in content_text.lower() for phrase in ['description:', 'test item', 'test type']):
+                    data['c'] = content_text.strip()
         
         # Extract actions from buttons
         button_elems = soup.select('.card-buttons button')
@@ -583,25 +673,59 @@ class ChatContextProcessor:
             data: Raw compact JSON data
             
         Returns:
-            Sanitized data
+            Sanitized data with readable text for AI
         """
         sanitized = {}
         
         for key, value in data.items():
             if isinstance(value, str):
-                # Escape HTML characters
-                sanitized[key] = html_module.escape(value)
-                # Remove null bytes
-                sanitized[key] = sanitized[key].replace('\x00', '')
+                # Remove null bytes first
+                clean_value = value.replace('\x00', '')
+                # Unescape HTML entities for AI readability
+                clean_value = html_module.unescape(clean_value)
+                # Remove dangerous HTML tags but preserve readable text
+                # This is safer than full HTML escaping for AI context
+                dangerous_patterns = [
+                    r'<script[^>]*>.*?</script>',  # Remove script tags
+                    r'<iframe[^>]*>.*?</iframe>',  # Remove iframes
+                    r'<object[^>]*>.*?</object>',  # Remove objects
+                    r'<embed[^>]*>.*?</embed>',    # Remove embeds
+                    r'<form[^>]*>.*?</form>',      # Remove forms
+                    r'javascript:',                   # Remove javascript URLs
+                    r'vbscript:',                    # Remove vbscript URLs
+                    r'on\w+\s*=',                  # Remove event handlers
+                ]
+                for pattern in dangerous_patterns:
+                    clean_value = re.sub(pattern, '', clean_value, flags=re.IGNORECASE | re.DOTALL)
+                
+                # Clean up any remaining HTML tag fragments that might result from pattern removal
+                clean_value = re.sub(r'<[^>]*>', '', clean_value)  # Remove any remaining HTML tags
+                clean_value = re.sub(r'>', '', clean_value)     # Remove stray closing brackets
+                
+                # Final cleanup: normalize whitespace and ensure readability
+                clean_value = re.sub(r'\s+', ' ', clean_value).strip()
+                
+                sanitized[key] = clean_value
                 # Note: No length truncation for translation - preserve full data
             elif isinstance(value, (int, float, bool)):
                 sanitized[key] = value
             elif isinstance(value, list):
                 # Sanitize list items without truncation
-                sanitized[key] = [
-                    html_module.escape(str(item)) if isinstance(item, str) else item
-                    for item in value
-                ]
+                sanitized[key] = []
+                for item in value:
+                    if isinstance(item, str):
+                        clean_item = item.replace('\x00', '')
+                        clean_item = html_module.unescape(clean_item)
+                        # Apply same dangerous pattern removal
+                        for pattern in dangerous_patterns:
+                            clean_item = re.sub(pattern, '', clean_item, flags=re.IGNORECASE | re.DOTALL)
+                        # Clean up HTML tag fragments
+                        clean_item = re.sub(r'<[^>]*>', '', clean_item)
+                        clean_item = re.sub(r'>', '', clean_item)
+                        clean_item = re.sub(r'\s+', ' ', clean_item).strip()
+                        sanitized[key].append(clean_item)
+                    else:
+                        sanitized[key].append(item)
             # Skip other types
         
         return sanitized
@@ -855,6 +979,7 @@ Field Abbreviations:
 - tt: total (roll total result)
 - s: speaker (character name who sent message)
 - c: content (message text content)
+- ft: flavor_text (roll context like "Intelligence (Investigation) Check")
 - af: attack_formula (attack roll formula)
 - at: attack_total (attack roll total)
 - df: damage_formula (damage roll formula)
@@ -872,7 +997,7 @@ Field Abbreviations:
 - tn: table_name (table name)
 
 Message Schemas:
-- Dice Roll: {{"t": "dr", "f": "formula", "r": [results], "tt": total}}
+- Dice Roll: {{"t": "dr", "ft": "flavor_text", "f": "formula", "r": [results], "tt": total}}
 - Player Chat: {{"t": "pl", "s": "speaker", "c": "content"}}
 - Attack Roll: {{"t": "ar", "af": "attack_formula", "at": "attack_total", "df": "damage_formula", "dt": "damage_total", "s": "speaker"}}
 - Saving Throw: {{"t": "sv", "st": "save_type", "f": "formula", "tt": "total", "dc": "dc", "succ": true/false, "s": "speaker"}}

@@ -102,7 +102,7 @@ class GoldBoxAPI {
    * Sync settings to backend via admin API
    * @param {Object} settings - Settings object to sync
    * @param {string} adminPassword - Admin password for authentication
-   * @returns {Promise<Object>} - Result of the sync operation
+   * @returns {Promise<Object>} - Result of sync operation
    */
   async syncSettings(settings, adminPassword) {
     try {
@@ -189,7 +189,7 @@ class GoldBoxAPI {
       console.log('The Gold Box: Sending unified settings object:', Object.keys(frontendSettings).length, 'settings');
       console.log('The Gold Box: Using connection manager for endpoint:', endpoint);
       
-      // Use ConnectionManager for the request
+      // Use ConnectionManager for request
       const response = await this.connectionManager.makeRequest(endpoint, {
         settings: frontendSettings,
         messages: messages
@@ -331,7 +331,7 @@ class GoldBoxModule {
   }
 
   /**
-   * Initialize the module
+   * Initialize module
    */
   async init() {
     console.log('The Gold Box module initialized');
@@ -735,28 +735,18 @@ class GoldBoxModule {
     const recentElements = Array.from(chatElements).slice(-maxMessages);
     
     recentElements.forEach(element => {
-      // Extract sender from name-stacked structure
-      const nameElement = element.querySelector('.name-stacked .title');
-      const sender = nameElement ? nameElement.textContent.trim() : 'Unknown';
+      // Extract COMPLETE HTML element including all structure for dice rolls, cards, etc.
+      // This preserves Foundry's rich HTML structure for backend processing
+      const fullHtml = element.outerHTML.trim();
       
-      // Extract FULL HTML content including dice rolls
-      const contentElement = element.querySelector('.message-content');
-      let content = '';
-      
-      if (contentElement) {
-        // Preserve complete HTML structure for dice rolls, formatting, etc.
-        content = contentElement.innerHTML.trim();
-      }
-      
-      // Extract timestamp for context
+      // Extract timestamp for context (optional metadata)
       const timestampElement = element.querySelector('.message-timestamp');
       const timestamp = timestampElement ? timestampElement.textContent : '';
       
-      // Only add if we have both sender and content
-      if (sender && content) {
+      // Only add if we have HTML content
+      if (fullHtml) {
         messages.push({
-          sender: sender,
-          content: content,
+          content: fullHtml,  // Send complete HTML, not extracted content
           timestamp: timestamp
         });
       }
@@ -779,7 +769,7 @@ class GoldBoxModule {
   }
 
   /**
-   * Display AI response in the chat
+   * Display AI response in chat
    */
   displayAIResponse(response, metadata) {
     // Use hardcoded name since we removed moduleElementsName setting
@@ -817,7 +807,7 @@ class GoldBoxModule {
   }
 
   /**
-   * Display error response in the chat
+   * Display error response in chat
    */
   displayErrorResponse(error) {
     // Use hardcoded name since we removed moduleElementsName setting
@@ -846,7 +836,7 @@ class GoldBoxModule {
   }
 
   /**
-   * Display startup instructions prominently in the chat
+   * Display startup instructions prominently in chat
    */
   displayStartupInstructions() {
     // Use hardcoded name since we removed moduleElementsName setting
@@ -1014,7 +1004,7 @@ Hooks.once('init', () => {
   }
 });
 
-// Clean up when the module is disabled
+// Clean up when module is disabled
 Hooks.on('disableModule', (module) => {
   if (module === 'gold-box') {
     goldBox.tearDown();
