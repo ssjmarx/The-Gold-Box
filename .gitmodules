@@ -3,4 +3,4 @@
 	url = https://github.com/ThreeHats/foundryvtt-rest-api.git
 [submodule "relay-server"]
 	path = relay-server
-	url = https://github.com/ThreeHats/foundryvtt-rest-api-relay.git
+	url = https://github.com/ssjmarx/foundryvtt-gold-api.git
