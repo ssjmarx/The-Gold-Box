@@ -92,6 +92,137 @@ check_python() {
     log_success "Python and pip availability verified"
 }
 
+# Check Node.js version and availability
+check_nodejs() {
+    log_info "Checking Node.js installation..."
+    
+    # Try to find Node.js
+    NODE_CMD=""
+    if command -v node >/dev/null 2>&1; then
+        NODE_VERSION=$(node --version 2>&1 | sed 's/v//')
+        NODE_CMD="node"
+        log_success "Found Node.js $NODE_VERSION"
+    elif command -v nodejs >/dev/null 2>&1; then
+        NODE_VERSION=$(nodejs --version 2>&1 | sed 's/v//')
+        NODE_CMD="nodejs"
+        log_success "Found Node.js $NODE_VERSION"
+    else
+        log_warning "Node.js not found"
+        log_info "Node.js is required for the relay server (API chat functionality)"
+        log_info "Installing Node.js automatically..."
+        
+        install_nodejs
+        return
+    fi
+    
+    # Check Node.js version (need 16+ for relay server)
+    NODE_MAJOR=$(echo $NODE_VERSION | cut -d. -f1)
+    if [ "$NODE_MAJOR" -lt 16 ]; then
+        log_warning "Found Node.js $NODE_VERSION, but version 16+ is recommended for relay server"
+        log_info "The relay server may not work properly with older Node.js versions"
+        log_info "Consider upgrading Node.js for best compatibility"
+    fi
+    
+    # Check npm availability
+    if command -v npm >/dev/null 2>&1; then
+        NPM_VERSION=$(npm --version 2>&1)
+        log_success "Found npm $NPM_VERSION"
+    else
+        log_warning "Node.js found but npm not available"
+        log_info "Installing npm..."
+        install_nodejs
+        return
+    fi
+    
+    log_success "Node.js and npm availability verified"
+}
+
+# Install Node.js based on operating system
+install_nodejs() {
+    log_info "Installing Node.js for your operating system..."
+    
+    # Detect OS
+    if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        # Linux
+        log_info "Detected Linux. Installing Node.js via NodeSource repository..."
+        
+        # Check if we can use sudo
+        if ! command -v sudo >/dev/null 2>&1; then
+            log_error "sudo is required for Node.js installation on Linux"
+            log_error "Please install Node.js manually:"
+            log_error "  Visit https://nodejs.org/ and download the Linux binaries"
+            log_error "  Or use your distribution's package manager"
+            exit 1
+        fi
+        
+        # Install Node.js via NodeSource (official method)
+        log_info "Adding NodeSource repository..."
+        if curl -fsSL https://deb.nodesource.com/setup_current.x | sudo -E bash -; then
+            log_info "Installing Node.js (latest version)..."
+            if sudo apt-get install -y nodejs; then
+                log_success "Node.js installed successfully"
+            else
+                log_error "Failed to install Node.js"
+                log_error "Please install Node.js manually from https://nodejs.org/"
+                exit 1
+            fi
+        else
+            log_error "Failed to add NodeSource repository"
+            log_error "Please install Node.js manually from https://nodejs.org/"
+            exit 1
+        fi
+        
+    elif [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS
+        log_info "Detected macOS. Checking for Homebrew..."
+        
+        if command -v brew >/dev/null 2>&1; then
+            log_info "Installing Node.js via Homebrew..."
+            if brew install node; then
+                log_success "Node.js installed successfully via Homebrew"
+            else
+                log_error "Failed to install Node.js via Homebrew"
+                log_error "Please install Node.js manually from https://nodejs.org/"
+                exit 1
+            fi
+        else
+            log_warning "Homebrew not found"
+            log_info "Please install Node.js manually:"
+            log_error "  1. Visit https://nodejs.org/"
+            log_error "  2. Download the macOS installer"
+            log_error "  3. Run the installer and follow instructions"
+            exit 1
+        fi
+        
+    elif [[ "$OSTYPE" == "msys" ]] || [[ "$OSTYPE" == "cygwin" ]]; then
+        # Windows
+        log_info "Detected Windows."
+        log_error "Automatic Node.js installation not supported on Windows yet"
+        log_error "Please install Node.js manually:"
+        log_error "  1. Visit https://nodejs.org/"
+        log_error "  2. Download the Windows installer"
+        log_error "  3. Run the installer and follow instructions"
+        log_error "  4. Restart this script after installation"
+        exit 1
+        
+    else
+        log_error "Unsupported operating system: $OSTYPE"
+        log_error "Please install Node.js manually from https://nodejs.org/"
+        exit 1
+    fi
+    
+    # Verify installation
+    if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+        NODE_VERSION=$(node --version 2>&1 | sed 's/v//')
+        NPM_VERSION=$(npm --version 2>&1)
+        log_success "Node.js $NODE_VERSION and npm $NPM_VERSION installed successfully"
+    else
+        log_error "Node.js installation verification failed"
+        log_error "Please install Node.js manually from https://nodejs.org/"
+        exit 1
+    fi
+}
+
 # Create virtual environment if it doesn't exist
 create_virtual_environment() {
     log_info "Checking virtual environment..."
@@ -251,6 +382,7 @@ main() {
     
     check_project_structure
     check_python
+    check_nodejs
     create_virtual_environment
     activate_virtual_environment
     install_dependencies

@@ -43,6 +43,7 @@ def get_absolute_path(relative_path: str) -> Path:
 from server.key_manager import MultiKeyManager
 from endpoints.simple_chat import process_simple_chat
 from endpoints.process_chat import router as process_chat_router
+from endpoints.api_chat import router as api_chat_router
 # Import security module
 from security.security import (
     RateLimiter, UniversalInputValidator, 
@@ -179,6 +180,9 @@ app = FastAPI(
 # Include process_chat router
 app.include_router(process_chat_router)
 
+# Include API chat router
+app.include_router(api_chat_router)
+
 # Enhanced CORS configuration with security headers (BEFORE security middleware)
 app.add_middleware(
     CORSMiddleware,
@@ -222,6 +226,148 @@ validator = UniversalInputValidator()
 
 # Global settings dictionary for frontend configuration
 frontend_settings = {}
+
+# Global relay server process
+relay_server_process = None
+
+async def start_relay_server():
+    """Start relay server as a subprocess"""
+    global relay_server_process
+    
+    # Check if Node.js and npm are available
+    try:
+        # Check for Node.js
+        import subprocess
+        node_check = subprocess.run(['node', '--version'], 
+                                capture_output=True, text=True, timeout=5)
+        if node_check.returncode != 0:
+            logger.error("Node.js not available - relay server cannot start")
+            return False
+        
+        # Check for npm
+        npm_check = subprocess.run(['npm', '--version'], 
+                               capture_output=True, text=True, timeout=5)
+        if npm_check.returncode != 0:
+            logger.error("npm not available - relay server cannot start")
+            return False
+        
+        node_version = node_check.stdout.strip().replace('v', '')
+        npm_version = npm_check.stdout.strip()
+        logger.info(f"Found Node.js {node_version} and npm {npm_version}")
+        
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError) as e:
+        logger.error(f"Node.js/npm not available: {e}")
+        logger.error("Relay server requires Node.js and npm to be installed")
+        logger.error("Please run: ./backend.sh (which will auto-install Node.js)")
+        return False
+    except Exception as e:
+        logger.error(f"Error checking Node.js/npm: {e}")
+        return False
+    
+    # Check if relay server is already running
+    try:
+        import requests
+        response = requests.get("http://localhost:3010/api/health", timeout=2)
+        if response.status_code == 200:
+            logger.info("Relay server already running on port 3010")
+            return True
+    except:
+        logger.info("Relay server not running, starting...")
+    
+    # Start relay server
+    try:
+        relay_path = os.path.join(os.path.dirname(__file__), "..", "relay-server")
+        if not os.path.exists(relay_path):
+            logger.error("Relay server submodule not found. Run: git submodule update --init --recursive")
+            return False
+        
+        logger.info(f"Starting relay server from: {relay_path}")
+        
+        # Check if package.json exists in relay server
+        package_json_path = os.path.join(relay_path, "package.json")
+        if not os.path.exists(package_json_path):
+            logger.error("relay-server package.json not found")
+            return False
+        
+        # Check if node_modules exists, if not run npm install
+        node_modules_path = os.path.join(relay_path, "node_modules")
+        if not os.path.exists(node_modules_path):
+            logger.info("Installing relay server dependencies...")
+            try:
+                install_result = subprocess.run(
+                    ['npm', 'install'],
+                    cwd=relay_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=300  # 5 minute timeout
+                )
+                if install_result.returncode != 0:
+                    logger.error(f"npm install failed: {install_result.stderr}")
+                    return False
+                logger.info("Relay server dependencies installed successfully")
+            except subprocess.TimeoutExpired:
+                logger.error("npm install timed out after 5 minutes")
+                return False
+            except Exception as e:
+                logger.error(f"npm install error: {e}")
+                return False
+        
+        # Set DATABASE_URL environment variable for relay server
+        env = os.environ.copy()
+        env["DATABASE_URL"] = "sqlite:./relay-server.db"
+        
+        # Start relay server as subprocess
+        relay_server_process = subprocess.Popen(
+            ["npm", "start"],
+            cwd=relay_path,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=env
+        )
+        
+        # Wait for it to start
+        import asyncio
+        await asyncio.sleep(5)  # Increased wait time
+        
+        # Check if it's running
+        try:
+            response = requests.get("http://localhost:3010/api/health", timeout=2)
+            if response.status_code == 200:
+                logger.info("Relay server started successfully on port 3010")
+                return True
+        except:
+            pass
+        
+        # Check if process is still running
+        if relay_server_process.poll() is not None:
+            stdout, stderr = relay_server_process.communicate()
+            logger.error(f"Relay server failed to start:")
+            logger.error(f"STDOUT: {stdout.decode() if stdout else 'None'}")
+            logger.error(f"STDERR: {stderr.decode() if stderr else 'None'}")
+            return False
+        
+        logger.warning("Relay server may be starting up (health check failed but process is running)")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error starting relay server: {e}")
+        return False
+
+def stop_relay_server():
+    """Stop the relay server process"""
+    global relay_server_process
+    if relay_server_process:
+        try:
+            relay_server_process.terminate()
+            relay_server_process.wait(timeout=5)
+            logger.info("Relay server stopped")
+        except subprocess.TimeoutExpired:
+            relay_server_process.kill()
+            logger.info("Relay server force killed")
+        except Exception as e:
+            logger.error(f"Error stopping relay server: {e}")
+        finally:
+            relay_server_process = None
 
 class SettingsManager:
     """Global settings manager for frontend configuration"""
@@ -1123,6 +1269,13 @@ if __name__ == '__main__':
     print("=" * 60)
     print("🔒 Universal Security Middleware is now active and protecting all endpoints")
     print("=" * 60)
+    
+    # Start relay server
+    print("Starting relay server...")
+    import asyncio
+    relay_started = asyncio.run(start_relay_server())
+    if not relay_started:
+        print("⚠️  Warning: Failed to start relay server. API chat functionality may not work.")
     
     # Start FastAPI server with uvicorn
     uvicorn.run(

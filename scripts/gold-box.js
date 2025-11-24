@@ -162,7 +162,15 @@ class GoldBoxAPI {
     try {
       // Choose endpoint based on processing mode
       const processingMode = game.settings.get('gold-box', 'chatProcessingMode') || 'simple';
-      const endpoint = processingMode === 'processed' ? '/api/process_chat' : '/api/simple_chat';
+      let endpoint;
+      
+      if (processingMode === 'processed') {
+        endpoint = '/api/process_chat';
+      } else if (processingMode === 'api') {
+        endpoint = '/api/api_chat';
+      } else {
+        endpoint = '/api/simple_chat';
+      }
       
       // Collect ALL frontend settings into unified object
       const frontendSettings = {
@@ -425,7 +433,8 @@ class GoldBoxModule {
       type: String,
       choices: {
         "simple": "Simple (existing /api/simple_chat)",
-        "processed": "Processed (new /api/process_chat)"
+        "processed": "Processed (new /api/process_chat)",
+        "api": "API (Foundry REST API - experimental)"
       },
       default: "simple"
     });
