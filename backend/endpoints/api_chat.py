@@ -32,7 +32,7 @@ class APIChatRequest(BaseModel):
 
 class APIChatResponse(BaseModel):
     """Response model for API chat endpoint"""
-    success: bool = Field(..., description="Whether the request was successful")
+    success: bool = Field(..., description="Whether request was successful")
     response: Optional[str] = Field(None, description="AI response as formatted text")
     metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
     error: Optional[str] = Field(None, description="Error message if failed")
@@ -65,11 +65,14 @@ async def api_chat(http_request: Request, request: APIChatRequest):
             context_count = validated_request.get('context_count', request.context_count)
             settings = validated_request.get('settings', request.settings)
             logger.info("Processing API chat request with middleware-validated data")
+            logger.info(f"DEBUG: Request body from middleware: {validated_request}")
         else:
             # Fallback to original request data (should not happen with proper middleware)
             context_count = request.context_count
             settings = request.settings
             logger.info("Processing API chat request with original request data")
+        
+        logger.info(f"DEBUG: Final context_count: {context_count}, settings: {settings}")
         
         # Step 1: Collect chat messages via REST API (relay server is started by main server)
         logger.info(f"Collecting {context_count} chat messages via REST API")
@@ -163,18 +166,29 @@ async def collect_chat_messages_api(count: int) -> List[Dict[str, Any]]:
         import requests
         
         # Get chat messages from relay server
+        # Use a default clientId since we're in memory store mode
         response = requests.get(
             f"http://localhost:3010/chat/messages",
-            params={"limit": count, "sort": "timestamp", "order": "desc"},
+            params={"clientId": "default", "limit": count, "sort": "timestamp", "order": "desc"},
             timeout=10
         )
         
+        logger.info(f"DEBUG: Relay server response status: {response.status_code}")
+        logger.info(f"DEBUG: Relay server response text: {response.text}")
+        
         if response.status_code == 200:
-            messages = response.json()
-            # Reverse to get chronological order (oldest first)
-            return list(reversed(messages))
+            try:
+                messages = response.json()
+                logger.info(f"DEBUG: Parsed messages: {messages}")
+                # Reverse to get chronological order (oldest first)
+                return list(reversed(messages))
+            except json.JSONDecodeError as e:
+                logger.error(f"DEBUG: Failed to parse JSON: {e}")
+                logger.error(f"DEBUG: Raw response: {response.text}")
+                return []
         else:
             logger.error(f"Failed to collect chat messages: {response.status_code}")
+            logger.error(f"DEBUG: Raw response: {response.text}")
             return []
             
     except Exception as e:

@@ -315,6 +315,7 @@ async def start_relay_server():
         # Set DATABASE_URL environment variable for relay server
         env = os.environ.copy()
         env["DATABASE_URL"] = "sqlite:./relay-server.db"
+        env["DB_TYPE"] = "memory"  # Use memory store to bypass authentication for local development
         
         # Start relay server as subprocess
         relay_server_process = subprocess.Popen(
