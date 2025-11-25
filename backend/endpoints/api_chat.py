@@ -29,6 +29,7 @@ class APIChatRequest(BaseModel):
     """Request model for API chat endpoint"""
     context_count: Optional[int] = Field(15, description="Number of recent messages to retrieve", ge=1, le=50)
     settings: Optional[Dict[str, Any]] = Field(None, description="Frontend settings including provider info")
+    relayClientId: Optional[str] = Field(None, description="Relay client ID for WebSocket connection")
 
 class APIChatResponse(BaseModel):
     """Response model for API chat endpoint"""
@@ -76,7 +77,20 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         
         # Step 1: Collect chat messages via REST API (relay server is started by main server)
         logger.info(f"Collecting {context_count} chat messages via REST API")
-        api_messages = await collect_chat_messages_api(context_count)
+        
+        # Prepare request data for client ID extraction
+        request_data_for_api = None
+        if hasattr(http_request.state, 'validated_body') and http_request.state.validated_body:
+            request_data_for_api = http_request.state.validated_body
+        else:
+            # If no middleware validation, use the original request data
+            request_data_for_api = {
+                'relayClientId': request.relayClientId,
+                'context_count': request.context_count,
+                'settings': request.settings
+            }
+        
+        api_messages = await collect_chat_messages_api(context_count, request_data_for_api)
         
         # Step 2: Convert to compact JSON
         compact_messages = api_chat_processor.process_api_messages(api_messages)
@@ -160,16 +174,22 @@ async def api_chat(http_request: Request, request: APIChatRequest):
             error=str(e)
         )
 
-async def collect_chat_messages_api(count: int) -> List[Dict[str, Any]]:
+async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = None) -> List[Dict[str, Any]]:
     """Collect recent chat messages via Foundry REST API"""
     try:
         import requests
         
+        # Get client ID from request data, fallback to "default"
+        client_id = "default"
+        if request_data:
+            client_id = request_data.get('relayClientId') or "default"
+        
+        logger.info(f"DEBUG: Using client ID for relay server request: {client_id}")
+        
         # Get chat messages from relay server
-        # Use a default clientId since we're in memory store mode
         response = requests.get(
             f"http://localhost:3010/chat/messages",
-            params={"clientId": "default", "limit": count, "sort": "timestamp", "order": "desc"},
+            params={"clientId": client_id, "limit": count, "sort": "timestamp", "order": "desc"},
             timeout=10
         )
         
