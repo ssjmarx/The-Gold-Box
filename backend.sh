@@ -283,6 +283,37 @@ activate_virtual_environment() {
     log_success "Virtual environment active: $VIRTUAL_ENV"
 }
 
+# Verify relay server is available
+verify_relay_server() {
+    log_info "Verifying relay server availability..."
+    
+    # Check if relay-server directory exists
+    if [ ! -d "relay-server" ]; then
+        log_error "relay-server directory not found!"
+        log_error "Please install a complete Gold Box module that includes the built relay server"
+        log_error "This should happen automatically when installing via Foundry manifest"
+        exit 1
+    fi
+    
+    # Check if dist folder exists (built project)
+    if [ ! -d "relay-server/dist" ]; then
+        log_error "relay-server/dist not found!"
+        log_error "The relay server appears to be incomplete"
+        log_error "Please reinstall the Gold Box module"
+        exit 1
+    fi
+    
+    # Check if package.json exists
+    if [ ! -f "relay-server/package.json" ]; then
+        log_error "relay-server/package.json not found!"
+        log_error "The relay server appears to be incomplete"
+        log_error "Please reinstall the Gold Box module"
+        exit 1
+    fi
+    
+    log_success "Relay server verified and ready"
+}
+
 # Install and upgrade dependencies
 install_dependencies() {
     log_info "Installing dependencies..."
@@ -386,6 +417,7 @@ main() {
     create_virtual_environment
     activate_virtual_environment
     install_dependencies
+    verify_relay_server
     start_server
 }
 
