@@ -6,7 +6,6 @@ __pycache__/
 .Python
 build/
 develop-eggs/
-dist/
 downloads/
 eggs/
 .eggs/
@@ -38,14 +37,12 @@ ENV/
 Thumbs.db
 *.desktop
 
-# Node.js
-node_modules/
+# Node.js (but allow relay-server node_modules)
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
 # Foundry VTT
-dist/
 foundryconfig.json
 
 # Environment variables
