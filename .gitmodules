@@ -1,3 +1,0 @@
-[submodule "relay-server"]
-	path = relay-server
-	url = https://github.com/ssjmarx/foundryvtt-gold-api.git
