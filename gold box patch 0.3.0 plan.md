@@ -81,7 +81,16 @@ Gold-Box/
 ### Phase 1: Repository Setup (Day 1)
 
 #### 1.1 Add Submodules
-```bash
+```bashssjmarx@eMachine:~/Gold Box$ cd /home/ssjmarx/Gold\ Box && git tag -d v0.3.0
+Deleted tag 'v0.3.0' (was fb3c05f)
+ssjmarx@eMachine:~/Gold Box$ cd /home/ssjmarx/Gold\ Box && git push origin :refs/tags/v0.3.0
+To https://github.com/ssjmarx/Gold-Box.git
+ - [deleted]         v0.3.0
+ssjmarx@eMachine:~/Gold Box$ cd /home/ssjmarx/Gold\ Box && git tag --list | grep v0.3.0 || echo "Tag v0.3.0 successfully removed"
+Tag v0.3.0 successfully removed
+ssjmarx@eMachine:~/Gold Box$ curl -s "https://api.github.com/repos/ssjmarx/Gold-Box/releases" | jq -r '.[] | select(.tag_name == "v0.3.0") | .tag_name' || echo "Release v0.3.0 successfully removed from GitHub"
+ssjmarx@eMachine:~/Gold Box$ 
+
 # Navigate to Gold Box repository
 cd "/home/ssjmarx/Gold Box"
 
