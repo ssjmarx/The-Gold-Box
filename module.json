@@ -8,8 +8,15 @@
   "readme": "https://github.com/ssjmarx/Gold-Box/blob/main/README.md",
   "bugs": "https://github.com/ssjmarx/Gold-Box/issues",
   "changelog": "https://github.com/ssjmarx/Gold-Box/blob/main/CHANGELOG.md",
+  "dependencies": [
+    {
+      "name": "foundry-rest-api",
+      "manifest": "https://github.com/ThreeHats/foundryvtt-rest-api/releases/latest/download/module.json"
+    }
+  ],
   "esmodules": [
     "scripts/connection-manager.js",
+    "scripts/api-bridge.js",
     "scripts/gold-box.js"
   ],
   "styles": [

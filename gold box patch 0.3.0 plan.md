@@ -959,6 +959,105 @@ The existing GitHub release workflow should be updated to include submodule cont
     asset_content_type: application/zip
 ```
 
+# Patch Part 2: Correctly Connecting to Relay Server from Frontend
+
+## Streamlined Plan - Core Functionality Only:
+
+### Goal: Make API Chat endpoint work by getting client ID from frontend to backend
+
+### Phase 1: Frontend Client ID Storage
+
+__Objective__: Store relay client ID in universal settings so backend can use it
+
+1. __Add Client ID to Universal Settings__
+
+   - Extend universal settings to include: `relayClientId: string`
+   - When WebSocket connects successfully, store the client ID
+   - When WebSocket disconnects, clear or null out the client ID
+
+2. __Update WebSocketManager Integration__
+
+   - Add method to get current client ID for external access
+   - Trigger universal settings update when connection state changes
+   - Keep it simple - just store the ID, no complex status tracking
+
+### Phase 2: Backend Integration
+
+__Objective__: Use the stored client ID instead of hardcoded "default"
+
+1. __Update API Chat Endpoint__
+
+   - Accept `clientId` parameter from universal settings
+   - Use provided client ID when calling relay server `/chat/messages`
+   - Keep existing fallback behavior if no client ID provided
+
+2. __Modify "Take AI Turn" Logic__
+
+   - Read client ID from universal settings passed to backend
+   - Pass it to the API chat processor
+   - Continue to work if no client ID (current behavior)
+
+### Phase 3: Basic Connection Management
+
+__Objective__: Ensure frontend automatically connects and stores client ID
+
+1. __Ensure WebSocket Auto-Connection__
+
+   - Verify WebSocket connects automatically on Foundry startup
+   - Confirm client ID gets stored when connection succeeds
+   - Handle basic connection errors gracefully
+
+2. __Add Simple Rediscover Function__
+
+   - Extend existing "rediscover backend" to also check WebSocket
+   - Reconnect WebSocket if needed
+   - Update stored client ID after successful connection
+
+## Minimal Implementation Details:
+
+### Frontend Changes:
+
+```typescript
+// In universal settings object
+const universalSettings = {
+  // ... existing settings
+  relayClientId: wsManager?.getClientId() || null
+};
+
+// In WebSocketManager - when connection succeeds
+updateUniversalSettings({ relayClientId: this.clientId });
+```
+
+### Backend Changes:
+
+```python
+# In api_chat.py
+def collect_chat_messages(context_count, request_data=None):
+    # Use client ID from request instead of hardcoded "default"
+    client_id = request_data.get('relayClientId') if request_data else None
+    if not client_id:
+        client_id = "default"  # Fallback to current behavior
+    
+    # Use the client_id in relay server request
+```
+
+## Benefits of This Simplified Approach:
+
+- __Fast Implementation__: Focuses on the core problem only
+- __Minimal Risk__: Doesn't disrupt existing functionality
+- __Quick Wins__: API chat endpoint should work immediately after implementation
+- __Easy Testing__: Clear success criteria (client ID gets passed and used)
+
+## Success Criteria:
+
+1. ✅ Frontend connects to relay server on startup
+2. ✅ Client ID gets stored in universal settings
+3. ✅ Backend receives and uses client ID in API calls
+4. ✅ `/api/api_chat` works with real Foundry client context
+5. ✅ Fallback behavior still works when no client ID
+
+This approach gets us from "API chat doesn't work" to "API chat works with real Foundry data" with the minimum necessary changes. We can always add the fancy connection status UI later.
+
 ---
 
 ## Success Criteria

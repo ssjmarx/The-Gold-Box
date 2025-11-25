@@ -1,6 +1,3 @@
-[submodule "foundry-module"]
-	path = foundry-module
-	url = https://github.com/ThreeHats/foundryvtt-rest-api.git
 [submodule "relay-server"]
 	path = relay-server
 	url = https://github.com/ssjmarx/foundryvtt-gold-api.git

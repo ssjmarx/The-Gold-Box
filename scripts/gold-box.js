@@ -100,9 +100,6 @@ class GoldBoxAPI {
 
   /**
    * Sync settings to backend via admin API
-   * @param {Object} settings - Settings object to sync
-   * @param {string} adminPassword - Admin password for authentication
-   * @returns {Promise<Object>} - Result of sync operation
    */
   async syncSettings(settings, adminPassword) {
     try {
@@ -153,62 +150,6 @@ class GoldBoxAPI {
       return true;
     }
     return false;
-  }
-
-  /**
-   * Send message context to backend with processing mode support
-   */
-  async sendMessageContext(messages) {
-    try {
-      // Choose endpoint based on processing mode
-      const processingMode = game.settings.get('gold-box', 'chatProcessingMode') || 'simple';
-      let endpoint;
-      
-      if (processingMode === 'processed') {
-        endpoint = '/api/process_chat';
-      } else if (processingMode === 'api') {
-        endpoint = '/api/api_chat';
-      } else {
-        endpoint = '/api/simple_chat';
-      }
-      
-      // Collect ALL frontend settings into unified object
-      const frontendSettings = {
-        'maximum message context': game.settings.get('gold-box', 'maxMessageContext') || 15,
-        'chat processing mode': game.settings.get('gold-box', 'chatProcessingMode') || 'simple',
-        'ai role': game.settings.get('gold-box', 'aiRole') || 'dm',
-        'general llm provider': game.settings.get('gold-box', 'generalLlmProvider') || '',
-        'general llm base url': game.settings.get('gold-box', 'generalLlmBaseUrl') || '',
-        'general llm model': game.settings.get('gold-box', 'generalLlmModel') || '',
-        'general llm version': game.settings.get('gold-box', 'generalLlmVersion') || 'v1',
-        'general llm timeout': game.settings.get('gold-box', 'aiResponseTimeout') || 60,
-        'general llm max retries': game.settings.get('gold-box', 'generalLlmMaxRetries') || 3,
-        'general llm custom headers': game.settings.get('gold-box', 'generalLlmCustomHeaders') || '',
-        'tactical llm provider': game.settings.get('gold-box', 'tacticalLlmProvider') || '',
-        'tactical llm base url': game.settings.get('gold-box', 'tacticalLlmBaseUrl') || '',
-        'tactical llm model': game.settings.get('gold-box', 'tacticalLlmModel') || '',
-        'tactical llm version': game.settings.get('gold-box', 'tacticalLlmVersion') || 'v1',
-        'tactical llm timeout': game.settings.get('gold-box', 'tacticalLlmTimeout') || 30,
-        'tactical llm max retries': game.settings.get('gold-box', 'tacticalLlmMaxRetries') || 3,
-        'tactical llm custom headers': game.settings.get('gold-box', 'tacticalLlmCustomHeaders') || '',
-        'backend password': game.settings.get('gold-box', 'backendPassword') || ''
-      };
-      
-      console.log('The Gold Box: Sending unified settings object:', Object.keys(frontendSettings).length, 'settings');
-      console.log('The Gold Box: Using connection manager for endpoint:', endpoint);
-      
-      // Use ConnectionManager for request
-      const response = await this.connectionManager.makeRequest(endpoint, {
-        settings: frontendSettings,
-        messages: messages
-      });
-      
-      return response;
-      
-    } catch (error) {
-      console.error('Gold Box API Error:', error);
-      throw error;
-    }
   }
 
   /**
@@ -269,6 +210,58 @@ class GoldBoxAPI {
         await new Promise(resolve => setTimeout(resolve, 500));
       }
     }
+  }
+
+  /**
+   * Send message context to backend with processing mode support and client ID relay
+   */
+  async sendMessageContext(messages) {
+    try {
+      const processingMode = game.settings.get('gold-box', 'chatProcessingMode') || 'simple';
+      
+      let endpoint;
+      let requestData;
+      
+      if (processingMode === 'api') {
+        endpoint = '/api/api_chat';
+        // Include client ID in request data if available
+        const clientId = this.apiBridge ? this.apiBridge.getClientId() : null;
+        requestData = {
+          settings: this.getUnifiedFrontendSettings(),
+          context_count: game.settings.get('gold-box', 'maxMessageContext') || 15,
+          relayClientId: clientId || null // Include client ID, allow null if not connected
+        };
+        console.log('The Gold Box: Using API mode with client ID:', clientId || 'not connected');
+      } else {
+        // Existing logic for other modes
+        endpoint = processingMode === 'processed' ? '/api/process_chat' : '/api/simple_chat';
+        requestData = {
+          settings: this.getUnifiedFrontendSettings(),
+          messages: messages
+        };
+        console.log('The Gold Box: Using', processingMode, 'mode with endpoint:', endpoint);
+      }
+      
+      // Use ConnectionManager for request
+      const response = await this.connectionManager.makeRequest(endpoint, requestData);
+      
+      return response;
+      
+    } catch (error) {
+      console.error('Gold Box API Error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get unified frontend settings (delegate to module instance)
+   */
+  getUnifiedFrontendSettings() {
+    // This method needs access to game settings and apiBridge, so delegate to module instance
+    if (typeof game !== 'undefined' && game.settings && game.goldBox) {
+      return game.goldBox.getUnifiedFrontendSettings();
+    }
+    return {};
   }
 
   /**
@@ -336,6 +329,8 @@ class GoldBoxModule {
   constructor() {
     this.hooks = [];
     this.api = new GoldBoxAPI();
+    // APIBridge will be initialized later after it's loaded
+    this.apiBridge = null;
   }
 
   /**
@@ -350,40 +345,33 @@ class GoldBoxModule {
     // Initialize API with game settings
     this.api.init();
     
+    // Initialize API bridge (always try to connect)
+    await this.initializeAPIBridge();
+    
     // Check backend connection automatically (delayed until world is ready)
     Hooks.once('ready', () => {
       this.checkBackendAndShowInstructions();
     });
     
-    // Log that the module is ready
     console.log('The Gold Box is ready for AI adventures!');
   }
 
   /**
-   * Check backend connection and show instructions if needed (using ConnectionManager)
+   * Initialize API bridge connection
    */
-  async checkBackendAndShowInstructions() {
-    try {
-      // Initialize connection through ConnectionManager
-      await this.api.connectionManager.initialize();
-      
-      // Get connection info for status
-      const connectionInfo = this.api.connectionManager.getConnectionInfo();
-      
-      if (connectionInfo.state === ConnectionState.CONNECTED) {
-        await game.settings.set('gold-box', 'backendStatus', 'connected');
-        console.log('The Gold Box: Backend connected via ConnectionManager:', connectionInfo);
-        return;
-      } else {
-        // Show instructions if connection failed
-        await game.settings.set('gold-box', 'backendStatus', 'disconnected');
-        console.log('The Gold Box: Connection failed, ConnectionManager state:', connectionInfo.state);
-        this.displayStartupInstructions();
+  async initializeAPIBridge() {
+    console.log('The Gold Box: Initializing API bridge...');
+    
+    // Check if APIBridge is available (loaded from api-bridge.js)
+    if (typeof APIBridge !== 'undefined') {
+      this.apiBridge = new APIBridge();
+      const success = await this.apiBridge.initialize();
+      if (!success) {
+        console.warn('The Gold Box: API bridge initialization failed (this is expected if user is not GM)');
       }
-    } catch (error) {
-      await game.settings.set('gold-box', 'backendStatus', 'error');
-      console.error('The Gold Box: Error checking backend:', error);
-      this.displayStartupInstructions();
+    } else {
+      console.warn('The Gold Box: APIBridge class not available - Foundry REST API module may not be loaded');
+      this.apiBridge = null;
     }
   }
 
@@ -811,6 +799,73 @@ class GoldBoxModule {
   }
 
   /**
+   * Send message context to backend with processing mode support and client ID relay
+   */
+  async sendMessageContext(messages) {
+    try {
+      const processingMode = game.settings.get('gold-box', 'chatProcessingMode') || 'simple';
+      
+      let endpoint;
+      let requestData;
+      
+      if (processingMode === 'api') {
+        endpoint = '/api/api_chat';
+        // Include client ID in request data if available
+        const clientId = this.apiBridge ? this.apiBridge.getClientId() : null;
+        requestData = {
+          settings: this.getUnifiedFrontendSettings(),
+          context_count: game.settings.get('gold-box', 'maxMessageContext') || 15,
+          relayClientId: clientId || null // Include client ID, allow null if not connected
+        };
+        console.log('The Gold Box: Using API mode with client ID:', clientId || 'not connected');
+      } else {
+        // Existing logic for other modes
+        endpoint = processingMode === 'processed' ? '/api/process_chat' : '/api/simple_chat';
+        requestData = {
+          settings: this.getUnifiedFrontendSettings(),
+          messages: messages
+        };
+        console.log('The Gold Box: Using', processingMode, 'mode with endpoint:', endpoint);
+      }
+      
+      // Use ConnectionManager for request
+      const response = await this.connectionManager.makeRequest(endpoint, requestData);
+      
+      return response;
+      
+    } catch (error) {
+      console.error('Gold Box API Error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Collect ALL frontend settings into unified object
+   */
+  getUnifiedFrontendSettings() {
+    return {
+      'maximum message context': game.settings.get('gold-box', 'maxMessageContext') || 15,
+      'chat processing mode': game.settings.get('gold-box', 'chatProcessingMode') || 'simple',
+      'ai role': game.settings.get('gold-box', 'aiRole') || 'dm',
+      'general llm provider': game.settings.get('gold-box', 'generalLlmProvider') || '',
+      'general llm base url': game.settings.get('gold-box', 'generalLlmBaseUrl') || '',
+      'general llm model': game.settings.get('gold-box', 'generalLlmModel') || '',
+      'general llm version': game.settings.get('gold-box', 'generalLlmVersion') || 'v1',
+      'general llm timeout': game.settings.get('gold-box', 'aiResponseTimeout') || 60,
+      'general llm max retries': game.settings.get('gold-box', 'generalLlmMaxRetries') || 3,
+      'general llm custom headers': game.settings.get('gold-box', 'generalLlmCustomHeaders') || '',
+      'tactical llm provider': game.settings.get('gold-box', 'tacticalLlmProvider') || '',
+      'tactical llm base url': game.settings.get('gold-box', 'tacticalLlmBaseUrl') || '',
+      'tactical llm model': game.settings.get('gold-box', 'tacticalLlmModel') || '',
+      'tactical llm version': game.settings.get('gold-box', 'tacticalLlmVersion') || 'v1',
+      'tactical llm timeout': game.settings.get('gold-box', 'tacticalLlmTimeout') || 30,
+      'tactical llm max retries': game.settings.get('gold-box', 'tacticalLlmMaxRetries') || 3,
+      'tactical llm custom headers': game.settings.get('gold-box', 'tacticalLlmCustomHeaders') || '',
+      'backend password': game.settings.get('gold-box', 'backendPassword') || ''
+    };
+  }
+
+  /**
    * Display AI response in chat
    */
   displayAIResponse(response, metadata) {
@@ -918,40 +973,62 @@ class GoldBoxModule {
   }
 
   /**
-   * Enhanced manual port discovery using ConnectionManager
+   * Check backend connection and show instructions if needed (using ConnectionManager)
    */
-  async manualPortDiscovery() {
+  async checkBackendAndShowInstructions() {
     try {
-      // Use ConnectionManager to initialize connection
+      // Initialize connection through ConnectionManager
       await this.api.connectionManager.initialize();
       
       // Get connection info for status
       const connectionInfo = this.api.connectionManager.getConnectionInfo();
       
       if (connectionInfo.state === ConnectionState.CONNECTED) {
-        // Test connection to get provider info
-        const healthResult = await this.api.connectionManager.testConnection();
-        
-        if (healthResult.success && healthResult.data && healthResult.data.configured_providers) {
-          this.displayAvailableProviders(healthResult.data.configured_providers);
-        }
-        
-        if (typeof ui !== 'undefined' && ui.notifications) {
-          ui.notifications.info('✅ Backend connection verified!');
-        }
-        return true;
+        await game.settings.set('gold-box', 'backendStatus', 'connected');
+        console.log('The Gold Box: Backend connected via ConnectionManager:', connectionInfo);
+        return;
       } else {
-        // No backend found
-        if (typeof ui !== 'undefined' && ui.notifications) {
-          ui.notifications.error('❌ No backend server found. Please start the backend server.');
-        }
-        return false;
+        // Show instructions if connection failed
+        await game.settings.set('gold-box', 'backendStatus', 'disconnected');
+        console.log('The Gold Box: Connection failed, ConnectionManager state:', connectionInfo.state);
+        this.displayStartupInstructions();
+      }
+    } catch (error) {
+      await game.settings.set('gold-box', 'backendStatus', 'error');
+      console.error('The Gold Box: Error checking backend:', error);
+      this.displayStartupInstructions();
+    }
+  }
+
+  /**
+   * Enhanced manual port discovery using ConnectionManager
+   */
+  async manualPortDiscovery() {
+    // Also reinitialize API bridge connection
+    await this.initializeAPIBridge();
+    
+    // Use ConnectionManager to initialize connection
+    await this.api.connectionManager.initialize();
+    
+    // Get connection info for status
+    const connectionInfo = this.api.connectionManager.getConnectionInfo();
+    
+    if (connectionInfo.state === ConnectionState.CONNECTED) {
+      // Test connection to get provider info
+      const healthResult = await this.api.connectionManager.testConnection();
+      
+      if (healthResult.success && healthResult.data && healthResult.data.configured_providers) {
+        this.displayAvailableProviders(healthResult.data.configured_providers);
       }
       
-    } catch (error) {
-      console.error('The Gold Box: Backend discovery failed:', error);
       if (typeof ui !== 'undefined' && ui.notifications) {
-        ui.notifications.error(`🚫 Backend discovery failed - ${error.message}`);
+        ui.notifications.info('✅ Backend connection verified!');
+      }
+      return true;
+    } else {
+      // No backend found
+      if (typeof ui !== 'undefined' && ui.notifications) {
+        ui.notifications.error('❌ No backend server found. Please start the backend server.');
       }
       return false;
     }
@@ -959,7 +1036,6 @@ class GoldBoxModule {
 
   /**
    * Display available providers as chat message after discovery
-   * @param {Array} configuredProviders - Array of configured provider objects
    */
   displayAvailableProviders(configuredProviders) {
     try {
@@ -1031,6 +1107,11 @@ GoldBoxModule.prototype.tearDown = function() {
 // Create and register the module
 const goldBox = new GoldBoxModule();
 
+// Make module instance globally available for API class
+if (typeof game !== 'undefined') {
+  game.goldBox = goldBox;
+}
+
 // Initialize module when Foundry is ready
 Hooks.once('init', () => {
   console.log('The Gold Box: Initializing module...');
@@ -1038,7 +1119,6 @@ Hooks.once('init', () => {
   console.log('The Gold Box: game.settings available:', typeof game.settings !== 'undefined');
   
   if (typeof game !== 'undefined' && game.settings) {
-    game.goldBox = goldBox;
     goldBox.init();
     console.log('The Gold Box: Module initialization complete');
   } else {
