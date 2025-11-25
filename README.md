@@ -14,7 +14,7 @@ An AI-powered Foundry VTT module that provides intelligent TTRPG assistance thro
 ### 1. Install in Foundry
 In Foundry, select **Add-on Modules → Install Module** and paste this URL:
 ```
-https://github.com/ssjmarx/Gold-Box/releases/download/latest/module.json
+https://github.com/ssjmarx/gold-Box/releases/latest/download/module.json
 ```
 
 ### 2. Start Backend Server

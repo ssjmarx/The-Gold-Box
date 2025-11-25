@@ -3,7 +3,7 @@
 
 ### Objective
 Implement REST API-based chat processing as an alternative to HTML scraping, providing a more robust and maintainable approach to AI-assisted gameplay while maintaining full backward compatibility with existing functionality.
-
+r
 ### Version Information
 - **Target Version**: Gold Box v0.3.0
 - **Integration Date**: November 2025

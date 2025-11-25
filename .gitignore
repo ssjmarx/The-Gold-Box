@@ -86,6 +86,9 @@ backend/server_files/*_audit.log
 *.tar.gz
 *.rar
 
+# Built relay server (managed separately)
+relay-server/
+
 # Test coverage and profiling
 .coverage
 htmlcov/
@@ -110,3 +113,5 @@ yarn.lock
 .env.venv
 venv.bak/
 env.bak/
+RELAY_SERVER_BUILD.md
+build-relay-server.sh
