@@ -164,7 +164,7 @@ async def collect_chat_messages_api(count: int) -> List[Dict[str, Any]]:
         
         # Get chat messages from relay server
         response = requests.get(
-            f"http://localhost:3010/api/chat/messages",
+            f"http://localhost:3010/chat/messages",
             params={"limit": count, "sort": "timestamp", "order": "desc"},
             timeout=10
         )
