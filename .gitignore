@@ -38,6 +38,7 @@ Thumbs.db
 *.desktop
 
 # Node.js (but allow relay-server node_modules)
+!relay-server/node_modules/**/lib/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
