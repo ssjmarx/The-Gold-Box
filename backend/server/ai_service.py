@@ -11,6 +11,7 @@ import asyncio
 import litellm
 from typing import Dict, Any, Optional, List
 from .provider_manager import ProviderManager
+from .universal_settings import get_provider_config
 
 class AIService:
     """
@@ -33,32 +34,69 @@ class AIService:
         
         Args:
             messages: List of messages in chat format [{'role': 'system', 'content': '...'}, ...]
-            config: Provider configuration including api_key, provider, model, etc.
+            config: Provider configuration from universal settings (pre-validated)
             
         Returns:
             Dictionary with response data and metadata
         """
         try:
+            # Extract from pre-validated universal settings config
             provider_id = config.get('provider')
             model = config.get('model')
             api_key = config.get('api_key')
+            base_url = config.get('base_url')
+            timeout = config.get('timeout', 30)
+            max_retries = config.get('max_retries', 3)
+            headers = config.get('headers', {})
+            
+            # Enhanced logging for debugging with universal settings info
+            print(f"DEBUG: AI Service called with pre-validated config")
+            print(f"DEBUG: Provider: {provider_id}, Model: {model}, Base URL: {base_url}")
+            print(f"DEBUG: Timeout: {timeout}s, Max Retries: {max_retries}")
+            print(f"DEBUG: Custom Headers: {len(headers)} headers provided")
+            print(f"DEBUG: Available environment variables: {[k for k in os.environ.keys() if 'API_KEY' in k]}")
             
             # Get provider configuration
             provider = self.provider_manager.get_provider(provider_id)
             if not provider:
+                error_msg = f'Provider "{provider_id}" not found'
+                print(f"ERROR: {error_msg}")
                 return {
                     'success': False,
-                    'error': f'Provider "{provider_id}" not found'
+                    'error': error_msg
                 }
             
             # Get API key from environment if not provided
             if not api_key:
-                api_key = os.environ.get(f'{provider_id.upper()}_API_KEY', '')
+                env_var_name = f'{provider_id.upper()}_API_KEY'
+                api_key = os.environ.get(env_var_name, '')
+                print(f"DEBUG: Looking for API key in environment variable: {env_var_name}")
+                print(f"DEBUG: API key found in environment: {'Yes' if api_key else 'No'}")
+                
+                # If not in environment, try to load from key manager
+                if not api_key:
+                    print(f"DEBUG: API key not in environment, trying key manager...")
+                    try:
+                        from .key_manager import MultiKeyManager
+                        key_manager = MultiKeyManager()
+                        # Try to load keys without password for testing
+                        if key_manager.load_keys_with_password("") is True:
+                            if hasattr(key_manager, 'keys_data') and key_manager.keys_data:
+                                api_key = key_manager.keys_data.get(provider_id, '')
+                                print(f"DEBUG: API key found in key manager: {'Yes' if api_key else 'No'}")
+                                # Set environment variable for LiteLLM
+                                if api_key:
+                                    os.environ[env_var_name] = api_key
+                                    print(f"DEBUG: Set {env_var_name} from key manager")
+                    except Exception as e:
+                        print(f"DEBUG: Failed to load from key manager: {e}")
             
             if not api_key:
+                error_msg = f'API key not configured for provider "{provider_id}" (checked {env_var_name})'
+                print(f"ERROR: {error_msg}")
                 return {
                     'success': False,
-                    'error': f'API key not configured for provider "{provider_id}"'
+                    'error': error_msg
                 }
             
             # Configure provider in LiteLLM if it's custom
@@ -173,13 +211,16 @@ class AIService:
             Response dictionary with success/error info
         """
         try:
-            # Extract provider settings
-            provider_id = settings.get('general llm provider')
-            model = settings.get('general llm model', 'default')
-            base_url = settings.get('general llm base url')
-            custom_headers = settings.get('general llm custom headers')
-            timeout = settings.get('general llm timeout', 30)
-            max_retries = settings.get('general llm max retries',3)
+            # Use universal settings to get provider config
+            provider_config = get_provider_config(settings, use_tactical=False)
+            
+            # Extract values from pre-validated provider config
+            provider_id = provider_config['provider']
+            model = provider_config['model']
+            base_url = provider_config['base_url']
+            custom_headers = provider_config.get('custom_headers')
+            timeout = provider_config['timeout']
+            max_retries = provider_config['max_retries']
             
             # Use provider's default model if none specified
             if not model:
@@ -258,13 +299,16 @@ class AIService:
             Response dictionary with success/error info
         """
         try:
-            # Extract provider settings
-            provider_id = settings.get('general llm provider')
-            model = settings.get('general llm model', 'default')
-            base_url = settings.get('general llm base url')
-            custom_headers = settings.get('general llm custom headers')
-            timeout = settings.get('general llm timeout', 30)
-            max_retries = settings.get('general llm max retries',3)
+            # Use universal settings to get provider config
+            provider_config = get_provider_config(settings, use_tactical=False)
+            
+            # Extract values from pre-validated provider config
+            provider_id = provider_config['provider']
+            model = provider_config['model']
+            base_url = provider_config['base_url']
+            custom_headers = provider_config.get('custom_headers')
+            timeout = provider_config['timeout']
+            max_retries = provider_config['max_retries']
             
             # Use provider's default model if none specified
             if not model:

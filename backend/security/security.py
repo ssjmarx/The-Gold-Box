@@ -492,7 +492,7 @@ def get_default_security_config() -> Dict:
             },
             "/api/simple_chat": {
                 "rate_limiting": {"requests": 10, "window": 60},
-                "input_validation": "strict",
+                "input_validation": "basic",
                 "session_required": False,
                 "security_headers": True
             },
