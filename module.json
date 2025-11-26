@@ -1,7 +1,7 @@
 {
   "id": "gold-box",
   "title": "The Gold Box",
-  "description": "An AI-powered Foundry VTT module that provides intelligent TTRPG assistance through a sophisticated Python backend. Requires Foundry REST API module for full functionality.",
+  "description": "An AI-powered Foundry VTT module that provides intelligent TTRPG assistance through a sophisticated Python backend. Requires Foundry Gold API module for full functionality.",
   "version": "0.3.0-dev",
   "url": "https://github.com/ssjmarx/Gold-Box",
   "license": "CC-BY-NC-SA-4.0",
@@ -11,9 +11,9 @@
   "relationships": {
     "requires": [
       {
-        "id": "foundry-rest-api",
+        "id": "foundryvtt-gold-api",
         "compatibility": {
-          "minimum": "1.0.0"
+          "minimum": "2.0.0"
         }
       }
     ]

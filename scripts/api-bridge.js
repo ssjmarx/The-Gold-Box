@@ -1,5 +1,5 @@
 /**
- * API Bridge for Gold Box - Bridge between Gold Box and Foundry REST API module
+ * API Bridge for Gold Box - Bridge between Gold Box and Foundry Gold API module
  * Handles WebSocket client ID relay for API chat mode
  */
 
@@ -16,7 +16,7 @@ class APIBridge {
   }
 
   /**
-   * Initialize connection to Foundry REST API module (always try to connect)
+   * Initialize connection to Foundry Gold API module (always try to connect)
    * @returns {Promise<boolean>} - True if successful
    */
   async initialize() {
@@ -41,15 +41,15 @@ class APIBridge {
       // Wait for Foundry modules to be ready
       await this.waitForFoundryModule();
       
-      // Get the Foundry REST API module
-      this.foundryModule = game.modules.get('foundry-rest-api');
+      // Get the Foundry Gold API module
+      this.foundryModule = game.modules.get('foundryvtt-gold-api');
       
       if (!this.foundryModule) {
-        console.warn('APIBridge: Foundry REST API module not found');
+        console.warn('APIBridge: Foundry Gold API module not found');
         return false;
       }
       
-      console.log('APIBridge: Foundry REST API module found:', this.foundryModule);
+      console.log('APIBridge: Foundry Gold API module found:', this.foundryModule);
       console.log('APIBridge: Module active:', this.foundryModule.active);
       console.log('APIBridge: Module API available:', !!this.foundryModule.api);
       console.log('APIBridge: Available module properties:', Object.keys(this.foundryModule));
@@ -76,7 +76,7 @@ class APIBridge {
         
         // Try to check if module needs to be activated
         if (!this.foundryModule.active) {
-          console.warn('APIBridge: Foundry REST API module is not active - please enable it in module settings');
+          console.warn('APIBridge: Foundry Gold API module is not active - please enable it in module settings');
         }
         return false;
       }
@@ -208,7 +208,7 @@ class APIBridge {
   }
 
   /**
-   * Wait for Foundry REST API module to be available
+   * Wait for Foundry Gold API module to be available
    * @private
    */
   async waitForFoundryModule() {
@@ -216,15 +216,15 @@ class APIBridge {
     const maxAttempts = 50; // 5 seconds max
     
     while (attempts < maxAttempts) {
-      if (game.modules && game.modules.get('foundry-rest-api')) {
-        console.log('APIBridge: Foundry REST API module is available');
+      if (game.modules && game.modules.get('foundryvtt-gold-api')) {
+        console.log('APIBridge: Foundry Gold API module is available');
         return;
       }
       await new Promise(resolve => setTimeout(resolve, 100));
       attempts++;
     }
     
-    throw new Error('Foundry REST API module not available after timeout');
+    throw new Error('Foundry Gold API module not available after timeout');
   }
 
   /**
