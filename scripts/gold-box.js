@@ -1,4 +1,3 @@
-console.log("FILE LOADED DEBUG: gold-box.js was loaded at", new Date());
 /**
  * The Gold Box - AI-powered Foundry VTT Module
  * Main module entry point
@@ -105,7 +104,7 @@ class GoldBoxAPI {
   async syncSettings(settings, adminPassword) {
     try {
       const headers = this.connectionManager.getSecurityHeaders();
-      // Direct fix: Add adminPassword to headers
+      // CRITICAL FIX: Add adminPassword to headers
       if (adminPassword) {
         headers["X-Admin-Password"] = adminPassword;
         console.log("FINAL HTTP FIX: AdminPassword added to headers:", adminPassword ? "SUCCESS" : "FAILED");
@@ -222,6 +221,26 @@ class GoldBoxAPI {
    * Send message context to backend with processing mode support and client ID relay
    */
   async sendMessageContext(messages) {
+    // CRITICAL FIX: Ensure API bridge reference is available
+    if (!this.apiBridge && typeof game !== 'undefined' && game.goldBox && game.goldBox.apiBridge) {
+      this.apiBridge = game.goldBox.apiBridge;
+      console.log('API BRIDGE DEBUG: Set API bridge reference from module');
+    // CRITICAL FIX: Ensure API bridge reference is available with retry
+    if (!this.apiBridge && typeof game !== 'undefined' && game.goldBox && game.goldBox.apiBridge) {
+      this.apiBridge = game.goldBox.apiBridge;
+      console.log('API BRIDGE DEBUG: Set API bridge reference from module');
+    } else if (!this.apiBridge) {
+      console.warn('API BRIDGE DEBUG: API bridge not available, retrying in 1 second');
+      setTimeout(() => {
+        if (!this.apiBridge && typeof game !== 'undefined' && game.goldBox && game.goldBox.apiBridge) {
+          this.apiBridge = game.goldBox.apiBridge;
+          console.log('API BRIDGE DEBUG: Set API bridge reference from module (retry)');
+        } else {
+          console.warn('API BRIDGE DEBUG: API bridge still not available after retry');
+        }
+      }, 1000);
+    }
+    }
     try {
       const processingMode = game.settings.get('gold-box', 'chatProcessingMode') || 'simple';
       
@@ -231,26 +250,12 @@ class GoldBoxAPI {
       // STEP 1: Sync settings to admin endpoint FIRST (Phase 2 fix)
       console.log('The Gold Box: Syncing settings to admin endpoint before chat request...');
       const settings = this.getUnifiedFrontendSettings();
-      console.log("SETTINGS SYNC DEBUG: Raw settings object:", settings);
-      console.log("SETTINGS SYNC DEBUG: Settings count:", Object.keys(settings).length);
-      
-      // Ensure backend password is included in settings
-      const directPassword = game.settings.get("gold-box", "backendPassword");
-      console.log("SETTINGS SYNC DEBUG: Direct password result:", directPassword ? "SUCCESS" : "FAILED");
-      if (directPassword) {
-        settings["backend password"] = directPassword;
-        console.log("SETTINGS SYNC DEBUG: Added backend password to settings");
-      }
-      
-      const adminPassword = game.settings.get("gold-box", "backendPassword") || "";
-      console.log("SETTINGS SYNC DEBUG: Final adminPassword:", adminPassword ? "FOUND" : "NOT FOUND");
+      const adminPassword = settings['backend password'];
       
       if (adminPassword && adminPassword.trim()) {
-        console.log("SETTINGS SYNC DEBUG: Attempting to sync", Object.keys(settings).length, "settings to admin endpoint");
         const syncResult = await this.syncSettings(settings, adminPassword);
         if (syncResult.success) {
           console.log('The Gold Box: ✅ Settings synced successfully to admin endpoint');
-          console.log('The Gold Box: ✅ Backend response:', syncResult.data);
         } else {
           console.warn('The Gold Box: ⚠️ Settings sync failed:', syncResult.error);
         }
@@ -263,10 +268,15 @@ class GoldBoxAPI {
         endpoint = '/api/api_chat';
         // Include client ID in request data if available
         const clientId = this.apiBridge ? this.apiBridge.getClientId() : null;
+        console.log("API BRIDGE DEBUG: API bridge available:", !!this.apiBridge);
+        console.log("API BRIDGE DEBUG: Client ID:", clientId);
+        console.log("RELAY DEBUG: Final requestData being sent:", JSON.stringify(requestData, null, 2));
+        console.log("API BRIDGE DEBUG: Full API bridge object:", this.apiBridge);
+        console.log("API BRIDGE DEBUG: API bridge connection info:", this.apiBridge ? this.apiBridge.getConnectionInfo() : "No bridge");
         requestData = {
           // NO settings here - backend will use stored settings
           context_count: game.settings.get('gold-box', 'maxMessageContext') || 15,
-          relayClientId: clientId || null // Include client ID, allow null if not connected
+          settings: clientId ? { 'relay client id': clientId } : null // Include client ID, allow null if not connected
         };
         console.log('The Gold Box: Using API mode with client ID:', clientId || 'not connected', '- settings from backend storage');
       } else {
@@ -291,11 +301,15 @@ class GoldBoxAPI {
   }
 
   /**
+   * Get unified frontend settings (delegate to module instance)
+   */
+  /**
    * Get unified frontend settings (direct implementation to avoid delegation issues)
    */
   getUnifiedFrontendSettings() {
-    // Direct implementation to avoid delegation issues
+    // Direct implementation to avoid delegation timing issues
     if (typeof game !== 'undefined' && game.settings) {
+      console.log("SETTINGS DEBUG: Game and game.settings available");
       const settings = {
         'maximum message context': game.settings.get('gold-box', 'maxMessageContext') || 15,
         'chat processing mode': game.settings.get('gold-box', 'chatProcessingMode') || 'simple',
@@ -304,7 +318,7 @@ class GoldBoxAPI {
         'general llm base url': game.settings.get('gold-box', 'generalLlmBaseUrl') || '',
         'general llm model': game.settings.get('gold-box', 'generalLlmModel') || '',
         'general llm version': game.settings.get('gold-box', 'generalLlmVersion') || 'v1',
-        'general llm timeout': game.settings.get('gold-box', 'generalLlmTimeout') || 30,
+        'general llm timeout': game.settings.get('gold-box', 'aiResponseTimeout') || 60,
         'general llm max retries': game.settings.get('gold-box', 'generalLlmMaxRetries') || 3,
         'general llm custom headers': game.settings.get('gold-box', 'generalLlmCustomHeaders') || '',
         'tactical llm provider': game.settings.get('gold-box', 'tacticalLlmProvider') || '',
@@ -316,18 +330,13 @@ class GoldBoxAPI {
         'tactical llm custom headers': game.settings.get('gold-box', 'tacticalLlmCustomHeaders') || '',
         'backend password': game.settings.get('gold-box', 'backendPassword') || ''
       };
-      
-      console.log('SETTINGS COLLECTION DEBUG: Collected settings:', {
-        count: Object.keys(settings).length,
-        nonEmptyCount: Object.values(settings).filter(v => v && v.toString().trim()).length,
-        keys: Object.keys(settings),
-        values: Object.values(settings).map(v => v || '(empty)')
-      });
-      
+      console.log("SETTINGS DEBUG: Retrieved settings count:", Object.keys(settings).length);
+      console.log("SETTINGS DEBUG: Settings keys:", Object.keys(settings));
       return settings;
+    } else {
+      console.warn("SETTINGS DEBUG: Game or game.settings not available");
+      return {};
     }
-    console.warn('The Gold Box: game.settings not available for settings collection');
-    return {};
   }
 
   /**
@@ -431,6 +440,12 @@ class GoldBoxModule {
     if (typeof APIBridge !== 'undefined') {
       this.apiBridge = new APIBridge();
       const success = await this.apiBridge.initialize();
+      // CRITICAL FIX: Share API bridge with global game object
+      if (typeof game !== 'undefined') {
+        game.goldBox = this;
+        game.goldBox.apiBridge = this.apiBridge;
+        console.log('API BRIDGE DEBUG: Shared API bridge with game.goldBox');
+      }
       if (!success) {
         console.warn('The Gold Box: API bridge initialization failed (this is expected if user is not GM)');
       }
@@ -863,9 +878,13 @@ class GoldBoxModule {
   /**
    * Collect ALL frontend settings into unified object
    */
+  /**
+   * Get unified frontend settings (direct implementation to avoid delegation issues)
+   */
   getUnifiedFrontendSettings() {
-    // Direct implementation to avoid delegation issues
+    // Direct implementation to avoid delegation timing issues
     if (typeof game !== 'undefined' && game.settings) {
+      console.log("SETTINGS DEBUG: Game and game.settings available");
       const settings = {
         'maximum message context': game.settings.get('gold-box', 'maxMessageContext') || 15,
         'chat processing mode': game.settings.get('gold-box', 'chatProcessingMode') || 'simple',
@@ -874,7 +893,7 @@ class GoldBoxModule {
         'general llm base url': game.settings.get('gold-box', 'generalLlmBaseUrl') || '',
         'general llm model': game.settings.get('gold-box', 'generalLlmModel') || '',
         'general llm version': game.settings.get('gold-box', 'generalLlmVersion') || 'v1',
-        'general llm timeout': game.settings.get('gold-box', 'generalLlmTimeout') || 30,
+        'general llm timeout': game.settings.get('gold-box', 'aiResponseTimeout') || 60,
         'general llm max retries': game.settings.get('gold-box', 'generalLlmMaxRetries') || 3,
         'general llm custom headers': game.settings.get('gold-box', 'generalLlmCustomHeaders') || '',
         'tactical llm provider': game.settings.get('gold-box', 'tacticalLlmProvider') || '',
@@ -886,18 +905,13 @@ class GoldBoxModule {
         'tactical llm custom headers': game.settings.get('gold-box', 'tacticalLlmCustomHeaders') || '',
         'backend password': game.settings.get('gold-box', 'backendPassword') || ''
       };
-      
-      console.log('SETTINGS COLLECTION DEBUG: Collected settings:', {
-        count: Object.keys(settings).length,
-        nonEmptyCount: Object.values(settings).filter(v => v && v.toString().trim()).length,
-        keys: Object.keys(settings),
-        values: Object.values(settings).map(v => v || '(empty)')
-      });
-      
+      console.log("SETTINGS DEBUG: Retrieved settings count:", Object.keys(settings).length);
+      console.log("SETTINGS DEBUG: Settings keys:", Object.keys(settings));
       return settings;
+    } else {
+      console.warn("SETTINGS DEBUG: Game or game.settings not available");
+      return {};
     }
-    console.warn('The Gold Box: game.settings not available for settings collection');
-    return {};
   }
 
   /**
@@ -986,7 +1000,7 @@ class GoldBoxModule {
           <p><strong>Option 1: Run</strong> automation script</p>
           <p>Run <code>./start-backend.py</code> from Gold Box module directory to automatically set up and start the backend server.</p>
           <p><strong>Option 2: Manual setup</strong></p>
-          <p>See README.md file for manual setup instructions.</p>
+          <p>See the README.md file for manual setup instructions.</p>
           <p><strong>Option 3: Auto-discover port</strong></p>
           <p>Go to Gold Box settings and click "Discover Backend" to automatically find and connect to a running backend server.</p>
           <p><em><strong>Note:</strong> The frontend automatically discovers the backend port. Use the "Discover Backend" button if needed.</em></p>

@@ -118,16 +118,22 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         # Step 1: Collect chat messages via REST API (relay server is started by main server)
         logger.info(f"Collecting {context_count} chat messages via REST API")
         
-        # Prepare request data for client ID extraction
-        request_data_for_api = None
+        # Prepare request data for client ID extraction (PHASE 1 FIX: Always ensure valid dictionary)
         if hasattr(http_request.state, 'validated_body') and http_request.state.validated_body:
             request_data_for_api = http_request.state.validated_body
+            logger.info("DEBUG: Using middleware-validated request data for API calls")
         else:
-            # If no middleware validation, use the original request data (without separate relayClientId)
+            # If no middleware validation, use the original request data (PHASE 1 FIX: Ensure valid structure)
             request_data_for_api = {
                 'context_count': request.context_count,
-                'settings': request.settings
+                'settings': request.settings if request.settings is not None else {}
             }
+            logger.info("DEBUG: Using original request data for API calls")
+        
+        # PHASE 1 FIX: Ensure request_data_for_api is never None
+        if request_data_for_api is None:
+            request_data_for_api = {'context_count': context_count, 'settings': {}}
+            logger.warning("DEBUG: request_data_for_api was None, using fallback structure")
         
         api_messages = await collect_chat_messages_api(context_count, request_data_for_api)
         
@@ -137,12 +143,36 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         # Step 3: Use universal settings extraction for consistent behavior
         # First try to use settings from request, then fall back to stored settings
         if settings and isinstance(settings, dict):
-            # Use settings from request (if provided)
-            request_data_for_settings = {
-                'settings': settings
-            }
-            universal_settings = extract_universal_settings(request_data_for_settings, "api_chat")
-            logger.info(f"DEBUG: Universal settings extracted from request: {universal_settings}")
+            # MERGE FIX: If settings contains client ID, merge with stored settings for complete config
+            if 'relay client id' in settings:
+                # Client ID provided - merge with stored settings for complete configuration
+                try:
+                    from server import settings_manager
+                    stored_settings = settings_manager.get_settings()
+                    if stored_settings:
+                        # Merge request settings with stored settings (request takes priority for client ID)
+                        merged_settings = {**stored_settings}  # Start with all stored settings
+                        merged_settings.update(settings)  # Override with request settings (client ID)
+                        request_data_for_settings = {
+                            'settings': merged_settings
+                        }
+                        universal_settings = extract_universal_settings(request_data_for_settings, "api_chat")
+                        logger.info(f"DEBUG: Merged settings - Stored: {len(stored_settings)}, Request: {len(settings)}, Final: {len(merged_settings)}")
+                except ImportError as e:
+                    logger.error(f"Failed to import settings_manager for merge: {e}")
+                    # Fallback to request settings only
+                    request_data_for_settings = {
+                        'settings': settings
+                    }
+                    universal_settings = extract_universal_settings(request_data_for_settings, "api_chat")
+                    logger.info(f"DEBUG: Using request settings only (no stored settings available): {universal_settings}")
+            else:
+                # No client ID - use request settings as-is
+                request_data_for_settings = {
+                    'settings': settings
+                }
+                universal_settings = extract_universal_settings(request_data_for_settings, "api_chat")
+                logger.info(f"DEBUG: Using request settings only (no client ID): {universal_settings}")
         else:
             # Use stored settings from settings manager (fallback)
             try:
@@ -199,7 +229,7 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         
         ai_messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Chat Context (Compact JSON Format):\n{compact_json_context}\n\nPlease respond to this conversation as an AI assistant for tabletop RPGs. If you need to generate game mechanics, use the compact JSON format specified in the system prompt."}
+            {"role": "user", "content": f"Chat Context (Compact JSON Format):\n{compact_json_context}\n\nPlease respond to this conversation as an AI assistant for tabletop RPGs. If you need to generate game mechanics, use compact JSON format specified in system prompt."}
         ]
         
         # Step 6: Call AI service with universal settings
@@ -243,25 +273,47 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
         # Get client ID from unified settings with better fallback handling (Phase 2 fix)
         client_id = None
         if request_data:
-            # Priority 1: Get from unified settings
+            # Priority 1: Get from unified settings in request
             settings = request_data.get('settings', {})
             client_id = settings.get('relay client id')
             if client_id:
                 logger.info("DEBUG: Client ID found in unified settings")
             else:
-                # Priority 2: Fallback to separate parameter (backward compatibility)
-                client_id = request_data.get('relayClientId')
-                logger.info("DEBUG: Client ID found in separate parameter (backward compatibility)")
+                # Priority 2: Try to get from stored settings as fallback
+                try:
+                    from server import settings_manager
+                    stored_settings = settings_manager.get_settings()
+                    if stored_settings:
+                        client_id = stored_settings.get('relay client id')
+                        if client_id:
+                            logger.info("DEBUG: Client ID found in stored settings (fallback)")
+                except ImportError:
+                    pass
+                
+                if not client_id:
+                    # Priority 3: Fallback to separate parameter (backward compatibility)
+                    client_id = request_data.get('relayClientId')
+                    if client_id:
+                        logger.info("DEBUG: Client ID found in separate parameter (backward compatibility)")
         else:
-            logger.warning("DEBUG: No request data available for client ID extraction")
+            # Try to get from stored settings when no request data
+            try:
+                from server import settings_manager
+                stored_settings = settings_manager.get_settings()
+                if stored_settings:
+                    client_id = stored_settings.get('relay client id')
+                    if client_id:
+                        logger.info("DEBUG: Client ID found in stored settings (no request data)")
+            except ImportError:
+                pass
         
-        # If no client ID provided, try to get one from the relay server
+        # If no client ID provided, try to get one from relay server
         if not client_id:
             logger.info("DEBUG: No client ID provided, attempting to get available clients from relay server")
             try:
-                # Try to get list of available clients from relay server
+                # Try to get list of available clients from relay server (PHASE 2 FIX: Correct endpoint)
                 clients_response = requests.get(
-                    f"http://localhost:3010/api/clients",
+                    f"http://localhost:3010/clients",
                     timeout=5
                 )
                 if clients_response.status_code == 200:
@@ -310,10 +362,10 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
         headers["x-api-key"] = "local-dev"  # This works for local memory store mode
         
         response = requests.get(
-            f"http://localhost:3010/messages",
+            f"http://localhost:3010/messages",  # PHASE 3 FIX: Use correct Gold API endpoint
             params={"clientId": client_id, "limit": count, "sort": "timestamp", "order": "desc"},
             headers=headers,
-            timeout=10
+            timeout=3  # PHASE 2 FIX: Reduce timeout to prevent blocking
         )
         
         logger.info(f"DEBUG: Relay server response status: {response.status_code}")
