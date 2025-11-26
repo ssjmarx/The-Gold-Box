@@ -143,3 +143,17 @@ This project is licensed under **Creative Commons Attribution-NonCommercial-Shar
 - Access other generative services, such as image and voice
 
 **Current Version: 0.2.5** - Enhanced security framework, comprehensive chat context processor, and multi-provider support
+
+## Foundry VTT Gold API Module
+
+The Gold Box requires the **Foundry VTT Gold API** module for enhanced chat functionality. Install this module alongside The Gold Box:
+
+```
+https://github.com/ssjmarx/foundryvtt-gold-api/releases/latest/download/module.json
+```
+
+This module provides enhanced chat endpoints including:
+- **POST /chat** - Send messages as any speaker with IC/OOC support
+- **GET /messages** - Retrieve chat history with filtering and search
+
+The Gold API module is a fork of the original Foundry REST API with additional chat features specifically designed for AI-powered TTRPG assistance.
