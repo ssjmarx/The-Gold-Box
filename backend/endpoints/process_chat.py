@@ -19,6 +19,7 @@ from datetime import datetime
 from server.processor import ChatContextProcessor
 from server.provider_manager import ProviderManager
 from server.ai_service import AIService
+from server.universal_settings import extract_universal_settings, get_provider_config
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -142,17 +143,42 @@ async def process_chat(
                 {"role": "user", "content": f"Chat Context (Compact JSON Format):\n{compact_json_context}\n\nPlease respond to this conversation as an AI assistant for tabletop RPGs. If you need to generate game mechanics, use the compact JSON format specified in the system prompt."}
             ]
             
-            # Use validated settings or fallback to request parameters
-            if not settings:
-                # Fallback settings for backward compatibility
-                settings = {
-                    'general llm provider': 'openai',
-                    'general llm model': 'gpt-3.5-turbo',
-                    'general llm base url': None,
-                    'general llm timeout': 30,
-                    'general llm max retries': 3,
-                    'general llm custom headers': None
+            # Use universal settings extraction for consistent behavior
+            if settings and isinstance(settings, dict):
+                # Use settings from request if provided
+                request_data_for_settings = {
+                    'settings': settings
                 }
+                universal_settings = extract_universal_settings(request_data_for_settings, "process_chat")
+                logger.info(f"DEBUG: Universal settings extracted from request: {universal_settings}")
+            else:
+                # Fallback to stored settings when no settings provided
+                logger.info("DEBUG: Settings not provided in request, retrieving stored settings")
+                try:
+                    from server import settings_manager
+                    stored_settings = settings_manager.get_settings()
+                    logger.info(f"DEBUG: Retrieved stored settings: {stored_settings}")
+                    
+                    if stored_settings:
+                        request_data_for_settings = {
+                            'settings': stored_settings
+                        }
+                        universal_settings = extract_universal_settings(request_data_for_settings, "process_chat")
+                        logger.info(f"DEBUG: Universal settings extracted from storage: {universal_settings}")
+                    else:
+                        logger.warning("DEBUG: No stored settings found, using defaults")
+                        universal_settings = extract_universal_settings({}, "process_chat")
+                        logger.info(f"DEBUG: Universal settings extracted from defaults: {universal_settings}")
+                        
+                except ImportError as e:
+                    logger.error(f"DEBUG: Failed to import settings_manager: {e}")
+                    # Final fallback to defaults
+                    universal_settings = extract_universal_settings({}, "process_chat")
+                    logger.info(f"DEBUG: Universal settings extracted from defaults: {universal_settings}")
+            
+            # Extract provider config from universal settings
+            provider_config = get_provider_config(universal_settings, use_tactical=False)
+            logger.info(f"DEBUG: Provider config extracted: {provider_config}")
             
             # DEBUG: Log the full prompt being sent
             logger.info(f"DEBUG: System prompt being sent:\n{system_prompt}")
@@ -161,7 +187,7 @@ async def process_chat(
             ai_response_data = await ai_service.process_compact_context(
                 processed_messages=processed_messages,
                 system_prompt=system_prompt,
-                settings=settings
+                settings=universal_settings
             )
             
             ai_response = ai_response_data.get("response", "")

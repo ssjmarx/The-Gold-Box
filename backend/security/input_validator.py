@@ -150,7 +150,7 @@ class UniversalInputValidator:
         'text': r'^[\w\s\.\,\!\?\;\:\-\(\)\[\]\"\'\/\n\r\t]*$',  # Text with punctuation
         'prompt': r'^[\s\S]*$',  # Prompts allow ANY characters (including newlines, Unicode, etc.)
         'api_key': r'^[a-zA-Z0-9\-_\.]+$',  # API keys
-        'config': r'^[a-zA-Z0-9\-_\.\/\:\s]*$',  # Configuration values
+        'config': r'^[a-zA-Z0-9\-_\.\/\:\s\{\}\[\]\"\']*$',  # Configuration values (including JSON syntax)
     }
     
     # Size limits for different input types

@@ -4,3 +4,5 @@ __pycache__
 *.log
 *.enc
 venv
+backend/server_files/rate_limits.json
+backend/server_files/sessions.json

@@ -52,6 +52,8 @@ from security.security import (
     verify_dependency_integrity, validate_prompt, get_session_id_from_request
 )
 from security.sessionvalidator import session_validator
+# Import universal settings for debug endpoints
+from server.universal_settings import extract_universal_settings, get_provider_config, UniversalSettings
 
 # Load environment variables from .env file
 load_dotenv()
@@ -408,6 +410,15 @@ class SettingsManager:
 # Initialize settings manager
 settings_manager = SettingsManager()
 
+# Export settings_manager to server module for other files to import
+try:
+    import server
+    server.settings_manager = settings_manager
+    server.get_settings_manager = lambda: settings_manager
+except ImportError:
+    # This can happen during initial imports, but that's OK
+    pass
+
 def manage_keys(keychange=False):
     """Enhanced key management function with admin password"""
     print("Gold Box - Starting Key Management...")
@@ -557,65 +568,85 @@ async def simple_chat_endpoint(request: Request):
     4. Returns structured response
     """
     try:
+        logger.info("DEBUG: Starting simple_chat_endpoint")
+        
         # Get validated data from universal security middleware if available
         if hasattr(request.state, 'validated_body') and request.state.validated_body:
             # Use middleware-validated data for enhanced security
             request_data = request.state.validated_body
-            logger.info("Processing simple chat request with middleware-validated data")
+            logger.info("DEBUG: Using middleware-validated data")
+            logger.info(f"DEBUG: Request data keys: {list(request_data.keys())}")
         else:
             # Fallback to original request data (should not happen with proper middleware)
             try:
                 request_data = await request.json()
-            except Exception:
+                logger.info("DEBUG: Using original request data")
+            except Exception as e:
+                logger.error(f"DEBUG: JSON parsing failed: {e}")
                 raise HTTPException(
                     status_code=400,
                     detail="Invalid JSON in request body"
                 )
             logger.info("Processing simple chat request with original request data")
         
-        # Extract unified frontend settings and messages
-        frontend_settings = request_data.get('settings', {})
+        # Check if request_data contains settings, if not, retrieve stored settings
+        if not request_data.get('settings'):
+            logger.info("DEBUG: No settings in request_data, retrieving stored settings")
+            stored_settings = settings_manager.get_settings()
+            if stored_settings:
+                request_data['settings'] = stored_settings
+                logger.info(f"DEBUG: Added stored settings to request_data: {len(stored_settings)} settings")
+            else:
+                logger.warning("DEBUG: No stored settings found")
+        
+        # Use universal settings extraction for consistent behavior across endpoints
+        universal_settings = extract_universal_settings(request_data, "simple_chat")
+        logger.info(f"DEBUG: Universal settings extracted: {universal_settings}")
+        
+        # Extract provider config from universal settings
+        provider_config = get_provider_config(universal_settings, use_tactical=False)
+        logger.info(f"DEBUG: Provider config extracted: {provider_config}")
+        
+        # Extract messages from request data
         messages = request_data.get('messages', [])
         
-        # Validate that we have settings
-        if not frontend_settings:
+        logger.info(f"DEBUG: frontend_settings type: {type(request_data.get('settings', {}))}")
+        logger.info(f"DEBUG: messages type: {type(messages)}")
+        logger.info(f"DEBUG: messages: {messages}")
+        
+        # Validate that we have messages (be more lenient for frontend issues)
+        if not messages or not isinstance(messages, list):
+            logger.error(f"DEBUG: Messages invalid: {type(messages)}, raising 400")
             raise HTTPException(
                 status_code=400,
-                detail="Settings object is required"
+                detail=f"Messages array is required and must be a list, got {type(messages).__name__}"
             )
         
-        # Validate that we have messages
-        if not messages:
-            raise HTTPException(
-                status_code=400,
-                detail="Messages array is required"
-            )
+        # Use provider config values for consistency
+        provider_id = provider_config['provider']
+        model = provider_config['model']
+        base_url = provider_config['base_url']
+        api_version = provider_config['api_version']
+        timeout = provider_config['timeout']
+        max_retries = provider_config['max_retries']
+        custom_headers_str = provider_config.get('custom_headers', '{}')
         
-        # Extract provider configuration from settings
-        provider_id = frontend_settings.get('general llm provider', 'openai')
-        model = frontend_settings.get('general llm model', 'gpt-3.5-turbo')
-        base_url = frontend_settings.get('general llm base url', '')
-        api_version = frontend_settings.get('general llm version', 'v1')
-        timeout = frontend_settings.get('general llm timeout', 30)
-        max_retries = frontend_settings.get('general llm max retries', 3)
-        custom_headers_str = frontend_settings.get('general llm custom headers', '{}')
-        
-        # Parse custom headers if provided
-        custom_headers = {}
-        try:
-            if custom_headers_str and custom_headers_str.strip():
-                import json
-                custom_headers = json.loads(custom_headers_str)
-        except (json.JSONDecodeError, Exception) as e:
-            logger.warning(f"Invalid custom headers JSON: {e}")
-            custom_headers = {}
-        
-        # For now, always use General LLM settings (tactical will be implemented later)
         client_host = request.client.host if request.client else "unknown"
         logger.info(f"Processing provider-agnostic request from {client_host}: provider={provider_id}, model={model}")
         logger.info(f"Settings: base_url={base_url}, api_version={api_version}, timeout={timeout}, max_retries={max_retries}")
         
+        logger.info(f"DEBUG: Calling process_simple_chat with unified settings")
+        logger.info(f"  provider_id: {provider_id}")
+        logger.info(f"  model: {model}")
+        logger.info(f"  message_context: {len(messages)} messages")
+        logger.info(f"  base_url: {base_url}")
+        logger.info(f"  api_version: {api_version}")
+        logger.info(f"  timeout: {timeout}")
+        logger.info(f"  max_retries: {max_retries}")
+        logger.info(f"  custom_headers_str: {custom_headers_str}")
+        
         result = await process_simple_chat(
+            request_data=request_data,  # Pass the full request data with unified settings
             provider_id=provider_id,
             model=model,
             prompt=None,  # Will be set from message context
@@ -628,6 +659,8 @@ async def simple_chat_endpoint(request: Request):
             max_retries=max_retries,  # Pass max retries
             custom_headers=custom_headers_str  # Pass custom headers as JSON string
         )
+        
+        logger.info(f"DEBUG: process_simple_chat returned: {result}")
         
         if result['success']:
             # Log actual content for debugging
@@ -1072,6 +1105,14 @@ async def admin_endpoint(request: Request):
         elif command == 'update_settings':
             # Update frontend settings
             frontend_settings_data = request_data.get('settings', {})
+            
+            # Debug logging to track what settings are received
+            logger.info(f"DEBUG: Admin endpoint received settings data:")
+            logger.info(f"  - Type: {type(frontend_settings_data)}")
+            logger.info(f"  - Keys count: {len(frontend_settings_data) if isinstance(frontend_settings_data, dict) else 'N/A (not dict)'}")
+            logger.info(f"  - Keys: {list(frontend_settings_data.keys()) if isinstance(frontend_settings_data, dict) else 'N/A (not dict)'}")
+            logger.info(f"  - Non-empty values: {len([v for v in frontend_settings_data.values() if v and str(v).strip()]) if isinstance(frontend_settings_data, dict) else 'N/A (not dict)'}")
+            
             if settings_manager.update_settings(frontend_settings_data):
                 logger.info(f"Frontend settings updated from {client_host}")
                 return {
@@ -1113,10 +1154,134 @@ async def not_found(request: Request, exc):
         content={
             'error': 'Endpoint not found',
             'status': 'error',
-            'available_endpoints': ['/api/simple_chat', '/api/health', '/api/info', '/api/security', '/api/session/init', '/api/start', '/api/admin'],
+            'available_endpoints': ['/api/simple_chat', '/api/health', '/api/info', '/api/security', '/api/session/init', '/api/start', '/api/admin', '/api/debug/settings', '/api/debug/provider'],
             'security': 'Protected by Universal Security Middleware'
         }
     )
+
+# Debug endpoints for universal settings testing
+@app.get("/api/debug/settings")
+async def debug_settings_endpoint():
+    """
+    Debug endpoint to display universal settings schema and current state
+    Security is handled by UniversalSecurityMiddleware
+    """
+    try:
+        # Get current frontend settings
+        current_settings = settings_manager.get_settings()
+        
+        # Extract universal settings to show current state
+        extracted_settings = extract_universal_settings(current_settings)
+        
+        # Get provider config for both tactical and general
+        general_provider_config = get_provider_config(current_settings, use_tactical=False)
+        tactical_provider_config = get_provider_config(current_settings, use_tactical=True)
+        
+        debug_info = {
+            'timestamp': datetime.now().isoformat(),
+            'schema_info': {
+                'schema_version': '1.0',
+                'total_settings': len(UniversalSettings.SETTINGS_SCHEMA),
+                'setting_keys': list(UniversalSettings.SETTINGS_SCHEMA.keys())
+            },
+            'current_frontend_settings': {
+                'raw_settings': current_settings,
+                'extracted_settings': extracted_settings,
+                'settings_count': len(current_settings)
+            },
+            'provider_configs': {
+                'general': {
+                    'config': general_provider_config,
+                    'valid': bool(general_provider_config.get('provider'))
+                },
+                'tactical': {
+                    'config': tactical_provider_config,
+                    'valid': bool(tactical_provider_config.get('provider'))
+                }
+            },
+            'universal_settings_schema': {k: {'type': str(v['type']).__name__, **{k2: v2 for k2, v2 in v.items() if k2 != 'type'}} for k, v in UniversalSettings.SETTINGS_SCHEMA.items()},
+            'debug_info': {
+                'message': 'Universal settings debug information',
+                'use_tactical_param': 'Controls whether tactical settings override general settings',
+                'extraction_logic': 'Settings are extracted in order: tactical -> general -> defaults'
+            }
+        }
+        
+        return JSONResponse(
+            status_code=200,
+            content=debug_info
+        )
+        
+    except Exception as e:
+        logger.error(f"Debug settings endpoint error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Debug settings error: {str(e)}"
+        )
+
+@app.post("/api/debug/provider")
+async def debug_provider_endpoint(request: Request):
+    """
+    Debug endpoint to test provider configuration with given settings
+    Security is handled by UniversalSecurityMiddleware
+    """
+    try:
+        # Get request data
+        request_data = await request.json()
+        settings = request_data.get('settings', {})
+        use_tactical = request_data.get('use_tactical', False)
+        
+        # Extract provider config
+        provider_config = get_provider_config(settings, use_tactical)
+        
+        # Validate provider configuration
+        validation_result = {
+            'valid': True,
+            'errors': [],
+            'warnings': []
+        }
+        
+        # Check for required fields
+        if not provider_config.get('provider'):
+            validation_result['valid'] = False
+            validation_result['errors'].append('Provider is required')
+        
+        if not provider_config.get('model'):
+            validation_result['valid'] = False
+            validation_result['errors'].append('Model is required')
+        
+        # Check for logical issues
+        if provider_config.get('provider') == 'openai' and not provider_config.get('api_key'):
+            validation_result['warnings'].append('OpenAI provider detected but no API key found in environment')
+        
+        if provider_config.get('base_url') and not provider_config.get('provider'):
+            validation_result['warnings'].append('Base URL provided but no provider specified')
+        
+        debug_response = {
+            'timestamp': datetime.now().isoformat(),
+            'request_data': {
+                'settings': settings,
+                'use_tactical': use_tactical
+            },
+            'extracted_config': provider_config,
+            'validation': validation_result,
+            'debug_info': {
+                'message': 'Provider configuration debug test',
+                'extraction_method': 'tactical' if use_tactical else 'general'
+            }
+        }
+        
+        return JSONResponse(
+            status_code=200,
+            content=debug_response
+        )
+        
+    except Exception as e:
+        logger.error(f"Debug provider endpoint error: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Debug provider error: {str(e)}"
+        )
 
 @app.exception_handler(405)
 async def method_not_allowed(request: Request, exc):
