@@ -59,9 +59,45 @@ class APIChatProcessor:
         
         compact_msg = {"t": self.type_codes[msg_type]}
         
+        # Handle roll messages from relay server (highest priority)
+        if msg_type == "dice-roll" and api_message.get('_source') == 'roll':
+            return self._convert_roll_message_to_compact(api_message)
+        
         # Extract common fields
         if "content" in api_message:
             content = api_message["content"]
+            # Check if content contains embedded roll data (JSON format)
+            if content and content.strip().startswith('{') and content.strip().endswith('}'):
+                try:
+                    # Try to parse as JSON for embedded roll data
+                    import json
+                    embedded_data = json.loads(content)
+                    if isinstance(embedded_data, dict) and any(key in embedded_data for key in ["f", "r", "tt", "crit", "fumble", "dice"]):
+                        # This is embedded roll data, extract it
+                        if "f" in embedded_data:
+                            compact_msg["f"] = embedded_data["f"]
+                        if "r" in embedded_data or "rollTotal" in embedded_data:
+                            result = embedded_data.get("r") or embedded_data.get("rollTotal")
+                            compact_msg["r"] = result
+                            compact_msg["tt"] = result
+                        if "tt" in embedded_data:
+                            compact_msg["tt"] = embedded_data["tt"]
+                        if "crit" in embedded_data:
+                            compact_msg["crit"] = embedded_data["crit"]
+                        if "fumble" in embedded_data:
+                            compact_msg["fumble"] = embedded_data["fumble"]
+                        if "dice" in embedded_data:
+                            compact_msg["dice"] = embedded_data["dice"]
+                        if "fl" in embedded_data:
+                            compact_msg["fl"] = embedded_data["fl"]
+                        # Extract speaker if present in embedded data
+                        if "s" in embedded_data:
+                            compact_msg["s"] = embedded_data["s"]
+                        logger.info(f"DEBUG: Extracted embedded roll data from content: {embedded_data}")
+                        return compact_msg
+                except (json.JSONDecodeError, Exception) as e:
+                    logger.warning(f"DEBUG: Failed to parse embedded roll data from content: {e}")
+                    # Fall through to normal processing if JSON parsing fails
             # For card messages, extract structured data
             if msg_type in ["card", "activation-card"]:
                 structured_data = self._extract_structured_data(content, msg_type)
@@ -127,6 +163,37 @@ class APIChatProcessor:
                     compact_msg.update(roll_data)
                     # Don't store raw HTML if we have extracted roll data
                 else:
+                    # Check for embedded roll data in JSON format within content
+                    content = api_message.get("content", "")
+                    if content and content.strip().startswith('{') and content.strip().endswith('}'):
+                        try:
+                            import json
+                            embedded_data = json.loads(content)
+                            if isinstance(embedded_data, dict) and any(key in embedded_data for key in ["f", "r", "tt", "crit", "fumble", "dice"]):
+                                # This is embedded roll data, extract it
+                                if "f" in embedded_data:
+                                    compact_msg["f"] = embedded_data["f"]
+                                if "r" in embedded_data or "rollTotal" in embedded_data:
+                                    result = embedded_data.get("r") or embedded_data.get("rollTotal")
+                                    compact_msg["r"] = result
+                                    compact_msg["tt"] = result
+                                if "tt" in embedded_data:
+                                    compact_msg["tt"] = embedded_data["tt"]
+                                if "crit" in embedded_data:
+                                    compact_msg["crit"] = embedded_data["crit"]
+                                if "fumble" in embedded_data:
+                                    compact_msg["fumble"] = embedded_data["fumble"]
+                                if "dice" in embedded_data:
+                                    compact_msg["dice"] = embedded_data["dice"]
+                                if "fl" in embedded_data:
+                                    compact_msg["fl"] = embedded_data["fl"]
+                                # Extract speaker if present in embedded data
+                                if "s" in embedded_data:
+                                    compact_msg["s"] = embedded_data["s"]
+                                logger.info(f"DEBUG: Extracted embedded roll data from content: {embedded_data}")
+                                return compact_msg
+                        except (json.JSONDecodeError, Exception) as e:
+                            logger.warning(f"DEBUG: Failed to parse embedded roll data from content: {e}")
                     # Keep as dice-roll type but with processed content
                     compact_msg["c"] = api_message.get("content", "")
         
@@ -135,8 +202,82 @@ class APIChatProcessor:
         
         return compact_msg
     
+    def _convert_roll_message_to_compact(self, roll_message: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert roll message from relay server to compact format"""
+        compact_msg = {"t": "dr"}  # dice-roll type
+        
+        # Extract roll formula
+        if "formula" in roll_message:
+            compact_msg["f"] = roll_message["formula"]
+        
+        # Extract roll result
+        if "rollTotal" in roll_message:
+            compact_msg["r"] = roll_message["rollTotal"]
+            compact_msg["tt"] = roll_message["rollTotal"]  # Also store as total for consistency
+        elif "total" in roll_message:
+            compact_msg["r"] = roll_message["total"]
+            compact_msg["tt"] = roll_message["total"]
+        
+        # Extract speaker information
+        if "user" in roll_message:
+            user_info = roll_message["user"]
+            if isinstance(user_info, dict):
+                speaker = user_info.get("alias") or user_info.get("name") or user_info.get("id")
+            else:
+                speaker = str(user_info)
+            compact_msg["s"] = speaker
+        elif "speaker" in roll_message:
+            speaker_info = roll_message["speaker"]
+            if isinstance(speaker_info, dict):
+                # Priority: alias > scene/actor > token > name > id
+                speaker = (speaker_info.get("alias") or 
+                         speaker_info.get("actor") or 
+                         speaker_info.get("token") or 
+                         speaker_info.get("name") or 
+                         str(speaker_info.get("id")))
+            else:
+                speaker = str(speaker_info)
+            compact_msg["s"] = speaker
+        
+        # Extract timestamp
+        if "timestamp" in roll_message:
+            compact_msg["ts"] = roll_message["timestamp"]
+        
+        # Extract additional roll information
+        if "isCritical" in roll_message:
+            compact_msg["crit"] = roll_message["isCritical"]
+        
+        if "isFumble" in roll_message:
+            compact_msg["fumble"] = roll_message["isFumble"]
+        
+        # Extract dice details if available
+        if "dice" in roll_message:
+            dice_info = roll_message["dice"]
+            if isinstance(dice_info, list) and len(dice_info) > 0:
+                # Extract key dice information for AI context
+                compact_dice = []
+                for die in dice_info:
+                    die_info = {}
+                    if "faces" in die:
+                        die_info["f"] = die["faces"]
+                    if "results" in die:
+                        die_info["r"] = [r.get("result", r.get("active", 0)) for r in die["results"]]
+                    compact_dice.append(die_info)
+                compact_msg["dice"] = compact_dice
+        
+        # Extract flavor text if available
+        if "flavor" in roll_message:
+            compact_msg["fl"] = roll_message["flavor"]
+        
+        return compact_msg
+    
     def _detect_message_type(self, api_message: Dict[str, Any]) -> str:
         """Detect message type from API message structure with enhanced type detection"""
+        
+        # Check if this is a roll message from the relay server (highest priority)
+        if api_message.get('_source') == 'roll':
+            return "dice-roll"
+        
         content = api_message.get("content", "")
         
         # Check for CARDS FIRST (highest priority) - cards can contain roll indicators

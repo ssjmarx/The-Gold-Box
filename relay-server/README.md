@@ -1,10 +1,7 @@
-# Foundry VTT Gold API
+# Foundry VTT Gold API Relay
 
 ## Original Project
-Based on [ThreeHats/foundryvtt-rest-api](https://github.com/ThreeHats/foundryvtt-rest-api)
-
-## Latest Release
-https://github.com/ssjmarx/foundryvtt-gold-api/releases/latest/download/module.json
+Based on [ThreeHats/foundryvtt-rest-api-relay](https://github.com/ThreeHats/foundryvtt-rest-api-relay)
 
 ## New Features
 
