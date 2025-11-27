@@ -46,6 +46,83 @@ from server.provider_manager import ProviderManager
 provider_manager = ProviderManager()
 ai_service = AIService(provider_manager)  # Properly initialized with provider manager
 
+async def _send_messages_to_foundry(api_formatted_data, client_id):
+    """Send processed messages to Foundry via relay server"""
+    try:
+        import requests
+        
+        # Handle both single message and multi-message formats
+        if api_formatted_data.get("type") == "multi-message":
+            messages = api_formatted_data.get("messages", [])
+        else:
+            messages = [api_formatted_data]
+        
+        # Send each message to relay server
+        success_count = 0
+        for message in messages:
+            try:
+                # Use the correct relay server format - BOTH nested message object AND flat fields
+                post_data = {
+                    "clientId": client_id,
+                    "message": {
+                        "message": message.get("content", "Test message"),
+                        "speaker": message.get("author", {}).get("name", "The Gold Box AI"),
+                        "type": message.get("type", "ic"),  # ic = in-character
+                        "timestamp": int(datetime.now().timestamp() * 1000)  # milliseconds as required
+                    },
+                    # Also provide flat fields (required by relay server validation)
+                    "message.message": message.get("content", "Test message"),
+                    "message.speaker": message.get("author", {}).get("name", "The Gold Box AI"),
+                    "message.type": message.get("type", "ic"),  # ic = in-character
+                    "message.timestamp": int(datetime.now().timestamp() * 1000)  # milliseconds as required
+                }
+                
+                # Retry logic for relay server communication
+                max_retries = 3
+                retry_delay = 1  # seconds
+                
+                for attempt in range(max_retries):
+                    try:
+                        response = requests.post(
+                            f"http://localhost:3010/chat",
+                            json=post_data,
+                            headers={"x-api-key": "local-dev"},
+                            timeout=30  # Increased timeout to 30 seconds as requested
+                        )
+                        
+                        if response.status_code == 200:
+                            success_count += 1
+                            logger.info(f"Successfully sent message to Foundry: {message.get('type', 'unknown')}")
+                            break  # Success, exit retry loop
+                        else:
+                            logger.warning(f"Attempt {attempt + 1} failed: {response.status_code} - {response.text}")
+                            if attempt < max_retries - 1:
+                                logger.info(f"Retrying in {retry_delay} seconds...")
+                                await asyncio.sleep(retry_delay)
+                                retry_delay *= 2  # Exponential backoff
+                            else:
+                                logger.error(f"All {max_retries} attempts failed for message")
+                                break
+                                
+                    except Exception as e:
+                        logger.error(f"Attempt {attempt + 1} exception: {e}")
+                        if attempt < max_retries - 1:
+                            logger.info(f"Retrying in {retry_delay} seconds...")
+                            await asyncio.sleep(retry_delay)
+                            retry_delay *= 2  # Exponential backoff
+                        else:
+                            logger.error(f"All {max_retries} attempts failed for message")
+                            break
+                
+            except Exception as e:
+                logger.error(f"Error sending individual message to Foundry: {e}")
+        
+        return success_count, len(messages)
+                
+    except Exception as e:
+        logger.error(f"Error sending messages to Foundry: {e}")
+        return 0, len(messages) if 'messages' in locals() else 0
+
 @router.post("/api_chat", response_model=APIChatResponse)
 async def api_chat(http_request: Request, request: APIChatRequest):
     """
@@ -131,6 +208,10 @@ async def api_chat(http_request: Request, request: APIChatRequest):
                 logger.info("PHASE 1 TEST: ✅ Settings object structure is correct after merge")
             else:
                 logger.warning(f"PHASE 1 TEST: ⚠️ Settings structure issues detected after merge")
+        
+        # Initialize universal_settings with defaults to avoid scope issues
+        universal_settings = extract_universal_settings({}, "api_chat")
+        logger.info(f"DEBUG: Initialized universal_settings with defaults: {universal_settings}")
         
         # Step 1: Collect chat messages via REST API (relay server is started by main server)
         logger.info(f"Collecting {context_count} chat messages via REST API")
@@ -280,21 +361,53 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         logger.info(f"Tokens used: {tokens_used}")
         logger.info("=== END AI SERVICE CALL DEBUG ===")
         
-        # Step 7: Process AI response back to API format (for future use)
+        # Step 7: Process AI response back to API format and send to Foundry
         api_formatted = ai_chat_processor.process_ai_response(ai_response, compact_messages)
         
-        # Step 8: Return response
-        return APIChatResponse(
-            success=True,
-            response=ai_response,
-            metadata={
-                "context_count": len(compact_messages),
-                "tokens_used": tokens_used,
-                "api_formatted": api_formatted,
-                "provider_used": provider_id,
-                "model_used": model
-            }
-        )
+        # Step 7.5: Send messages to Foundry via relay server
+        if api_formatted:
+            # Get client ID for relay server
+            client_id = settings.get('relay client id') if settings else None
+            if client_id:
+                success_count, total_messages = await _send_messages_to_foundry(api_formatted, client_id)
+                logger.info(f"Relay server transmission: {success_count}/{total_messages} messages sent successfully")
+                
+                # Step 8: Return confirmation response
+                return APIChatResponse(
+                    success=True,
+                    response=f"✅ Successfully sent {success_count} message(s) to Foundry chat",
+                    metadata={
+                        "context_count": len(compact_messages),
+                        "tokens_used": tokens_used,
+                        "messages_sent": success_count,
+                        "total_messages": total_messages,
+                        "api_formatted": api_formatted,
+                        "provider_used": provider_id,
+                        "model_used": model
+                    }
+                )
+            else:
+                logger.warning("No client ID available - cannot send messages to Foundry")
+                # Return response with API formatted data for frontend display
+                return APIChatResponse(
+                    success=True,
+                    response=ai_response,  # Return raw AI response as fallback
+                    metadata={
+                        "context_count": len(compact_messages),
+                        "tokens_used": tokens_used,
+                        "messages_sent": 0,
+                        "relay_error": "No client ID available",
+                        "api_formatted": api_formatted,
+                        "provider_used": provider_id,
+                        "model_used": model
+                    }
+                )
+        else:
+            logger.error("Failed to process AI response to API format")
+            return APIChatResponse(
+                success=False,
+                error="Failed to process AI response for relay transmission"
+            )
         
     except Exception as e:
         logger.error(f"API chat processing error: {e}")
@@ -304,7 +417,7 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         )
 
 async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = None) -> List[Dict[str, Any]]:
-    """Collect recent chat messages via Foundry REST API"""
+    """Collect recent chat messages and dice rolls via Foundry REST API"""
     try:
         import requests
         
@@ -403,55 +516,118 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
         # The createChatMessage hook in Foundry module runs AFTER message creation
         await asyncio.sleep(0.5)  # 500ms delay for message storage
         
-        response = requests.get(
+        # Collect both chat messages AND rolls for complete context
+        chat_messages = []
+        roll_messages = []
+        
+        # Step1: Get chat messages (always force fresh data)
+        chat_response = requests.get(
             f"http://localhost:3010/messages",  # PHASE 3 FIX: Use correct Gold API endpoint
-            params={"clientId": client_id, "limit": count, "sort": "timestamp", "order": "desc"},
+            params={"clientId": client_id, "limit": count, "sort": "timestamp", "order": "desc", "refresh": True},
             headers=headers,
             timeout=3  # PHASE 2 FIX: Reduce timeout to prevent blocking
         )
         
-        logger.info(f"DEBUG: Relay server response status: {response.status_code}")
-        logger.info(f"DEBUG: Relay server response text: {response.text}")
+        logger.info(f"DEBUG: Chat messages response status: {chat_response.status_code}")
+        logger.info(f"DEBUG: Chat messages response text: {chat_response.text}")
         
-        if response.status_code == 200:
+        if chat_response.status_code == 200:
             try:
-                response_data = response.json()
-                logger.info(f"DEBUG: Parsed response data: {response_data}")
+                response_data = chat_response.json()
+                logger.info(f"DEBUG: Parsed chat response data: {response_data}")
                 
-                # Extract messages from the response structure
-                messages = []
+                # Extract messages from response structure
                 if isinstance(response_data, dict):
                     if 'messages' in response_data:
-                        messages = response_data['messages']
-                        logger.info(f"DEBUG: Extracted messages from 'messages' field: {len(messages) if messages else 0}")
+                        chat_messages = response_data['messages']
+                        logger.info(f"DEBUG: Extracted messages from 'messages' field: {len(chat_messages) if chat_messages else 0}")
                     else:
-                        logger.warning(f"DEBUG: No 'messages' field found in response. Available keys: {list(response_data.keys())}")
+                        logger.warning(f"DEBUG: No 'messages' field found in chat response. Available keys: {list(response_data.keys())}")
                 elif isinstance(response_data, list):
                     # Direct list response (fallback)
-                    messages = response_data
-                    logger.info(f"DEBUG: Response is direct list: {len(messages)} messages")
+                    chat_messages = response_data
+                    logger.info(f"DEBUG: Chat response is direct list: {len(chat_messages)} messages")
                 else:
-                    logger.warning(f"DEBUG: Unexpected response format: {type(response_data)}")
+                    logger.warning(f"DEBUG: Unexpected chat response format: {type(response_data)}")
                 
-                logger.info(f"DEBUG: Final messages count: {len(messages) if messages else 0}")
-                if messages and len(messages) > 0:
-                    logger.info(f"DEBUG: First message sample: {messages[0]}")
-                    logger.info(f"DEBUG: Message types found: {[msg.get('type', 'unknown') for msg in messages[:3]]}")
-                    logger.info(f"DEBUG: Message keys found: {list(messages[0].keys()) if messages[0] else 'No messages'}")
-                else:
-                    logger.info(f"DEBUG: No messages found in response")
-                
-                # Reverse to get chronological order (oldest first)
-                return list(reversed(messages))
+                logger.info(f"DEBUG: Final chat messages count: {len(chat_messages) if chat_messages else 0}")
             except json.JSONDecodeError as e:
-                logger.error(f"DEBUG: Failed to parse JSON: {e}")
-                logger.error(f"DEBUG: Raw response: {response.text}")
-                return []
+                logger.error(f"DEBUG: Failed to parse chat JSON: {e}")
+                logger.error(f"DEBUG: Raw chat response: {chat_response.text}")
         else:
-            logger.error(f"Failed to collect chat messages: {response.status_code}")
-            logger.error(f"DEBUG: Raw response: {response.text}")
-            return []
+            logger.error(f"Failed to collect chat messages: {chat_response.status_code}")
+            logger.error(f"DEBUG: Raw chat response: {chat_response.text}")
+        
+        # Step 2: Get roll messages for the same time period
+        rolls_response = requests.get(
+            f"http://localhost:3010/rolls",
+            params={"clientId": client_id, "limit": count, "sort": "timestamp", "order": "desc", "refresh": True},
+            headers=headers,
+            timeout=3
+        )
+        
+        logger.info(f"DEBUG: Rolls response status: {rolls_response.status_code}")
+        logger.info(f"DEBUG: Rolls response text: {rolls_response.text}")
+        
+        if rolls_response.status_code == 200:
+            try:
+                rolls_data = rolls_response.json()
+                logger.info(f"DEBUG: Parsed rolls response data: {rolls_data}")
+                
+                # Extract rolls from response structure
+                if isinstance(rolls_data, dict):
+                    # Check for 'data' field first (relay server puts rolls here)
+                    if 'data' in rolls_data:
+                        roll_messages = rolls_data['data']
+                        logger.info(f"DEBUG: Extracted rolls from 'data' field: {len(roll_messages) if roll_messages else 0}")
+                    # Fallback to 'rolls' field for backward compatibility
+                    elif 'rolls' in rolls_data:
+                        roll_messages = rolls_data['rolls']
+                        logger.info(f"DEBUG: Extracted rolls from 'rolls' field: {len(roll_messages) if roll_messages else 0}")
+                    else:
+                        logger.warning(f"DEBUG: No 'data' or 'rolls' field found in rolls response. Available keys: {list(rolls_data.keys())}")
+                elif isinstance(rolls_data, list):
+                    # Direct list response (fallback)
+                    roll_messages = rolls_data
+                    logger.info(f"DEBUG: Rolls response is direct list: {len(roll_messages)} rolls")
+                else:
+                    logger.warning(f"DEBUG: Unexpected rolls response format: {type(rolls_data)}")
+                
+                logger.info(f"DEBUG: Final roll messages count: {len(roll_messages) if roll_messages else 0}")
+            except json.JSONDecodeError as e:
+                logger.error(f"DEBUG: Failed to parse rolls JSON: {e}")
+                logger.error(f"DEBUG: Raw rolls response: {rolls_response.text}")
+        else:
+            logger.error(f"Failed to collect rolls: {rolls_response.status_code}")
+            logger.error(f"DEBUG: Raw rolls response: {rolls_response.text}")
+        
+        # Step 3: Merge and sort all messages chronologically
+        all_messages = []
+        
+        # Add chat messages with type marker
+        for msg in chat_messages:
+            msg['_source'] = 'chat'
+            msg['_timestamp'] = msg.get('timestamp', 0)
+            all_messages.append(msg)
+        
+        # Add roll messages with type marker
+        for roll in roll_messages:
+            roll['_source'] = 'roll'
+            roll['_timestamp'] = roll.get('timestamp', 0)
+            all_messages.append(roll)
+        
+        # Sort by timestamp (newest first, then we'll reverse for chronological)
+        all_messages.sort(key=lambda x: x.get('_timestamp', 0), reverse=True)
+        
+        # Take the most recent 'count' messages and reverse to chronological order
+        merged_messages = list(reversed(all_messages[:count]))
+        
+        logger.info(f"DEBUG: Merged {len(chat_messages)} chat messages and {len(roll_messages)} roll messages")
+        logger.info(f"DEBUG: Final merged count: {len(merged_messages)}")
+        logger.info(f"DEBUG: Message sources: {[msg.get('_source') for msg in merged_messages[:5]]}")
+        
+        return merged_messages
             
     except Exception as e:
-        logger.error(f"Error collecting chat messages via API: {e}")
+        logger.error(f"Error collecting messages via API: {e}")
         return []

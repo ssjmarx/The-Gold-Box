@@ -928,19 +928,54 @@ class GoldBoxModule {
       'player': 'Player'
     };
     
-    // Chat message without robot emoji
-    const messageContent = `
-      <div class="gold-box-response">
-        <div class="gold-box-header">
-          <strong>${customName} - ${roleDisplay[role]}</strong>
-          <div class="gold-box-timestamp">${new Date(metadata.timestamp).toLocaleTimeString()}</div>
+    // Check if messages were sent via relay server successfully
+    const isRelaySuccess = metadata && metadata.metadata && metadata.metadata.messages_sent > 0 && !metadata.metadata.relay_error;
+    
+    // When relay transmission works, don't show a separate message - the AI response was already sent to chat
+    if (isRelaySuccess) {
+      console.log('The Gold Box: Relay transmission successful, skipping duplicate message creation');
+      return; // Skip creating duplicate message since relay already sent the AI response
+    }
+    
+    let messageContent;
+    
+    if (metadata && metadata.relay_error) {
+      // Error case when relay server transmission failed - show actual AI response
+      messageContent = `
+        <div class="gold-box-error">
+          <div class="gold-box-header">
+            <strong>⚠️ ${customName} - Relay Transmission Error</strong>
+            <div class="gold-box-timestamp">${new Date().toLocaleTimeString()}</div>
+          </div>
+          <div class="gold-box-content">
+            <p><strong>AI Response:</strong></p>
+            <div class="ai-response-content">${response}</div>
+            <p><strong>Relay Error:</strong> ${metadata.relay_error}</p>
+            <p><em>Messages were processed but could not be sent to Foundry chat via relay server.</em></p>
+            <p><em>Please check relay server connection and client ID configuration.</em></p>
+          </div>
         </div>
-        <div class="gold-box-content">
-          <p>${response}</p>
-          ${metadata.message ? `<div class="gold-box-status">${metadata.message}</div>` : ''}
+      `;
+    } else {
+      // Display actual AI response content - not debug information
+      // This handles the case where relay is not used or messages_sent is 0
+      messageContent = `
+        <div class="gold-box-response">
+          <div class="gold-box-header">
+            <strong>${customName} - ${roleDisplay[role] || 'AI Response'}</strong>
+            <div class="gold-box-timestamp">${new Date().toLocaleTimeString()}</div>
+          </div>
+          <div class="gold-box-content">
+            <div class="ai-response-content">${response}</div>
+            ${metadata && metadata.provider_used ? `
+              <div class="ai-metadata">
+                <p><em>Processed using ${metadata.provider_used} - ${metadata.model_used} (${metadata.tokens_used} tokens)</em></p>
+              </div>
+            ` : ''}
+          </div>
         </div>
-      </div>
-    `;
+      `;
+    }
     
     // Send message to chat
     ChatMessage.create({
