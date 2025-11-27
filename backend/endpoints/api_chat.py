@@ -79,7 +79,24 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         logger.info(f"DEBUG: Extracted settings: {settings}")
         logger.info(f"DEBUG: Settings keys: {list(settings.keys()) if settings else 'None'}")
         
-        # PHASE 1 TEST: Verify unified settings object structure
+        # PHASE 1 FIX: Load stored settings FIRST before validation
+        try:
+            from server import settings_manager
+            stored_settings = settings_manager.get_settings()
+            if stored_settings:
+                logger.info(f"DEBUG: Loaded {len(stored_settings)} stored settings before validation")
+                # Merge request settings with stored settings (request takes priority for client ID)
+                merged_settings = {**stored_settings}  # Start with all stored settings
+                if settings and isinstance(settings, dict):
+                    merged_settings.update(settings)  # Override with request settings (client ID)
+                settings = merged_settings  # Use merged settings for all processing
+                logger.info(f"DEBUG: Merged settings total count: {len(settings)}")
+            else:
+                logger.warning("DEBUG: No stored settings available for merging")
+        except ImportError as e:
+            logger.error(f"Failed to import settings_manager for early merge: {e}")
+        
+        # PHASE 1 TEST: Verify unified settings object structure (AFTER merge)
         if settings and isinstance(settings, dict):
             required_keys = [
                 'maximum message context',
@@ -105,15 +122,15 @@ async def api_chat(http_request: Request, request: APIChatRequest):
             missing_keys = [key for key in required_keys if key not in settings]
             extra_keys = [key for key in settings if key not in required_keys]
             
-            logger.info(f"PHASE 1 TEST: Settings structure validation:")
+            logger.info(f"PHASE 1 TEST: Settings structure validation (after merge):")
             logger.info(f"  Required keys present: {len([k for k in required_keys if k in settings])}/{len(required_keys)}")
             logger.info(f"  Missing keys: {missing_keys}")
             logger.info(f"  Extra keys: {extra_keys}")
             
-            if len(missing_keys) == 0 and len(extra_keys) == 0:
-                logger.info("PHASE 1 TEST: ✅ Settings object structure is correct")
+            if len(missing_keys) == 0:
+                logger.info("PHASE 1 TEST: ✅ Settings object structure is correct after merge")
             else:
-                logger.warning(f"PHASE 1 TEST: ⚠️ Settings structure issues detected")
+                logger.warning(f"PHASE 1 TEST: ⚠️ Settings structure issues detected after merge")
         
         # Step 1: Collect chat messages via REST API (relay server is started by main server)
         logger.info(f"Collecting {context_count} chat messages via REST API")
@@ -381,6 +398,10 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
         # In development mode, we can use a local dev key or bypass auth
         # The relay server uses memory store in local dev which bypasses auth
         headers["x-api-key"] = "local-dev"  # This works for local memory store mode
+        
+        # TIMING FIX: Small delay to allow Foundry module to store messages
+        # The createChatMessage hook in Foundry module runs AFTER message creation
+        await asyncio.sleep(0.5)  # 500ms delay for message storage
         
         response = requests.get(
             f"http://localhost:3010/messages",  # PHASE 3 FIX: Use correct Gold API endpoint

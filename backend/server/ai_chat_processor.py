@@ -81,18 +81,35 @@ class AIChatProcessor:
         """Extract compact JSON objects from AI response text"""
         import re
         
-        # Look for JSON blocks in the response
-        json_pattern = r'\{[^{}]*"t"\s*:\s*"[^"]*"[^{}]*\}'
+        # Handle multiple JSON objects that might be concatenated
+        # Pattern matches complete JSON objects
+        json_pattern = r'\{[^{}]*(?:\{[^{}]*\}[^{}]*|[^\{}])*\}'
         json_matches = re.findall(json_pattern, text, re.DOTALL)
         
         compact_messages = []
         for json_str in json_matches:
             try:
-                compact_msg = json.loads(json_str)
-                compact_messages.append(compact_msg)
-            except json.JSONDecodeError:
-                # Invalid JSON, skip
+                # Clean up the JSON string
+                cleaned_json = json_str.strip()
+                compact_msg = json.loads(cleaned_json)
+                
+                # Validate that this looks like our compact format
+                if "t" in compact_msg:
+                    compact_messages.append(compact_msg)
+                    logger.debug(f"Successfully parsed compact message: {compact_msg}")
+                else:
+                    logger.debug(f"Skipping non-compact JSON: {compact_msg}")
+                    
+            except json.JSONDecodeError as e:
+                logger.warning(f"Failed to parse JSON: {json_str}, error: {e}")
                 continue
+            except Exception as e:
+                logger.warning(f"Error processing JSON: {json_str}, error: {e}")
+                continue
+        
+        # If no valid compact messages found, log the original text for debugging
+        if not compact_messages:
+            logger.debug(f"No valid compact JSON found in AI response. Original text: {text[:200]}...")
         
         return compact_messages
     
