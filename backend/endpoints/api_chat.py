@@ -223,6 +223,14 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         # Step 4: Convert compact messages to JSON string for AI
         compact_json_context = json.dumps(compact_messages, indent=2)
         
+        # DEBUG: Show exactly what we're sending to the AI
+        logger.info("=== CHAT CONTEXT DEBUG ===")
+        logger.info(f"Raw messages count from API: {len(api_messages)}")
+        logger.info(f"Compact messages count after processing: {len(compact_messages)}")
+        logger.info(f"Sample compact messages: {compact_messages[:3] if compact_messages else 'None'}")
+        logger.info(f"Full JSON context being sent to AI:\n{compact_json_context}")
+        logger.info("=== END CHAT CONTEXT DEBUG ===")
+        
         # Step 5: Prepare AI messages
         processor = ChatContextProcessor()
         system_prompt = processor.generate_system_prompt()
@@ -232,7 +240,17 @@ async def api_chat(http_request: Request, request: APIChatRequest):
             {"role": "user", "content": f"Chat Context (Compact JSON Format):\n{compact_json_context}\n\nPlease respond to this conversation as an AI assistant for tabletop RPGs. If you need to generate game mechanics, use compact JSON format specified in system prompt."}
         ]
         
+        # DEBUG: Show the final AI messages
+        logger.info("=== AI MESSAGES DEBUG ===")
+        logger.info(f"System prompt length: {len(system_prompt)} characters")
+        logger.info(f"User message length: {len(ai_messages[1]['content'])} characters")
+        logger.info(f"Total AI messages: {len(ai_messages)}")
+        logger.info("=== END AI MESSAGES DEBUG ===")
+        
         # Step 6: Call AI service with universal settings
+        logger.info("=== AI SERVICE CALL DEBUG ===")
+        logger.info(f"Calling AI service with {len(compact_messages)} compact messages")
+        logger.info(f"Settings being passed to AI service: {universal_settings}")
         ai_response_data = await ai_service.process_compact_context(
             processed_messages=compact_messages,
             system_prompt=system_prompt,
@@ -241,6 +259,9 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         
         ai_response = ai_response_data.get("response", "")
         tokens_used = ai_response_data.get("tokens_used", 0)
+        logger.info(f"AI service returned response of length: {len(ai_response)} characters")
+        logger.info(f"Tokens used: {tokens_used}")
+        logger.info("=== END AI SERVICE CALL DEBUG ===")
         
         # Step 7: Process AI response back to API format (for future use)
         api_formatted = ai_chat_processor.process_ai_response(ai_response, compact_messages)
@@ -373,8 +394,32 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
         
         if response.status_code == 200:
             try:
-                messages = response.json()
-                logger.info(f"DEBUG: Parsed messages: {messages}")
+                response_data = response.json()
+                logger.info(f"DEBUG: Parsed response data: {response_data}")
+                
+                # Extract messages from the response structure
+                messages = []
+                if isinstance(response_data, dict):
+                    if 'messages' in response_data:
+                        messages = response_data['messages']
+                        logger.info(f"DEBUG: Extracted messages from 'messages' field: {len(messages) if messages else 0}")
+                    else:
+                        logger.warning(f"DEBUG: No 'messages' field found in response. Available keys: {list(response_data.keys())}")
+                elif isinstance(response_data, list):
+                    # Direct list response (fallback)
+                    messages = response_data
+                    logger.info(f"DEBUG: Response is direct list: {len(messages)} messages")
+                else:
+                    logger.warning(f"DEBUG: Unexpected response format: {type(response_data)}")
+                
+                logger.info(f"DEBUG: Final messages count: {len(messages) if messages else 0}")
+                if messages and len(messages) > 0:
+                    logger.info(f"DEBUG: First message sample: {messages[0]}")
+                    logger.info(f"DEBUG: Message types found: {[msg.get('type', 'unknown') for msg in messages[:3]]}")
+                    logger.info(f"DEBUG: Message keys found: {list(messages[0].keys()) if messages[0] else 'No messages'}")
+                else:
+                    logger.info(f"DEBUG: No messages found in response")
+                
                 # Reverse to get chronological order (oldest first)
                 return list(reversed(messages))
             except json.JSONDecodeError as e:

@@ -176,12 +176,9 @@ class UniversalSecurityMiddleware(BaseHTTPMiddleware):
         endpoint_config = self.get_endpoint_config(path)
         client_host = request.client.host if request.client else "unknown"
         
-        # COMPREHENSIVE DEBUG: Log ALL incoming requests
-        logger.info(f"=== SECURITY MIDDLEWARE DEBUG ===")
-        logger.info(f"Request: {request.method} {path}")
-        logger.info(f"Client: {client_host}")
-        logger.info(f"User-Agent: {request.headers.get('user-agent', 'None')}")
-        logger.info(f"Endpoint Config: {endpoint_config}")
+        # REDUCED DEBUG: Only log essential info for chat endpoint
+        if path == "/api/api_chat":  # Only detailed logging for chat endpoint
+            logger.info(f"API Chat Request: {request.method} from {client_host}")
         
         # Skip security if globally disabled
         if not self.security_config.get('global', {}).get('enabled', True):
