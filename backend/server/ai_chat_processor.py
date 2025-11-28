@@ -1,5 +1,5 @@
 """
-AI Chat Processor for Gold Box v0.3.0
+AI Chat Processor for The Gold Box v0.3.0
 Converts AI responses to Foundry REST API format
 """
 

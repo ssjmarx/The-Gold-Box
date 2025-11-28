@@ -1033,7 +1033,11 @@ class GoldBoxModule {
         <div class="gold-box-content">
           <p><strong>Backend Server Not Running or Not Reachable</strong></p>
           <p><strong>Option 1: Run</strong> automation script</p>
-          <p>Run <code>./start-backend.py</code> from Gold Box module directory to automatically set up and start the backend server.</p>
+          <p>Run <code>./start-backend.py</code> from The Gold Box module directory to automatically set up and start the backend server.</p>
+          <p>See README.md file for manual setup instructions.</p>
+          <p>Go to The Gold Box settings and click "Discover Backend" to automatically find and connect to a running backend server.</p>
+        ui.notifications.error('❌ No backend server found. Please start the backend server.');
+              <p><em>Configure your desired provider in The Gold Box settings.</em></p>
           <p><strong>Option 2: Manual setup</strong></p>
           <p>See the README.md file for manual setup instructions.</p>
           <p><strong>Option 3: Auto-discover port</strong></p>

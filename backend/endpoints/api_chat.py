@@ -1,5 +1,5 @@
 """
-API Chat Endpoint for Gold Box v0.3.0
+API Chat Endpoint for The Gold Box v0.3.0
 Handles chat processing via Foundry REST API instead of HTML scraping
 """
 

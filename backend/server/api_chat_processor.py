@@ -1,5 +1,5 @@
 """
-API Chat Processor for Gold Box v0.3.0
+API Chat Processor for The Gold Box v0.3.0
 Converts REST API chat data to compact JSON format for AI processing
 """
 

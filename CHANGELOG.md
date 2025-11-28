@@ -43,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### 📁 Repository Structure
 ```
-Gold-Box/
+The-Gold-Box/
 ├── backend/                    # Enhanced Python FastAPI backend
 │   ├── endpoints/
 │   │   ├── api_chat.py       # 🆕 API Chat endpoint
@@ -165,7 +165,7 @@ backend/
 ## [0.2.4] - 2025-11-21
 
 ### 🎯 Major Milestone
-- **Phase One Roadmap Complete** - Successfully completed the first phase of the Gold Box development roadmap
+- **Phase One Roadmap Complete** - Successfully completed the first phase of The Gold Box development roadmap
 - **Changelog Restructure** - Streamlined project documentation for better maintainability
 - **Production Ready Status** - Module and backend are now stable for production use
 
@@ -361,7 +361,7 @@ backend/
 ## [0.1.0] - 2025-10-10
 
 ### 🎉 Initial Release
-- **Project Foundation** - Initial Gold Box module creation
+- **Project Foundation** - Initial The Gold Box module creation
 - **Basic Architecture** - Core module structure established
 - **Foundry VTT Integration** - Basic integration with Foundry VTT
 - **Documentation Setup** - Initial project documentation

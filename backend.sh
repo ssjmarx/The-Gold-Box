@@ -35,14 +35,14 @@ check_project_structure() {
     
     if [ ! -f "module.json" ]; then
         log_error "module.json not found!"
-        log_error "Please run this script from the Gold Box module directory."
+        log_error "Please run this script from The The Gold Box module directory."
         log_error "Current directory: $(pwd)"
         exit 1
     fi
     
     if [ ! -d "backend" ]; then
         log_error "backend directory not found!"
-        log_error "Please run this script from the Gold Box module directory."
+        log_error "Please run this script from the The Gold Box module directory."
         exit 1
     fi
     
@@ -290,7 +290,7 @@ verify_relay_server() {
     # Check if relay-server directory exists
     if [ ! -d "relay-server" ]; then
         log_error "relay-server directory not found!"
-        log_error "Please install a complete Gold Box module that includes the built relay server"
+        log_error "Please install a complete The Gold Box module that includes the built relay server"
         log_error "This should happen automatically when installing via Foundry manifest"
         exit 1
     fi
@@ -299,7 +299,7 @@ verify_relay_server() {
     if [ ! -d "relay-server/dist" ]; then
         log_error "relay-server/dist not found!"
         log_error "The relay server appears to be incomplete"
-        log_error "Please reinstall the Gold Box module"
+        log_error "Please reinstall the The Gold Box module"
         exit 1
     fi
     
@@ -307,7 +307,7 @@ verify_relay_server() {
     if [ ! -f "relay-server/package.json" ]; then
         log_error "relay-server/package.json not found!"
         log_error "The relay server appears to be incomplete"
-        log_error "Please reinstall the Gold Box module"
+        log_error "Please reinstall the The Gold Box module"
         exit 1
     fi
     
