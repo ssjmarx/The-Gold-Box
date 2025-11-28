@@ -158,26 +158,17 @@ class GoldBoxAPI {
   }
 
   /**
-   * Send message context to backend with visual indicators and timeout handling
+   * Send message context to backend with timeout handling
    */
-  async sendMessageContextWithVisuals(messages, moduleInstance) {
-    const button = document.getElementById('gold-box-launcher');
+  async sendMessageContext(messages, moduleInstance) {
     const timeout = game.settings.get('gold-box', 'aiResponseTimeout') || 60;
     
     try {
-      // Step 1: Disable button and show waiting state
-      this.setButtonProcessingState(button, true);
-      this.showProcessingIndicator();
-      
-      // Step 2: Send request with timeout and retry logic
+      // Send request with timeout and retry logic
       const response = await Promise.race([
         this.sendMessageContextWithRetry(messages),
         new Promise((_, reject) => setTimeout(() => reject(new Error('AI response timeout')), timeout * 1000))
       ]);
-      
-      // Step 3: Re-enable button and hide indicators
-      this.setButtonProcessingState(button, false);
-      this.hideProcessingIndicator();
       
       if (response.success) {
         // Display success response
@@ -188,10 +179,6 @@ class GoldBoxAPI {
       }
       
     } catch (error) {
-      // Step 4: Ensure button is re-enabled on error
-      this.setButtonProcessingState(button, false);
-      this.hideProcessingIndicator();
-      
       console.error('The Gold Box: Error processing AI turn:', error);
       moduleInstance.displayErrorResponse(error.message);
     }
@@ -264,7 +251,37 @@ class GoldBoxAPI {
       }
       
       // STEP 2: Make chat request WITHOUT settings (use stored settings from backend)
-      if (processingMode === 'api') {
+      if (processingMode === 'context') {
+        // NEW: Context mode with full board state integration
+        endpoint = '/api/context_chat';
+        
+        // Get scene ID from current scene
+        const sceneId = canvas?.scene?.id || game.scenes?.active?.id;
+        const clientId = this.apiBridge ? this.apiBridge.getClientId() : null;
+        
+        requestData = {
+          client_id: clientId || 'default-client',
+          scene_id: sceneId || 'default-scene',
+          message: messages.length > 0 ? messages[messages.length - 1].content : 'No message provided',
+          context_options: {
+            include_chat_history: true,
+            message_count: game.settings.get('gold-box', 'maxMessageContext') || 15,
+            include_scene_data: true,
+            include_tokens: true,
+            include_walls: true,
+            include_lighting: true,
+            include_map_notes: true,
+            include_templates: true
+          },
+          ai_options: {
+            model: game.settings.get('gold-box', 'generalLlmModel') || 'gpt-4',
+            temperature: 0.7,
+            max_tokens: 2000
+          }
+        };
+        console.log('The Gold Box: Using CONTEXT mode with endpoint:', endpoint, '- full board state integration');
+        console.log('The Gold Box: Scene ID:', sceneId, 'Client ID:', clientId);
+      } else if (processingMode === 'api') {
         endpoint = '/api/api_chat';
         // Include client ID in request data if available
         const clientId = this.apiBridge ? this.apiBridge.getClientId() : null;
@@ -347,12 +364,14 @@ class GoldBoxAPI {
     
     if (isProcessing) {
       button.disabled = true;
-      button.innerHTML = '🤔 AI Thinking...';
+      const processingMode = game.settings.get('gold-box', 'chatProcessingMode') || 'simple';
+      button.innerHTML = processingMode === 'context' ? '🗺️ Context Processing...' : '🤔 AI Thinking...';
       button.style.opacity = '0.6';
       button.style.cursor = 'not-allowed';
     } else {
       button.disabled = false;
-      button.innerHTML = 'Take AI Turn';
+      const processingMode = game.settings.get('gold-box', 'chatProcessingMode') || 'simple';
+      button.innerHTML = processingMode === 'context' ? '🗺️ AI Context Turn' : '🤖 Take AI Turn';
       button.style.opacity = '1';
       button.style.cursor = 'pointer';
     }
@@ -502,7 +521,8 @@ class GoldBoxModule {
       choices: {
         "simple": "Simple (existing /api/simple_chat)",
         "processed": "Processed (new /api/process_chat)",
-        "api": "API (Foundry REST API - experimental)"
+        "api": "API (Foundry REST API - experimental)",
+        "context": "Context (NEW: Full board state integration)"
       },
       default: "simple"
     });
@@ -727,74 +747,15 @@ class GoldBoxModule {
       console.log('The Gold Box: renderChatLog hook fired');
       this.addChatButton(html);
     });
+
+    // Hook to update button when settings change
+    Hooks.on('updateSettings', (settings) => {
+      console.log('The Gold Box: Settings updated, updating chat button');
+      this.updateChatButtonText();
+    });
   }
 
-  /**
-   * Add chat button to the chat sidebar using ChatConsole pattern
-   */
-  addChatButton(html) {
-    console.log('The Gold Box: addChatButton called');
-    
-    try {
-      const id = 'gold-box-launcher';
-      
-      // Check if button already exists to avoid duplicates
-      if (document.getElementById(id)) {
-        console.log('The Gold Box: Button already exists, skipping creation');
-        return;
-      }
-      
-      // Use hardcoded name since we removed moduleElementsName setting
-      const name = 'The Gold Box';
-      
-      // Build button HTML with new name
-      const inner = `Take AI Turn`;
-      
-      // Use ChatConsole's proven approach for v13+
-      if (game.release.generation >= 13) {
-        // Create button using DOM manipulation for v13
-        const button = document.createElement('button');
-        button.id = id;
-        button.type = 'button';
-        button.innerHTML = inner;
-        button.setAttribute('data-tooltip', 'The Gold Box');
-        button.style.cssText = 'margin: 4px 0; background: linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FF8C00 100%); color: #1a1a1a; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: 600; transition: all 0.2s ease; box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 2px 6px rgba(0,0,0,0.2);';
-        
-        button.addEventListener('click', () => {
-          this.onTakeAITurn();
-        });
-        
-        // Find chat form and prepend button - use more specific selector
-        const chatForms = document.getElementsByClassName('chat-form');
-        const chatForm = chatForms && chatForms.length > 0 ? chatForms[0] : null;
-        
-        if (chatForm) {
-          chatForm.prepend(button);
-          console.log('The Gold Box: Added chat button using v13 pattern');
-        } else {
-          console.error('The Gold Box: Could not find chat form');
-          console.log('The Gold Box: Available chat-form elements:', chatForms);
-        }
-      } else {
-        // Fallback for older versions using jQuery
-        const $html = $(html);
-        const $button = $(`<button id="${id}" data-tooltip="The Gold Box">${inner}</button>`);
-        $button.click(() => {
-          this.onTakeAITurn();
-        });
-        
-        const chatControls = $html.find('#chat-controls');
-        if (chatControls.length) {
-          chatControls.after($button);
-          console.log('The Gold Box: Added chat button using v12 pattern');
-        } else {
-          console.error('The Gold Box: Could not find chat controls');
-        }
-      }
-    } catch (error) {
-      console.error('The Gold Box: Error adding chat button:', error);
-    }
-  }
+  // Note: Chat button functionality removed - context mode is handled via dropdown settings
 
   /**
    * Collect recent chat messages from DOM in chronological order
@@ -864,15 +825,186 @@ class GoldBoxModule {
   }
 
   /**
-   * Handle "Take AI Turn" button click with message context workflow
+   * Add "Take AI Turn" button to chat interface
+   */
+  addChatButton(html) {
+    console.log('The Gold Box: Adding chat button...');
+    
+    // Handle both jQuery and plain DOM objects
+    const $html = $(html);
+    
+    // Remove existing button to prevent duplicates
+    $html.find('#gold-box-ai-turn-btn').remove();
+    
+    // Try multiple selectors for Foundry's chat form structure
+    let chatForm = $html.find('#chat-form');
+    let messageInput = $html.find('textarea[name="message"]');
+    
+    // Fallback selectors if primary ones don't work
+    if (chatForm.length === 0) {
+      chatForm = $html.find('form.chat-form');
+    }
+    if (messageInput.length === 0) {
+      messageInput = $html.find('textarea');
+      if (messageInput.length > 1) {
+        messageInput = $html.find('textarea').first(); // Get first textarea
+      }
+    }
+    
+    // Last resort: try to find any suitable container
+    if (chatForm.length === 0) {
+      const container = $html.find('.chat-messages, .chat-log, .chat-container');
+      if (container.length > 0) {
+        // Create a simple button and append to container
+        this.addSimpleButton(container);
+        return;
+      }
+      
+      console.warn('The Gold Box: Chat form not found, waiting for DOM to be ready...');
+      // Only retry a few times, not infinitely
+      if (!this.buttonRetryCount) this.buttonRetryCount = 0;
+      if (this.buttonRetryCount < 3) {
+        this.buttonRetryCount++;
+        setTimeout(() => this.addChatButton(html), 2000);
+      } else {
+        console.error('The Gold Box: Failed to find chat form after multiple attempts');
+      }
+      return;
+    }
+    
+    // Get current processing mode for button text
+    const processingMode = game.settings.get('gold-box', 'chatProcessingMode') || 'simple';
+    const buttonText = processingMode === 'context' ? '🗺️ AI Context Turn' : '🤖 Take AI Turn';
+    
+    // Create button with enhanced styling and accessibility
+    const button = $(`
+      <button id="gold-box-ai-turn-btn" 
+              class="gold-box-ai-turn-btn" 
+              type="button" 
+              title="Trigger AI response based on current processing mode"
+              aria-label="Take AI Turn"
+              style="
+                background: linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FF8C00 100%);
+                color: #1a1a1a;
+                border: none;
+                padding: 8px 12px;
+                margin-left: 5px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-weight: 600;
+                font-size: 12px;
+                transition: all 0.2s ease;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 2px 6px rgba(0,0,0,0.2);
+                flex-shrink: 0;
+              ">
+        ${buttonText}
+      </button>
+    `);
+    
+    // Add button after message input
+    if (messageInput.length > 0) {
+      messageInput.after(button);
+    } else {
+      // Fallback: add to form
+      chatForm.append(button);
+    }
+    
+    // Add click handler
+    button.on('click', (e) => {
+      e.preventDefault();
+      this.onTakeAITurn();
+    });
+    
+    console.log('The Gold Box: Chat button added successfully');
+  }
+
+  /**
+   * Add simple button when chat form structure is not available
+   */
+  addSimpleButton(container) {
+    console.log('The Gold Box: Adding simple button to container...');
+    
+    // Get current processing mode for button text
+    const processingMode = game.settings.get('gold-box', 'chatProcessingMode') || 'simple';
+    const buttonText = processingMode === 'context' ? '🗺️ AI Context Turn' : '🤖 Take AI Turn';
+    
+    // Create button with enhanced styling
+    const button = $(`
+      <button id="gold-box-ai-turn-btn" 
+              class="gold-box-ai-turn-btn" 
+              type="button" 
+              title="Trigger AI response based on current processing mode"
+              style="
+                background: linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FF8C00 100%);
+                color: #1a1a1a;
+                border: none;
+                padding: 8px 12px;
+                margin: 5px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-weight: 600;
+                font-size: 12px;
+                transition: all 0.2s ease;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 2px 6px rgba(0,0,0,0.2);
+              ">
+        ${buttonText}
+      </button>
+    `);
+    
+    // Add button to container
+    container.append(button);
+    
+    // Add click handler
+    button.on('click', (e) => {
+      e.preventDefault();
+      this.onTakeAITurn();
+    });
+    
+    console.log('The Gold Box: Simple button added successfully');
+  }
+
+  /**
+   * Update button text when processing mode changes
+   */
+  updateChatButtonText() {
+    const button = $('#gold-box-ai-turn-btn');
+    if (button.length > 0) {
+      const processingMode = game.settings.get('gold-box', 'chatProcessingMode') || 'simple';
+      const buttonText = processingMode === 'context' ? '🗺️ AI Context Turn' : '🤖 Take AI Turn';
+      button.text(buttonText);
+      console.log('The Gold Box: Updated button text to:', buttonText);
+    }
+  }
+
+  /**
+   * Handle "Take AI Turn" button click
    */
   async onTakeAITurn() {
-    console.log('The Gold Box: AI turn requested');
+    console.log('The Gold Box: Take AI Turn button clicked');
     
-    // Use enhanced method with visual indicators
-    await this.api.sendMessageContextWithVisuals(this.collectChatMessages(
-      game.settings.get('gold-box', 'maxMessageContext') || 15
-    ), this);
+    const button = document.getElementById('gold-box-ai-turn-btn');
+    if (!button) {
+      console.error('The Gold Box: Button not found');
+      return;
+    }
+    
+    // Set processing state
+    this.api.setButtonProcessingState(button, true);
+    
+    try {
+      // Collect chat messages for context
+      const messages = this.collectChatMessages();
+      
+      // Send to backend for processing
+      await this.api.sendMessageContext(messages, this);
+      
+    } catch (error) {
+      console.error('The Gold Box: Error in AI turn:', error);
+      this.displayErrorResponse(error.message);
+    } finally {
+      // Reset button state
+      this.api.setButtonProcessingState(button, false);
+    }
   }
 
   /**
@@ -915,12 +1047,13 @@ class GoldBoxModule {
   }
 
   /**
-   * Display AI response in chat
+   * Display AI response in chat with context mode support
    */
   displayAIResponse(response, metadata) {
     // Use hardcoded name since we removed moduleElementsName setting
     const customName = 'The Gold Box';
     const role = game.settings.get('gold-box', 'aiRole') || 'dm';
+    const processingMode = game.settings.get('gold-box', 'chatProcessingMode') || 'simple';
     
     const roleDisplay = {
       'dm': 'Dungeon Master',
@@ -938,6 +1071,21 @@ class GoldBoxModule {
     }
     
     let messageContent;
+    let contextInfo = '';
+    
+    // Add context mode indicators
+    if (processingMode === 'context') {
+      contextInfo = `
+        <div class="gold-box-context-info">
+          <p><strong>🗺️ Context Mode Active</strong> - AI considered complete board state</p>
+          ${metadata && metadata.metadata ? `
+            <p><em>Context Elements:</em> ${metadata.metadata.board_elements ? Object.keys(metadata.metadata.board_elements).filter(k => metadata.metadata.board_elements[k]).join(', ') : 'scene data'}</p>
+            <p><em>Attributes Mapped:</em> ${metadata.metadata.attributes_mapped || 0} attributes</p>
+            <p><em>Compression:</em> ${metadata.metadata.compression_ratio ? (metadata.metadata.compression_ratio * 100).toFixed(1) + '%' : 'N/A'}</p>
+          ` : ''}
+        </div>
+      `;
+    }
     
     if (metadata && metadata.relay_error) {
       // Error case when relay server transmission failed - show actual AI response
@@ -948,6 +1096,7 @@ class GoldBoxModule {
             <div class="gold-box-timestamp">${new Date().toLocaleTimeString()}</div>
           </div>
           <div class="gold-box-content">
+            ${contextInfo}
             <p><strong>AI Response:</strong></p>
             <div class="ai-response-content">${response}</div>
             <p><strong>Relay Error:</strong> ${metadata.relay_error}</p>
@@ -962,14 +1111,18 @@ class GoldBoxModule {
       messageContent = `
         <div class="gold-box-response">
           <div class="gold-box-header">
-            <strong>${customName} - ${roleDisplay[role] || 'AI Response'}</strong>
+            <strong>${customName} - ${roleDisplay[role] || 'AI Response'}${processingMode === 'context' ? ' (Context-Aware)' : ''}</strong>
             <div class="gold-box-timestamp">${new Date().toLocaleTimeString()}</div>
           </div>
           <div class="gold-box-content">
+            ${contextInfo}
             <div class="ai-response-content">${response}</div>
             ${metadata && metadata.provider_used ? `
               <div class="ai-metadata">
                 <p><em>Processed using ${metadata.provider_used} - ${metadata.model_used} (${metadata.tokens_used} tokens)</em></p>
+                ${processingMode === 'context' && metadata.metadata ? `
+                  <p><em>Context: ${metadata.metadata.attribute_count || 0} attributes, ${metadata.metadata.scene_id ? 'scene ' + metadata.metadata.scene_id : 'default scene'}</em></p>
+                ` : ''}
               </div>
             ` : ''}
           </div>
