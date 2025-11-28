@@ -15,10 +15,10 @@
       "MODULE_INITIALIZED": "The Gold Box module initialized successfully",
       "MODULE_READY": "The Gold Box is ready for AI adventures!",
       "CONNECTION_VERIFIED": "✅ Backend connection verified!",
-      "CONNECTION_FAILED": "❌ No backend server found. Please start the backend server.",
+      "CONNECTION_FAILED": "❌ No backend server found. Please start backend server.",
       "DISCOVERY_FAILED": "🚫 Backend discovery failed - {error}",
       "SESSION_EXPIRING": "⚠️ Session expiring soon! Server connection may be unstable. Please refresh the page.",
-      "CRITICAL_SESSION": "⚠️ Session expiring soon! Server connection may be unstable. Please refresh page."
+      "CRITICAL_SESSION": "⚠️ Session expiring soon! Server connection may be unstable. Please refresh the page."
     },
     
     "DIALOG": {
@@ -106,18 +106,18 @@
     "CONNECTION": {
       "BACKEND_NOT_RUNNING": "Backend Server Not Running or Not Reachable",
       "OPTION_1_RUN": "Option 1: Run automation script",
-      "RUN_AUTOMATION": "Run <code>./start-backend.py</code> from Gold Box module directory to automatically set up and start backend server.",
+      "RUN_AUTOMATION": "Run <code>./start-backend.py</code> from The Gold Box module directory to automatically set up and start backend server.",
       "OPTION_2_MANUAL": "Option 2: Manual setup",
-      "SEE_README": "See the README.md file for manual setup instructions.",
+      "SEE_README": "See README.md file for manual setup instructions.",
       "OPTION_3_DISCOVER": "Option 3: Auto-discover port",
-      "AUTO_DISCOVER": "Go to Gold Box settings and click \"Discover Backend\" to automatically find and connect to a running backend server.",
-      "NOTE": "Note: The frontend automatically discovers the backend port. Use \"Discover Backend\" button if needed.",
+      "AUTO_DISCOVER": "Go to The Gold Box settings and click \"Discover Backend\" to automatically find and connect to a running backend server.",
+      "NOTE": "Note: The frontend automatically discovers backend port. Use \"Discover Backend\" button if needed.",
       
       "NO_PROVIDERS_CONFIGURED": "No LLM providers configured",
       "CONFIGURE_API_KEYS": "Please configure API keys in the backend to use AI features.",
-      "USE_KEY_MANAGER": "Use the key manager to add providers like OpenAI, Anthropic, or others.",
+      "USE_KEY_MANAGER": "Use key manager to add providers like OpenAI, Anthropic, or others.",
       "FOUND_PROVIDERS": "Found {count} configured LLM provider(s):",
-      "CONFIGURE_DESIRED": "Configure your desired provider in Gold Box settings.",
+      "CONFIGURE_DESIRED": "Configure your desired provider in The Gold Box settings.",
       
       "AI_RESPONSE": "AI Response",
       "AI_ERROR": "Error",
@@ -127,7 +127,7 @@
     },
     
     "ERRORS": {
-      "BACKEND_UNREACHABLE": "Cannot reach the backend server",
+      "BACKEND_UNREACHABLE": "Cannot reach backend server",
       "INVALID_API_KEY": "Invalid API key",
       "CONNECTION_FAILED": "Failed to connect to AI service",
       "RATE_LIMIT_EXCEEDED": "Rate limit exceeded. Please wait before trying again.",

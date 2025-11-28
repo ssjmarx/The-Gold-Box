@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 class UniversalSettings:
     """
-    Universal settings handler for all Gold Box endpoints
+    Universal settings handler for all The Gold Box endpoints
     
     Provides:
     - Centralized settings validation

@@ -27,8 +27,8 @@ jobs:
       - name: Generate module.json with correct URLs
         run: |
           # Update the manifest and download URLs in module.json
-          sed -i "s|https://github.com/ssjmarx/Gold-Box/releases/latest/download/module.json|https://github.com/ssjmarx/Gold-Box/releases/download/${{ steps.version.outputs.VERSION }}/module.json|g" module.json
-          sed -i "s|https://github.com/ssjmarx/Gold-Box/releases/latest/download/module.zip|https://github.com/ssjmarx/Gold-Box/releases/download/${{ steps.version.outputs.VERSION }}/module.zip|g" module.json
+          sed -i "s|https://github.com/ssjmarx/Gold-Box/releases/latest/download/module.json|https://github.com/ssjmarx/The-Gold-Box/releases/download/${{ steps.version.outputs.VERSION }}/module.json|g" module.json
+          sed -i "s|https://github.com/ssjmarx/Gold-Box/releases/latest/download/module.zip|https://github.com/ssjmarx/The-Gold-Box/releases/download/${{ steps.version.outputs.VERSION }}/module.zip|g" module.json
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -43,11 +43,11 @@ jobs:
             ### Installation
             Add the following URL to Foundry VTT's Module Management:
             ```
-            https://github.com/ssjmarx/Gold-Box/releases/download/${{ steps.version.outputs.VERSION }}/module.json
+            https://github.com/ssjmarx/The-Gold-Box/releases/download/${{ steps.version.outputs.VERSION }}/module.json
             ```
             
             ### Changes
-            See [CHANGELOG.md](https://github.com/ssjmarx/Gold-Box/blob/main/CHANGELOG.md) for detailed changes.
+            See [CHANGELOG.md](https://github.com/ssjmarx/The-Gold-Box/blob/main/CHANGELOG.md) for detailed changes.
           files: |
             module.json
             module.zip

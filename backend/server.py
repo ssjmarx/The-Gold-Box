@@ -29,13 +29,13 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from pathlib import Path
 from pydantic import BaseModel, Field
 
-# Get the absolute path to the backend directory (where server.py is located)
+# Get absolute path to backend directory (where server.py is located)
 BACKEND_DIR = Path(__file__).parent.absolute()
 
 def get_absolute_path(relative_path: str) -> Path:
     """
-    Convert a relative path to an absolute path based on the backend directory.
-    This ensures consistent file operations regardless of where the script is called from.
+    Convert a relative path to an absolute path based on backend directory.
+    This ensures consistent file operations regardless of where script is called from.
     """
     return (BACKEND_DIR / relative_path).resolve()
 
@@ -357,7 +357,7 @@ async def start_relay_server():
         return False
 
 def stop_relay_server():
-    """Stop the relay server process"""
+    """Stop relay server process"""
     global relay_server_process
     if relay_server_process:
         try:
@@ -421,7 +421,7 @@ except ImportError:
 
 def manage_keys(keychange=False):
     """Enhanced key management function with admin password"""
-    print("Gold Box - Starting Key Management...")
+    print("The Gold Box - Starting Key Management...")
     
     manager = MultiKeyManager()
     
@@ -452,7 +452,7 @@ def manage_keys(keychange=False):
 
 def manage_admin_password(manager):
     """Admin password management function"""
-    print("Gold Box - Admin Password Setup")
+    print("The Gold Box - Admin Password Setup")
     print("=" * 50)
     
     if not manager.get_password_status():
@@ -469,7 +469,7 @@ def manage_admin_password(manager):
 
 def validate_server_requirements(manager):
     """Validate that server has required configurations"""
-    print("Gold Box - Validating Server Requirements")
+    print("The Gold Box - Validating Server Requirements")
     print("=" * 50)
     
     # Check for valid API keys
@@ -662,7 +662,7 @@ async def simple_chat_endpoint(request: Request):
             request_data_for_api = request.state.validated_body
             # logger.info("DEBUG: Using middleware-validated request data for API calls")
         else:
-            # If no middleware validation, use the original request data (PHASE 1 FIX: Ensure valid structure)
+            # If no middleware validation, use original request data (PHASE 1 FIX: Ensure valid structure)
             request_data_for_api = {
                 'context_count': request_data.get('context_count', 15),
                 'settings': request_data.get('settings') if request_data.get('settings') is not None else {}
@@ -776,7 +776,7 @@ async def simple_chat_endpoint(request: Request):
         # logger.info(f"  custom_headers_str: {custom_headers_str}")
         
         result = await process_simple_chat(
-            request_data=request_data,  # Pass the full request data with unified settings
+            request_data=request_data,  # Pass full request data with unified settings
             provider_id=provider_id,
             model=model,
             prompt=None,  # Will be set from message context
@@ -978,7 +978,7 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
             logger.error(f"Failed to collect chat messages: {chat_response.status_code}")
             # logger.error(f"DEBUG: Raw chat response: {chat_response.text}")
         
-        # Step 2: Get roll messages for the same time period
+        # Step 2: Get roll messages for same time period
         rolls_response = requests.get(
             f"http://localhost:3010/rolls",
             params={"clientId": client_id, "limit": count, "sort": "timestamp", "order": "desc", "refresh": True},
@@ -1088,7 +1088,7 @@ async def health_check():
 async def service_info():
     """
     Enhanced service information endpoint
-    Security is now handled by UniversalSecurityMiddleware
+    Security is handled by UniversalSecurityMiddleware
     """
     return InfoResponse(
         name='The Gold Box Backend',
@@ -1142,7 +1142,7 @@ async def service_info():
 async def security_verification():
     """
     Security verification endpoint for integrity checks
-    Security is now handled by UniversalSecurityMiddleware
+    Security is handled by UniversalSecurityMiddleware
     """
     try:
         # Perform comprehensive security checks
@@ -1317,10 +1317,10 @@ async def start_backend():
     """
     return {
         'status': 'info',
-        'message': 'Please start the backend manually: cd backend && source venv/bin/activate && python server.py',
+        'message': 'Please start backend manually: cd backend && source venv/bin/activate && python server.py',
         'instructions': {
             'step1': 'Open terminal',
-            'step2': 'Navigate to the backend directory',
+            'step2': 'Navigate to backend directory',
             'step3': 'Activate virtual environment: source venv/bin/activate',
             'step4': 'Start server: python server.py'
         },
@@ -1349,7 +1349,7 @@ async def admin_endpoint(request: Request):
             raise HTTPException(
                 status_code=401,
                 detail="Admin password required in X-Admin-Password header",
-                headers={"WWW-Authenticate": 'Basic realm="Gold Box Admin"'}
+                headers={"WWW-Authenticate": 'Basic realm="The Gold Box Admin"'}
             )
         
         # Verify admin password using already loaded manager
@@ -1359,7 +1359,7 @@ async def admin_endpoint(request: Request):
             raise HTTPException(
                 status_code=401,
                 detail=f"Admin authentication failed: {error_msg}",
-                headers={"WWW-Authenticate": 'Basic realm="Gold Box Admin"'}
+                headers={"WWW-Authenticate": 'Basic realm="The Gold Box Admin"'}
             )
         
         # Get request body for admin commands

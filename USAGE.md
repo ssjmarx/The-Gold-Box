@@ -525,7 +525,7 @@ response=$(curl -s http://localhost:5000/api/health)
 status=$(echo $response | jq -r '.status')
 
 if [ "$status" != "healthy" ]; then
-    echo "Alert: Gold Box backend unhealthy"
+    echo "Alert: The Gold Box backend unhealthy"
     # Send notification, restart service, etc.
 fi
 ```
@@ -610,7 +610,7 @@ For configuration help:
 - **Documentation**: [Backend README](backend/README.md)
 - **Testing Guide**: [Testing Guide](backend/TESTING.md)
 - **Main Project**: [The Gold Box README](README.md)
-- **Issues**: [GitHub Issues](https://github.com/ssjmarx/Gold-Box/issues)
+- **Issues**: [GitHub Issues](https://github.com/ssjmarx/The-Gold-Box/issues)
 
 ---
 
