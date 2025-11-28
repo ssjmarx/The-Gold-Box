@@ -98,6 +98,25 @@ Foundry VTT (Frontend)     Python Backend (API)          AI Services
 └── Error Handling           └── Encrypted Storage
 ```
 
+### Processing Modes
+
+The Gold Box supports three distinct chat processing modes:
+
+1. **Simple Mode** (`/api/simple_chat`)
+   - Direct HTML-based message collection from Foundry chat
+   - Minimal processing overhead
+   - Compatible with all Foundry versions
+
+2. **Processed Mode** (`/api/process_chat`)
+   - Enhanced HTML processing with structured data extraction
+   - Token-efficient compact JSON format
+   - Better context preservation for AI
+
+3. **API Mode** (`/api/api_chat`) - *New in v0.3.0*
+   - REST API-based message collection via Foundry Gold API module
+   - Most reliable and maintainable approach
+   - Foundation for advanced Foundry integration features
+
 ## Supported AI Providers
 
 The Gold Box supports 70+ AI providers through LiteLLM integration:
@@ -246,16 +265,35 @@ This project is licensed under **Creative Commons Attribution-NonCommercial-Shar
 
 **Current Version: 0.2.5** - Enhanced security framework, comprehensive chat context processor, and multi-provider support
 
-## Foundry VTT Gold API Module
+## Release Readiness Checklist ✅
 
-The Gold Box requires the **Foundry VTT Gold API** module for enhanced chat functionality. Install this module alongside The Gold Box:
+### ✅ Completed Tasks
+- [x] Updated module.json to v0.3.0 with clean dependencies
+- [x] Updated CHANGELOG.md with comprehensive v0.3.0 changes
+- [x] Fixed duplicate esmodules entries in module.json
+- [x] Updated README.md to reflect current architecture
+- [x] Removed build-relay-server.sh script (no longer needed)
+- [x] Cleaned up submodule references from documentation
+- [x] Updated description to remove submodule requirements
 
-```
-https://github.com/ssjmarx/foundryvtt-gold-api/releases/latest/download/module.json
-```
+### 🚀 Ready for Release
+The Gold Box v0.3.0 is ready for GitHub release with:
+- **Enhanced chat processing** with three modes (Simple, Processed, API)
+- **Critical bug fixes** for unified settings and client ID management
+- **Updated documentation** reflecting current architecture
+- **Clean module manifest** without duplicate entries
+- **Comprehensive changelog** covering all improvements
 
-This module provides enhanced chat endpoints including:
-- **POST /chat** - Send messages as any speaker with IC/OOC support
-- **GET /messages** - Retrieve chat history with filtering and search
+### 📋 Release Steps
+1. **Build Relay Server**: `./build-relay-server.sh` (to package latest relay server)
+2. **Commit changes**: `git add . && git commit -m "v0.3.0: REST API integration and bug fixes"`
+3. **Create tag**: `git tag v0.3.0`
+4. **Push to GitHub**: `git push origin main --tags`
+5. **Create GitHub Release** through GitHub web interface
+6. **Update manifest URLs** to point to new release
 
-The Gold API module is a fork of the original Foundry REST API with additional chat features specifically designed for AI-powered TTRPG assistance.
+### 🔧 Development Tools
+- **build-relay-server.sh**: Script to build and package the latest relay server for inclusion in releases
+- Run this script before committing to ensure relay-server/ contains the latest build
+
+## Quick Start

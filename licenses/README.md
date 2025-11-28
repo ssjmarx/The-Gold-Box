@@ -103,6 +103,24 @@ A Flask extension for handling Cross Origin Resource Sharing (CORS). Used for le
 
 A Python module to read key-value pairs from a .env file and set them as environment variables.
 
+### FoundryVTT REST API (ThreeHats Fork)
+- **License**: MIT License
+- **File**: `FoundryVTT-REST-API-MIT.txt`
+- **Copyright**: (c) 2025 Three Hats
+- **Website**: https://github.com/ThreeHats/foundryvtt-rest-api
+- **Version**: Latest stable release
+
+Forked Foundry VTT REST API module providing enhanced chat endpoints including POST /chat and GET /messages for AI-powered TTRPG assistance.
+
+### FoundryVTT REST API Relay (ThreeHats Fork)
+- **License**: MIT License
+- **File**: `FoundryVTT-REST-API-Relay-MIT.txt`
+- **Copyright**: (c) 2025 Three Hats
+- **Website**: https://github.com/ThreeHats/foundryvtt-rest-api-relay
+- **Version**: Latest stable release
+
+Forked relay server for Foundry REST API providing WebSocket communication and message relay functionality between Foundry VTT and external services.
+
 ## Usage in The Gold Box
 
 ### Primary Framework (FastAPI-based)
@@ -150,9 +168,13 @@ A Python module to read key-value pairs from a .env file and set them as environ
 
 ## Summary
 
-The Gold Box project uses exclusively permissive open-source licenses (MIT and BSD 3-Clause) that are fully compatible with the CC-BY-NC-SA 4.0 license. All 11 dependencies have their respective license files properly included, and the project maintains full compliance with all license requirements.
+The Gold Box project uses exclusively permissive open-source licenses (MIT and BSD 3-Clause) that are fully compatible with CC-BY-NC-SA 4.0 license. All 13 dependencies have their respective license files properly included, and the project maintains full compliance with all license requirements.
 
-**Total Dependencies**: 11
-**License Types**: MIT (6), BSD 3-Clause (5)
+**Total Dependencies**: 13
+**License Types**: MIT (8), BSD 3-Clause (5)
 **Compatibility**: 100% compatible with CC-BY-NC-SA 4.0
-**License Files**: Complete and up-to-date for patch 0.2.5
+**License Files**: Complete and up-to-date for v0.3.0
+
+### New Dependencies in v0.3.0
+- **FoundryVTT REST API (ThreeHats Fork)**: MIT License - Enhanced chat endpoints for API mode
+- **FoundryVTT REST API Relay (ThreeHats Fork)**: MIT License - WebSocket relay server for API communication

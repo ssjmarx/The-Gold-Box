@@ -5,6 +5,79 @@ All notable changes to The Gold Box project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0/).
 
+## [0.3.0] - 2025-11-27
+
+### 🚀 Major Release: REST API Integration
+- **Foundry REST API Integration** - Complete integration with Foundry REST API for robust data collection
+- **Relay Server Support** - Added relay server for enhanced communication between components
+- **Three Processing Modes** - Simple, Processed, and API modes for different use cases
+- **Submodule Architecture** - Integrated Foundry REST API module and relay server as submodules
+- **Enhanced Auto-Discovery** - Automatic port discovery and connection management
+
+### 🔧 Backend Architecture Improvements
+- **API Chat Endpoint** - New `/api/api_chat` endpoint for REST-based message collection
+- **API Chat Processor** - Converts Foundry REST API data to compact JSON format
+- **AI Chat Processor** - Converts AI responses back to Foundry REST API format
+- **Universal Settings System** - Comprehensive settings management across all components
+- **Enhanced Settings Sync** - Frontend-to-backend settings synchronization with admin API
+
+### 🛡️ Critical Bug Fixes
+- **Unified Settings Object** - Fixed empty settings `{}` issue preventing proper configuration
+- **Client ID Management** - Resolved client ID extraction and relay server communication
+- **Request Data Flow** - Fixed NoneType errors in API chat endpoint
+- **Multi-Endpoint Stability** - Resolved issues across all three chat endpoints
+- **Settings Structure Validation** - Implemented comprehensive settings validation and testing
+
+### 🎨 Frontend Enhancements
+- **API Bridge Integration** - Added communication bridge to Foundry REST API module
+- **Enhanced Settings Menu** - Added API chat processing mode option
+- **Connection Manager** - Improved backend connection and port discovery
+- **Visual Feedback** - Enhanced processing indicators and error handling
+- **WebSocket Management** - Automatic connection to relay server with client ID storage
+
+### 🔒 Security & Infrastructure
+- **Relaxed Security Configuration** - Optimized security settings for API chat functionality
+- **Enhanced Error Handling** - Comprehensive error reporting with detailed debugging
+- **Improved Logging** - Added extensive debugging for settings and client ID issues
+- **Fallback Mechanisms** - Multi-tier client ID resolution and connection recovery
+
+### 📁 Repository Structure
+```
+Gold-Box/
+├── backend/                    # Enhanced Python FastAPI backend
+│   ├── endpoints/
+│   │   ├── api_chat.py       # 🆕 API Chat endpoint
+│   │   ├── process_chat.py   # ✅ Enhanced endpoint
+│   │   └── simple_chat.py   # ✅ Enhanced endpoint
+│   └── server/
+│       ├── api_chat_processor.py    # 🆕 API data processing
+│       ├── ai_chat_processor.py     # 🆕 AI response processing
+│       └── universal_settings.py   # 🆕 Settings management
+├── scripts/                    # Enhanced frontend
+│   ├── api-bridge.js       # 🆕 Foundry REST API bridge
+│   └── gold-box.js         # ✅ Enhanced with API mode
+├── foundry-module/              # 🆕 Foundry REST API submodule
+├── relay-server/               # 🆕 Relay server submodule
+└── backend.sh                  # ✅ Enhanced for submodules
+```
+
+### ⚠️ Breaking Changes
+- **Submodule Dependencies** - Requires git submodule initialization for full functionality
+- **Node.js Requirement** - Relay server requires Node.js and npm for API chat mode
+- **Settings Migration** - Existing settings may require reconfiguration for API mode
+
+### 🧪 Testing & Validation
+- **Comprehensive Test Suite** - Added validation scripts for settings and client ID
+- **End-to-End Testing** - Verified complete API chat workflow
+- **Performance Benchmarking** - Compared API vs HTML scraping performance
+- **Integration Testing** - Tested all three processing modes with various configurations
+
+### 📚 Documentation Updates
+- **API Integration Guide** - Complete documentation for REST API setup and usage
+- **Submodule Management** - Instructions for initializing and updating submodules
+- **Troubleshooting Guide** - Enhanced debugging for common API chat issues
+- **Migration Instructions** - Step-by-step upgrade guide from v0.2.x
+
 ## [0.2.5] - 2025-11-23
 
 ### 🏗️ Major Backend Reorganization

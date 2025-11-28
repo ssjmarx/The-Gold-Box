@@ -61,58 +61,16 @@ async def _send_messages_to_foundry(api_formatted_data, client_id):
         success_count = 0
         for message in messages:
             try:
-                # Use the correct relay server format - BOTH nested message object AND flat fields
-                post_data = {
-                    "clientId": client_id,
-                    "message": {
-                        "message": message.get("content", "Test message"),
-                        "speaker": message.get("author", {}).get("name", "The Gold Box AI"),
-                        "type": message.get("type", "ic"),  # ic = in-character
-                        "timestamp": int(datetime.now().timestamp() * 1000)  # milliseconds as required
-                    },
-                    # Also provide flat fields (required by relay server validation)
-                    "message.message": message.get("content", "Test message"),
-                    "message.speaker": message.get("author", {}).get("name", "The Gold Box AI"),
-                    "message.type": message.get("type", "ic"),  # ic = in-character
-                    "message.timestamp": int(datetime.now().timestamp() * 1000)  # milliseconds as required
-                }
+                # Check if this is a dice roll message
+                if message.get("type") == "dice-roll" and "roll" in message:
+                    # Send dice roll via /roll endpoint
+                    success = await _send_dice_roll_to_foundry(message, client_id)
+                else:
+                    # Send regular chat message via /chat endpoint
+                    success = await _send_chat_message_to_foundry(message, client_id)
                 
-                # Retry logic for relay server communication
-                max_retries = 3
-                retry_delay = 1  # seconds
-                
-                for attempt in range(max_retries):
-                    try:
-                        response = requests.post(
-                            f"http://localhost:3010/chat",
-                            json=post_data,
-                            headers={"x-api-key": "local-dev"},
-                            timeout=30  # Increased timeout to 30 seconds as requested
-                        )
-                        
-                        if response.status_code == 200:
-                            success_count += 1
-                            logger.info(f"Successfully sent message to Foundry: {message.get('type', 'unknown')}")
-                            break  # Success, exit retry loop
-                        else:
-                            logger.warning(f"Attempt {attempt + 1} failed: {response.status_code} - {response.text}")
-                            if attempt < max_retries - 1:
-                                logger.info(f"Retrying in {retry_delay} seconds...")
-                                await asyncio.sleep(retry_delay)
-                                retry_delay *= 2  # Exponential backoff
-                            else:
-                                logger.error(f"All {max_retries} attempts failed for message")
-                                break
-                                
-                    except Exception as e:
-                        logger.error(f"Attempt {attempt + 1} exception: {e}")
-                        if attempt < max_retries - 1:
-                            logger.info(f"Retrying in {retry_delay} seconds...")
-                            await asyncio.sleep(retry_delay)
-                            retry_delay *= 2  # Exponential backoff
-                        else:
-                            logger.error(f"All {max_retries} attempts failed for message")
-                            break
+                if success:
+                    success_count += 1
                 
             except Exception as e:
                 logger.error(f"Error sending individual message to Foundry: {e}")
@@ -122,6 +80,138 @@ async def _send_messages_to_foundry(api_formatted_data, client_id):
     except Exception as e:
         logger.error(f"Error sending messages to Foundry: {e}")
         return 0, len(messages) if 'messages' in locals() else 0
+
+async def _send_dice_roll_to_foundry(message, client_id):
+    """Send dice roll to Foundry via /roll endpoint"""
+    try:
+        import requests
+        
+        roll_data = message.get("roll", {})
+        
+        # Prepare roll data for relay server
+        post_data = {
+            "formula": roll_data.get("formula", ""),
+            "flavor": message.get("content", ""),
+            "createChatMessage": True,  # Always create chat message for dice rolls
+            "speaker": message.get("author", {}).get("name", "The Gold Box AI")
+        }
+        
+        # DEBUG: Show exactly what data is sent to POST /roll endpoint
+        logger.info("=== DATA SENT TO POST /ROLL ENDPOINT ===")
+        logger.info(f"POST URL: http://localhost:3010/roll?clientId={client_id}")
+        logger.info(f"POST Data: {json.dumps(post_data, indent=2)}")
+        logger.info("=== END POST /ROLL DATA ===")
+        
+        # Retry logic for relay server communication
+        max_retries = 3
+        retry_delay = 1  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                response = requests.post(
+                    f"http://localhost:3010/roll?clientId={client_id}",
+                    json=post_data,
+                    headers={"x-api-key": "local-dev"},
+                    timeout=30
+                )
+                
+                if response.status_code == 200:
+                    logger.info(f"Successfully sent dice roll to Foundry: {roll_data.get('formula', 'unknown')}")
+                    return True  # Success, exit retry loop
+                else:
+                    logger.warning(f"Roll attempt {attempt + 1} failed: {response.status_code} - {response.text}")
+                    if attempt < max_retries - 1:
+                        logger.info(f"Retrying in {retry_delay} seconds...")
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                    else:
+                        logger.error(f"All {max_retries} attempts failed for dice roll")
+                        return False
+                        
+            except Exception as e:
+                logger.error(f"Roll attempt {attempt + 1} exception: {e}")
+                if attempt < max_retries - 1:
+                    logger.info(f"Retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    logger.error(f"All {max_retries} attempts failed for dice roll")
+                    return False
+        
+        return False
+                
+    except Exception as e:
+        logger.error(f"Error sending dice roll to Foundry: {e}")
+        return False
+
+async def _send_chat_message_to_foundry(message, client_id):
+    """Send chat message to Foundry via /chat endpoint"""
+    try:
+        import requests
+        
+        # Use correct relay server format - BOTH nested message object AND flat fields
+        post_data = {
+            "clientId": client_id,
+            "message": {
+                "message": message.get("content", "Test message"),
+                "speaker": message.get("author", {}).get("name", "The Gold Box AI"),
+                "type": message.get("type", "ic"),  # ic = in-character
+                "timestamp": int(datetime.now().timestamp() * 1000)  # milliseconds as required
+            },
+            # Also provide flat fields (required by relay server validation)
+            "message.message": message.get("content", "Test message"),
+            "message.speaker": message.get("author", {}).get("name", "The Gold Box AI"),
+            "message.type": message.get("type", "ic"),  # ic = in-character
+            "message.timestamp": int(datetime.now().timestamp() * 1000)  # milliseconds as required
+        }
+        
+        # DEBUG: Show exactly what data is sent to POST /chat endpoint
+        logger.info("=== DATA SENT TO POST /CHAT ENDPOINT ===")
+        logger.info(f"POST URL: http://localhost:3010/chat")
+        logger.info(f"POST Data: {json.dumps(post_data, indent=2)}")
+        logger.info("=== END POST /CHAT DATA ===")
+        
+        # Retry logic for relay server communication
+        max_retries = 3
+        retry_delay = 1  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                response = requests.post(
+                    f"http://localhost:3010/chat",
+                    json=post_data,
+                    headers={"x-api-key": "local-dev"},
+                    timeout=30  # Increased timeout to 30 seconds as requested
+                )
+                
+                if response.status_code == 200:
+                    logger.info(f"Successfully sent chat message to Foundry: {message.get('type', 'unknown')}")
+                    return True  # Success, exit retry loop
+                else:
+                    logger.warning(f"Chat attempt {attempt + 1} failed: {response.status_code} - {response.text}")
+                    if attempt < max_retries - 1:
+                        logger.info(f"Retrying in {retry_delay} seconds...")
+                        await asyncio.sleep(retry_delay)
+                        retry_delay *= 2  # Exponential backoff
+                    else:
+                        logger.error(f"All {max_retries} attempts failed for chat message")
+                        return False
+                        
+            except Exception as e:
+                logger.error(f"Chat attempt {attempt + 1} exception: {e}")
+                if attempt < max_retries - 1:
+                    logger.info(f"Retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    logger.error(f"All {max_retries} attempts failed for chat message")
+                    return False
+        
+        return False
+                
+    except Exception as e:
+        logger.error(f"Error sending chat message to Foundry: {e}")
+        return False
 
 @router.post("/api_chat", response_model=APIChatResponse)
 async def api_chat(http_request: Request, request: APIChatRequest):
@@ -144,32 +234,33 @@ async def api_chat(http_request: Request, request: APIChatRequest):
             context_count = validated_request.get('context_count', request.context_count)
             settings = validated_request.get('settings', request.settings)
             logger.info("Processing API chat request with middleware-validated data")
-            logger.info(f"DEBUG: Request body from middleware: {validated_request}")
+            # logger.info(f"DEBUG: Request body from middleware: {validated_request}")
         else:
             # Fallback to original request data (should not happen with proper middleware)
             context_count = request.context_count
             settings = request.settings
             logger.info("Processing API chat request with original request data")
         
-        logger.info(f"DEBUG: Request data received: {request}")
-        logger.info(f"DEBUG: Extracted context_count: {context_count}")
-        logger.info(f"DEBUG: Extracted settings: {settings}")
-        logger.info(f"DEBUG: Settings keys: {list(settings.keys()) if settings else 'None'}")
+        # logger.info(f"DEBUG: Request data received: {request}")
+        # logger.info(f"DEBUG: Extracted context_count: {context_count}")
+        # logger.info(f"DEBUG: Extracted settings: {settings}")
+        # logger.info(f"DEBUG: Settings keys: {list(settings.keys()) if settings else 'None'}")
         
         # PHASE 1 FIX: Load stored settings FIRST before validation
         try:
             from server import settings_manager
             stored_settings = settings_manager.get_settings()
             if stored_settings:
-                logger.info(f"DEBUG: Loaded {len(stored_settings)} stored settings before validation")
+                # logger.info(f"DEBUG: Loaded {len(stored_settings)} stored settings before validation")
                 # Merge request settings with stored settings (request takes priority for client ID)
                 merged_settings = {**stored_settings}  # Start with all stored settings
                 if settings and isinstance(settings, dict):
                     merged_settings.update(settings)  # Override with request settings (client ID)
                 settings = merged_settings  # Use merged settings for all processing
-                logger.info(f"DEBUG: Merged settings total count: {len(settings)}")
+                # logger.info(f"DEBUG: Merged settings total count: {len(settings)}")
             else:
-                logger.warning("DEBUG: No stored settings available for merging")
+                # logger.warning("DEBUG: No stored settings available for merging")
+                pass
         except ImportError as e:
             logger.error(f"Failed to import settings_manager for early merge: {e}")
         
@@ -199,19 +290,20 @@ async def api_chat(http_request: Request, request: APIChatRequest):
             missing_keys = [key for key in required_keys if key not in settings]
             extra_keys = [key for key in settings if key not in required_keys]
             
-            logger.info(f"PHASE 1 TEST: Settings structure validation (after merge):")
-            logger.info(f"  Required keys present: {len([k for k in required_keys if k in settings])}/{len(required_keys)}")
-            logger.info(f"  Missing keys: {missing_keys}")
-            logger.info(f"  Extra keys: {extra_keys}")
+            # logger.info(f"PHASE 1 TEST: Settings structure validation (after merge):")
+            # logger.info(f"  Required keys present: {len([k for k in required_keys if k in settings])}/{len(required_keys)}")
+            # logger.info(f"  Missing keys: {missing_keys}")
+            # logger.info(f"  Extra keys: {extra_keys}")
             
             if len(missing_keys) == 0:
-                logger.info("PHASE 1 TEST: ✅ Settings object structure is correct after merge")
+                # logger.info("PHASE 1 TEST: ✅ Settings object structure is correct after merge")
+                pass
             else:
                 logger.warning(f"PHASE 1 TEST: ⚠️ Settings structure issues detected after merge")
         
         # Initialize universal_settings with defaults to avoid scope issues
         universal_settings = extract_universal_settings({}, "api_chat")
-        logger.info(f"DEBUG: Initialized universal_settings with defaults: {universal_settings}")
+        # logger.info(f"DEBUG: Initialized universal_settings with defaults: {universal_settings}")
         
         # Step 1: Collect chat messages via REST API (relay server is started by main server)
         logger.info(f"Collecting {context_count} chat messages via REST API")
@@ -219,19 +311,19 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         # Prepare request data for client ID extraction (PHASE 1 FIX: Always ensure valid dictionary)
         if hasattr(http_request.state, 'validated_body') and http_request.state.validated_body:
             request_data_for_api = http_request.state.validated_body
-            logger.info("DEBUG: Using middleware-validated request data for API calls")
+            # logger.info("DEBUG: Using middleware-validated request data for API calls")
         else:
             # If no middleware validation, use the original request data (PHASE 1 FIX: Ensure valid structure)
             request_data_for_api = {
                 'context_count': request.context_count,
                 'settings': request.settings if request.settings is not None else {}
             }
-            logger.info("DEBUG: Using original request data for API calls")
+            # logger.info("DEBUG: Using original request data for API calls")
         
         # PHASE 1 FIX: Ensure request_data_for_api is never None
         if request_data_for_api is None:
             request_data_for_api = {'context_count': context_count, 'settings': {}}
-            logger.warning("DEBUG: request_data_for_api was None, using fallback structure")
+            # logger.warning("DEBUG: request_data_for_api was None, using fallback structure")
         
         api_messages = await collect_chat_messages_api(context_count, request_data_for_api)
         
@@ -255,7 +347,7 @@ async def api_chat(http_request: Request, request: APIChatRequest):
                             'settings': merged_settings
                         }
                         universal_settings = extract_universal_settings(request_data_for_settings, "api_chat")
-                        logger.info(f"DEBUG: Merged settings - Stored: {len(stored_settings)}, Request: {len(settings)}, Final: {len(merged_settings)}")
+                        # logger.info(f"DEBUG: Merged settings - Stored: {len(stored_settings)}, Request: {len(settings)}, Final: {len(merged_settings)}")
                 except ImportError as e:
                     logger.error(f"Failed to import settings_manager for merge: {e}")
                     # Fallback to request settings only
@@ -263,14 +355,14 @@ async def api_chat(http_request: Request, request: APIChatRequest):
                         'settings': settings
                     }
                     universal_settings = extract_universal_settings(request_data_for_settings, "api_chat")
-                    logger.info(f"DEBUG: Using request settings only (no stored settings available): {universal_settings}")
+                    # logger.info(f"DEBUG: Using request settings only (no stored settings available): {universal_settings}")
             else:
                 # No client ID - use request settings as-is
                 request_data_for_settings = {
                     'settings': settings
                 }
                 universal_settings = extract_universal_settings(request_data_for_settings, "api_chat")
-                logger.info(f"DEBUG: Using request settings only (no client ID): {universal_settings}")
+                # logger.info(f"DEBUG: Using request settings only (no client ID): {universal_settings}")
         else:
             # Use stored settings from settings manager (fallback)
             try:
@@ -279,22 +371,22 @@ async def api_chat(http_request: Request, request: APIChatRequest):
             except ImportError as e:
                 logger.error(f"Failed to import settings_manager: {e}")
                 stored_settings = {}
-            logger.info(f"DEBUG: Retrieved stored settings: {stored_settings}")
+            # logger.info(f"DEBUG: Retrieved stored settings: {stored_settings}")
             if stored_settings:
                 request_data_for_settings = {
                     'settings': stored_settings
                 }
                 universal_settings = extract_universal_settings(request_data_for_settings, "api_chat")
-                logger.info(f"DEBUG: Universal settings extracted from storage: {universal_settings}")
+                # logger.info(f"DEBUG: Universal settings extracted from storage: {universal_settings}")
             else:
                 # Final fallback to defaults
-                logger.warning("DEBUG: No stored settings found, using defaults")
+                # logger.warning("DEBUG: No stored settings found, using defaults")
                 universal_settings = extract_universal_settings({}, "api_chat")
-                logger.info(f"DEBUG: Universal settings extracted from defaults: {universal_settings}")
+                # logger.info(f"DEBUG: Universal settings extracted from defaults: {universal_settings}")
         
         # Extract provider config from universal settings
         provider_config = get_provider_config(universal_settings, use_tactical=False)
-        logger.info(f"DEBUG: Provider config extracted: {provider_config}")
+        # logger.info(f"DEBUG: Provider config extracted: {provider_config}")
         
         # Use provider config values for consistency
         provider_id = provider_config['provider']
@@ -321,17 +413,20 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         # Step 4: Convert compact messages to JSON string for AI
         compact_json_context = json.dumps(compact_messages, indent=2)
         
-        # DEBUG: Show exactly what we're sending to the AI
-        logger.info("=== CHAT CONTEXT DEBUG ===")
-        logger.info(f"Raw messages count from API: {len(api_messages)}")
-        logger.info(f"Compact messages count after processing: {len(compact_messages)}")
-        logger.info(f"Sample compact messages: {compact_messages[:3] if compact_messages else 'None'}")
-        logger.info(f"Full JSON context being sent to AI:\n{compact_json_context}")
-        logger.info("=== END CHAT CONTEXT DEBUG ===")
+        # DEBUG: Show exactly what we're sending to AI
+        # logger.info("=== CHAT CONTEXT DEBUG ===")
+        # logger.info(f"Raw messages count from API: {len(api_messages)}")
+        # logger.info(f"Compact messages count after processing: {len(compact_messages)}")
+        # logger.info(f"Sample compact messages: {compact_messages[:3] if compact_messages else 'None'}")
+        # logger.info(f"Full JSON context being sent to AI:\n{compact_json_context}")
+        # logger.info("=== END CHAT CONTEXT DEBUG ===")
         
         # Step 5: Prepare AI messages
         processor = ChatContextProcessor()
-        system_prompt = processor.generate_system_prompt()
+        
+        # Get AI role from settings for role-based prompt generation
+        ai_role = universal_settings.get('ai role', 'player') if universal_settings else 'player'
+        system_prompt = processor.generate_system_prompt(ai_role)
         
         ai_messages = [
             {"role": "system", "content": system_prompt},
@@ -339,16 +434,23 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         ]
         
         # DEBUG: Show the final AI messages
-        logger.info("=== AI MESSAGES DEBUG ===")
-        logger.info(f"System prompt length: {len(system_prompt)} characters")
-        logger.info(f"User message length: {len(ai_messages[1]['content'])} characters")
-        logger.info(f"Total AI messages: {len(ai_messages)}")
-        logger.info("=== END AI MESSAGES DEBUG ===")
+        # logger.info("=== AI MESSAGES DEBUG ===")
+        # logger.info(f"System prompt length: {len(system_prompt)} characters")
+        # logger.info(f"User message length: {len(ai_messages[1]['content'])} characters")
+        # logger.info(f"Total AI messages: {len(ai_messages)}")
+        # logger.info("=== END AI MESSAGES DEBUG ===")
         
         # Step 6: Call AI service with universal settings
         logger.info("=== AI SERVICE CALL DEBUG ===")
         logger.info(f"Calling AI service with {len(compact_messages)} compact messages")
         logger.info(f"Settings being passed to AI service: {universal_settings}")
+        
+        # DEBUG: Print entire prompt sent to AI service
+        logger.info("=== ENTIRE PROMPT SENT TO AI ===")
+        logger.info(f"SYSTEM PROMPT:\n{system_prompt}")
+        logger.info(f"USER CONTEXT:\n{compact_json_context}")
+        logger.info("=== END ENTIRE PROMPT ===")
+        
         ai_response_data = await ai_service.process_compact_context(
             processed_messages=compact_messages,
             system_prompt=system_prompt,
@@ -359,7 +461,12 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         tokens_used = ai_response_data.get("tokens_used", 0)
         logger.info(f"AI service returned response of length: {len(ai_response)} characters")
         logger.info(f"Tokens used: {tokens_used}")
-        logger.info("=== END AI SERVICE CALL DEBUG ===")
+        
+        # DEBUG: Show exactly what the AI returned before processing
+        logger.info("=== RAW AI RESPONSE BEFORE PROCESSING ===")
+        logger.info(f"Raw AI Response: {ai_response}")
+        logger.info("=== END RAW AI RESPONSE ===")
+        # logger.info("=== END AI SERVICE CALL DEBUG ===")
         
         # Step 7: Process AI response back to API format and send to Foundry
         api_formatted = ai_chat_processor.process_ai_response(ai_response, compact_messages)
@@ -428,7 +535,8 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
             settings = request_data.get('settings', {})
             client_id = settings.get('relay client id')
             if client_id:
-                logger.info("DEBUG: Client ID found in unified settings")
+                # logger.info("DEBUG: Client ID found in unified settings")
+                pass
             else:
                 # Priority 2: Try to get from stored settings as fallback
                 try:
@@ -437,7 +545,8 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
                     if stored_settings:
                         client_id = stored_settings.get('relay client id')
                         if client_id:
-                            logger.info("DEBUG: Client ID found in stored settings (fallback)")
+                            # logger.info("DEBUG: Client ID found in stored settings (fallback)")
+                            pass
                 except ImportError:
                     pass
                 
@@ -445,7 +554,8 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
                     # Priority 3: Fallback to separate parameter (backward compatibility)
                     client_id = request_data.get('relayClientId')
                     if client_id:
-                        logger.info("DEBUG: Client ID found in separate parameter (backward compatibility)")
+                        # logger.info("DEBUG: Client ID found in separate parameter (backward compatibility)")
+                        pass
         else:
             # Try to get from stored settings when no request data
             try:
@@ -454,13 +564,14 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
                 if stored_settings:
                     client_id = stored_settings.get('relay client id')
                     if client_id:
-                        logger.info("DEBUG: Client ID found in stored settings (no request data)")
+                        # logger.info("DEBUG: Client ID found in stored settings (no request data)")
+                        pass
             except ImportError:
                 pass
         
         # If no client ID provided, try to get one from relay server
         if not client_id:
-            logger.info("DEBUG: No client ID provided, attempting to get available clients from relay server")
+            # logger.info("DEBUG: No client ID provided, attempting to get available clients from relay server")
             try:
                 # Try to get list of available clients from relay server (PHASE 2 FIX: Correct endpoint)
                 clients_response = requests.get(
@@ -472,17 +583,20 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
                     if clients and len(clients) > 0:
                         # Use the first available client
                         client_id = clients[0].get('id')
-                        logger.info(f"DEBUG: Using first available client: {client_id}")
+                        # logger.info(f"DEBUG: Using first available client: {client_id}")
                     else:
-                        logger.warning("DEBUG: No clients available on relay server")
+                        # logger.warning("DEBUG: No clients available on relay server")
+                        pass
                 else:
-                    logger.warning(f"DEBUG: Failed to get clients list: {clients_response.status_code}")
+                    # logger.warning(f"DEBUG: Failed to get clients list: {clients_response.status_code}")
+                    pass
             except Exception as e:
-                logger.warning(f"DEBUG: Error getting clients list: {e}")
+                # logger.warning(f"DEBUG: Error getting clients list: {e}")
+                pass
         
         # If still no client ID, try some common defaults or generate a test one
         if not client_id:
-            logger.warning("DEBUG: Still no client ID, trying fallback approaches")
+            # logger.warning("DEBUG: Still no client ID, trying fallback approaches")
             # Try some common client IDs that might be registered
             fallback_ids = ["foundry-test", "test-client", "default-client"]
             for fallback_id in fallback_ids:
@@ -494,7 +608,7 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
                     )
                     if test_response.status_code == 200:
                         client_id = fallback_id
-                        logger.info(f"DEBUG: Found working fallback client ID: {client_id}")
+                        # logger.info(f"DEBUG: Found working fallback client ID: {client_id}")
                         break
                 except:
                     continue
@@ -502,9 +616,9 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
             # If all fallbacks fail, use a generated ID but expect it to fail
             if not client_id:
                 client_id = "generated-test-client"
-                logger.warning(f"DEBUG: Using generated client ID (may fail): {client_id}")
+                # logger.warning(f"DEBUG: Using generated client ID (may fail): {client_id}")
         
-        logger.info(f"DEBUG: Using client ID for relay server request: {client_id}")
+        # logger.info(f"DEBUG: Using client ID for relay server request: {client_id}")
         
         # Get chat messages from relay server with proper authentication
         headers = {}
@@ -520,7 +634,7 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
         chat_messages = []
         roll_messages = []
         
-        # Step1: Get chat messages (always force fresh data)
+        # Step 1: Get chat messages (always force fresh data)
         chat_response = requests.get(
             f"http://localhost:3010/messages",  # PHASE 3 FIX: Use correct Gold API endpoint
             params={"clientId": client_id, "limit": count, "sort": "timestamp", "order": "desc", "refresh": True},
@@ -528,35 +642,38 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
             timeout=3  # PHASE 2 FIX: Reduce timeout to prevent blocking
         )
         
-        logger.info(f"DEBUG: Chat messages response status: {chat_response.status_code}")
-        logger.info(f"DEBUG: Chat messages response text: {chat_response.text}")
+        # logger.info(f"DEBUG: Chat messages response status: {chat_response.status_code}")
+        # logger.info(f"DEBUG: Chat messages response text: {chat_response.text}")
         
         if chat_response.status_code == 200:
             try:
                 response_data = chat_response.json()
-                logger.info(f"DEBUG: Parsed chat response data: {response_data}")
+                # logger.info(f"DEBUG: Parsed chat response data: {response_data}")
                 
                 # Extract messages from response structure
                 if isinstance(response_data, dict):
                     if 'messages' in response_data:
                         chat_messages = response_data['messages']
-                        logger.info(f"DEBUG: Extracted messages from 'messages' field: {len(chat_messages) if chat_messages else 0}")
+                        # logger.info(f"DEBUG: Extracted messages from 'messages' field: {len(chat_messages) if chat_messages else 0}")
                     else:
-                        logger.warning(f"DEBUG: No 'messages' field found in chat response. Available keys: {list(response_data.keys())}")
+                        # logger.warning(f"DEBUG: No 'messages' field found in chat response. Available keys: {list(response_data.keys())}")
+                        pass
                 elif isinstance(response_data, list):
                     # Direct list response (fallback)
                     chat_messages = response_data
-                    logger.info(f"DEBUG: Chat response is direct list: {len(chat_messages)} messages")
+                    # logger.info(f"DEBUG: Chat response is direct list: {len(chat_messages)} messages")
                 else:
-                    logger.warning(f"DEBUG: Unexpected chat response format: {type(response_data)}")
+                    # logger.warning(f"DEBUG: Unexpected chat response format: {type(response_data)}")
+                    pass
                 
-                logger.info(f"DEBUG: Final chat messages count: {len(chat_messages) if chat_messages else 0}")
+                # logger.info(f"DEBUG: Final chat messages count: {len(chat_messages) if chat_messages else 0}")
             except json.JSONDecodeError as e:
-                logger.error(f"DEBUG: Failed to parse chat JSON: {e}")
-                logger.error(f"DEBUG: Raw chat response: {chat_response.text}")
+                # logger.error(f"DEBUG: Failed to parse chat JSON: {e}")
+                # logger.error(f"DEBUG: Raw chat response: {chat_response.text}")
+                pass
         else:
             logger.error(f"Failed to collect chat messages: {chat_response.status_code}")
-            logger.error(f"DEBUG: Raw chat response: {chat_response.text}")
+            # logger.error(f"DEBUG: Raw chat response: {chat_response.text}")
         
         # Step 2: Get roll messages for the same time period
         rolls_response = requests.get(
@@ -566,40 +683,43 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
             timeout=3
         )
         
-        logger.info(f"DEBUG: Rolls response status: {rolls_response.status_code}")
-        logger.info(f"DEBUG: Rolls response text: {rolls_response.text}")
+        # logger.info(f"DEBUG: Rolls response status: {rolls_response.status_code}")
+        # logger.info(f"DEBUG: Rolls response text: {rolls_response.text}")
         
         if rolls_response.status_code == 200:
             try:
                 rolls_data = rolls_response.json()
-                logger.info(f"DEBUG: Parsed rolls response data: {rolls_data}")
+                # logger.info(f"DEBUG: Parsed rolls response data: {rolls_data}")
                 
                 # Extract rolls from response structure
                 if isinstance(rolls_data, dict):
                     # Check for 'data' field first (relay server puts rolls here)
                     if 'data' in rolls_data:
                         roll_messages = rolls_data['data']
-                        logger.info(f"DEBUG: Extracted rolls from 'data' field: {len(roll_messages) if roll_messages else 0}")
+                        # logger.info(f"DEBUG: Extracted rolls from 'data' field: {len(roll_messages) if roll_messages else 0}")
                     # Fallback to 'rolls' field for backward compatibility
                     elif 'rolls' in rolls_data:
                         roll_messages = rolls_data['rolls']
-                        logger.info(f"DEBUG: Extracted rolls from 'rolls' field: {len(roll_messages) if roll_messages else 0}")
+                        # logger.info(f"DEBUG: Extracted rolls from 'rolls' field: {len(roll_messages) if roll_messages else 0}")
                     else:
-                        logger.warning(f"DEBUG: No 'data' or 'rolls' field found in rolls response. Available keys: {list(rolls_data.keys())}")
+                        # logger.warning(f"DEBUG: No 'data' or 'rolls' field found in rolls response. Available keys: {list(rolls_data.keys())}")
+                        pass
                 elif isinstance(rolls_data, list):
                     # Direct list response (fallback)
                     roll_messages = rolls_data
-                    logger.info(f"DEBUG: Rolls response is direct list: {len(roll_messages)} rolls")
+                    # logger.info(f"DEBUG: Rolls response is direct list: {len(roll_messages)} rolls")
                 else:
-                    logger.warning(f"DEBUG: Unexpected rolls response format: {type(rolls_data)}")
+                    # logger.warning(f"DEBUG: Unexpected rolls response format: {type(rolls_data)}")
+                    pass
                 
-                logger.info(f"DEBUG: Final roll messages count: {len(roll_messages) if roll_messages else 0}")
+                # logger.info(f"DEBUG: Final roll messages count: {len(roll_messages) if roll_messages else 0}")
             except json.JSONDecodeError as e:
-                logger.error(f"DEBUG: Failed to parse rolls JSON: {e}")
-                logger.error(f"DEBUG: Raw rolls response: {rolls_response.text}")
+                # logger.error(f"DEBUG: Failed to parse rolls JSON: {e}")
+                # logger.error(f"DEBUG: Raw rolls response: {rolls_response.text}")
+                pass
         else:
             logger.error(f"Failed to collect rolls: {rolls_response.status_code}")
-            logger.error(f"DEBUG: Raw rolls response: {rolls_response.text}")
+            # logger.error(f"DEBUG: Raw rolls response: {rolls_response.text}")
         
         # Step 3: Merge and sort all messages chronologically
         all_messages = []
@@ -622,9 +742,9 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
         # Take the most recent 'count' messages and reverse to chronological order
         merged_messages = list(reversed(all_messages[:count]))
         
-        logger.info(f"DEBUG: Merged {len(chat_messages)} chat messages and {len(roll_messages)} roll messages")
-        logger.info(f"DEBUG: Final merged count: {len(merged_messages)}")
-        logger.info(f"DEBUG: Message sources: {[msg.get('_source') for msg in merged_messages[:5]]}")
+        # logger.info(f"DEBUG: Merged {len(chat_messages)} chat messages and {len(roll_messages)} roll messages")
+        # logger.info(f"DEBUG: Final merged count: {len(merged_messages)}")
+        # logger.info(f"DEBUG: Message sources: {[msg.get('_source') for msg in merged_messages[:5]]}")
         
         return merged_messages
             

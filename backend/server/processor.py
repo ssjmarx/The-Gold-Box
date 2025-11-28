@@ -23,39 +23,26 @@ class ChatContextProcessor:
     Core processor for bidirectional translation between Foundry HTML and Compact JSON
     """
     
-    # Type codes for compact JSON format
+    # Type codes for compact JSON format (system-agnostic Foundry VTT types)
     TYPE_CODES = {
         'dice-roll': 'dr',
-        'player-chat': 'pl', 
-        'attack-roll': 'ar',
-        'saving-throw': 'sv',
-        'gm-message': 'gm',
-        'whisper': 'wp',
-        'chat-card': 'cc',
-        'condition-card': 'cd',
-        'table-result': 'tr'
+        'chat-message': 'cm', 
+        'chat-card': 'cd',  # Updated to "chat card" as requested
     }
     
     # Reverse mapping for JSON to HTML conversion
     REVERSE_TYPE_CODES = {v: k for k, v in TYPE_CODES.items()}
     
-    # Priority-based classification patterns (highest priority first)
+    # Priority-based classification patterns (system-agnostic Foundry VTT types)
     CLASSIFICATION_PATTERNS = [
         # Dice rolls (highest priority)
         ('dr', r'class=["\'].*dice-roll'),
-        ('ar', r'class=["\'].*attack-card'),  # More flexible - match attack-card
-        ('sv', r'class=["\'].*save-card'),   # More flexible - match save-card
         
         # Chat cards - more flexible patterns to match actual Foundry HTML
-        ('cc', r'class=["\'].*activation-card'),  # Specific activation-card pattern (higher priority)
-        ('cc', r'class=["\'].*chat-card'),
-        ('cd', r'class=["\'].*condition-card'),
-        ('tr', r'class=["\'].*roll-table-result|table-result'),
+        ('cd', r'class=["\'].*chat-card|activation-card'),  # Generic chat card pattern
         
         # Message types
-        ('wp', r'class=["\'].*whisper'),
-        ('gm', r'class=["\'].*gm-message'),
-        ('pl', r'class=["\'].*chat-message(?![^"]*whisper)'),
+        ('cm', r'class=["\'].*chat-message(?![^"]*whisper)'),
     ]
     
     def __init__(self):
@@ -73,16 +60,16 @@ class ChatContextProcessor:
             html_content: HTML content to classify
             
         Returns:
-            Type code string (e.g., 'dr', 'pl', 'ar')
+            Type code string (e.g., 'dr', 'cm', 'cd')
         """
         for type_code, pattern in self.compiled_patterns:
             if pattern.search(html_content):
                 logger.debug(f"Classified as {type_code}: {self.REVERSE_TYPE_CODES.get(type_code, 'unknown')}")
                 return type_code
         
-        # Default to player chat if no pattern matches
-        logger.debug("No pattern matched, defaulting to player chat")
-        return 'pl'
+        # Default to chat message if no pattern matches
+        logger.debug("No pattern matched, defaulting to chat message")
+        return 'cm'
     
     def extract_dice_roll_data(self, soup: BeautifulSoup) -> Dict[str, Any]:
         """
@@ -176,7 +163,7 @@ class ChatContextProcessor:
         
         return data
     
-    def extract_player_chat_data(self, soup: BeautifulSoup) -> Dict[str, Any]:
+    def extract_chat_message_data(self, soup: BeautifulSoup) -> Dict[str, Any]:
         """
         Extract data from complete chat-message li element
         Expected structure:
@@ -226,155 +213,6 @@ class ChatContextProcessor:
         
         return data
     
-    def extract_attack_roll_data(self, soup: BeautifulSoup) -> Dict[str, Any]:
-        """
-        Extract data from attack roll HTML
-        
-        Expected structure:
-        <div class="chat-card attack-card">
-            <div class="attack-roll">...</div>
-            <div class="damage-roll">...</div>
-        </div>
-        """
-        data = {}
-        
-        # Extract speaker
-        speaker_elem = soup.select_one('.message-speaker, .actor-name')
-        if speaker_elem:
-            data['s'] = speaker_elem.get_text(strip=True)
-        
-        # Extract attack roll data
-        attack_elem = soup.select_one('.attack-roll .roll-formula')
-        if attack_elem:
-            data['af'] = attack_elem.get_text(strip=True)
-        
-        attack_total_elem = soup.select_one('.attack-roll .roll-total')
-        if attack_total_elem:
-            attack_text = attack_total_elem.get_text(strip=True)
-            try:
-                data['at'] = int(re.search(r'\d+', attack_text).group())
-            except (AttributeError, ValueError):
-                data['at'] = attack_text
-        
-        # Extract damage roll data
-        damage_elem = soup.select_one('.damage-roll .roll-formula')
-        if damage_elem:
-            data['df'] = damage_elem.get_text(strip=True)
-        
-        damage_total_elem = soup.select_one('.damage-roll .roll-total')
-        if damage_total_elem:
-            damage_text = damage_total_elem.get_text(strip=True)
-            try:
-                data['dt'] = int(re.search(r'\d+', damage_text).group())
-            except (AttributeError, ValueError):
-                data['dt'] = damage_text
-        
-        return data
-    
-    def extract_saving_throw_data(self, soup: BeautifulSoup) -> Dict[str, Any]:
-        """
-        Extract data from saving throw HTML
-        
-        Expected structure:
-        <div class="chat-card save-card">
-            <h3 class="save-title">Dexterity Saving Throw</h3>
-            <div class="dice-roll">...</div>
-        </div>
-        """
-        data = {}
-        
-        # Extract speaker
-        speaker_elem = soup.select_one('.message-speaker, .actor-name')
-        if speaker_elem:
-            data['s'] = speaker_elem.get_text(strip=True)
-        
-        # Extract save type
-        save_title_elem = soup.select_one('.save-title')
-        if save_title_elem:
-            title_text = save_title_elem.get_text(strip=True)
-            # Extract ability score from title
-            ability_match = re.search(r'(Strength|Dexterity|Constitution|Intelligence|Wisdom|Charisma)', title_text)
-            if ability_match:
-                data['st'] = ability_match.group(1)
-        
-        # Extract roll formula
-        formula_elem = soup.select_one('.roll-formula')
-        if formula_elem:
-            data['f'] = formula_elem.get_text(strip=True)
-        
-        # Extract roll total
-        total_elem = soup.select_one('.roll-total')
-        if total_elem:
-            total_text = total_elem.get_text(strip=True)
-            try:
-                data['tt'] = int(re.search(r'\d+', total_text).group())
-            except (AttributeError, ValueError):
-                data['tt'] = total_text
-        
-        # Extract DC and success/failure
-        total_class = total_elem.get('class', '') if total_elem else ''
-        if 'success' in total_class:
-            data['succ'] = True
-        elif 'failure' in total_class:
-            data['succ'] = False
-        
-        # Look for DC in text
-        dc_match = re.search(r'vs\s+DC\s+(\d+)', soup.get_text())
-        if dc_match:
-            data['dc'] = int(dc_match.group(1))
-        
-        return data
-    
-    def extract_whisper_data(self, soup: BeautifulSoup) -> Dict[str, Any]:
-        """
-        Extract data from whisper message
-        
-        Expected structure:
-        <div class="chat-message whisper" data-whisper-to="user1,user2">
-            <h4 class="message-speaker">Speaker → Target1, Target2</h4>
-            <div class="message-content">Message content</div>
-        </div>
-        """
-        data = {}
-        
-        # Extract speaker and targets
-        speaker_elem = soup.select_one('.message-speaker')
-        if speaker_elem:
-            speaker_text = speaker_elem.get_text(strip=True)
-            # Parse "Speaker → Target1, Target2"
-            if '→' in speaker_text:
-                parts = speaker_text.split('→', 1)
-                data['s'] = parts[0].strip()
-                targets = [t.strip() for t in parts[1].split(',')]
-                data['tg'] = targets
-            else:
-                data['s'] = speaker_text
-        
-        # Extract content
-        content_elem = soup.select_one('.message-content')
-        if content_elem:
-            data['c'] = content_elem.get_text(strip=True)
-        
-        return data
-    
-    def extract_gm_message_data(self, soup: BeautifulSoup) -> Dict[str, Any]:
-        """
-        Extract data from GM message
-        
-        Expected structure:
-        <div class="chat-message gm-message">
-            <div class="message-content">GM message content</div>
-        </div>
-        """
-        data = {}
-        
-        # Extract content
-        content_elem = soup.select_one('.message-content')
-        if content_elem:
-            data['c'] = content_elem.get_text(strip=True)
-        
-        return data
-    
     def extract_chat_card_data(self, soup: BeautifulSoup) -> Dict[str, Any]:
         """
         Extract data from chat card (items, spells, etc.)
@@ -404,26 +242,13 @@ class ChatContextProcessor:
         """
         data = {}
         
-        # Find the chat card element within the message structure
+        # Find chat card element within message structure
         card_element = soup.select_one('.chat-card') or soup.select_one('.activation-card')
         if not card_element:
             # Fallback: look for any div with activation-card class
             card_element = soup.find('div', class_=lambda x: x and 'activation-card' in str(x))
         
-        # Determine card type from classes
-        if card_element:
-            classes = card_element.get('class', [])
-            class_str = ' '.join(classes)
-            if 'spell-card' in class_str:
-                data['ct'] = 'spell'
-            elif 'activation-card' in class_str:
-                data['ct'] = 'item'
-            else:
-                data['ct'] = 'generic'
-        else:
-            data['ct'] = 'generic'
-        
-        # Extract speaker from the message header (not the card)
+        # Extract speaker from message header (not card)
         speaker_elem = (soup.select_one('.message-sender .title') or
                        soup.select_one('.name-stacked .title') or
                        soup.select_one('.message-sender'))
@@ -431,7 +256,7 @@ class ChatContextProcessor:
         if speaker_elem:
             data['s'] = speaker_elem.get_text(strip=True)
         
-        # Extract name from the card header, not the message header
+        # Extract name from the card header, not message header
         # Look for the title within the card structure
         if card_element:
             name_elem = (card_element.select_one('.card-header .title') or
@@ -478,7 +303,7 @@ class ChatContextProcessor:
             # Check if this is the main message content (not card description)
             # by ensuring it's not the same as the card description
             if 'd' in data and content_text != data['d']:
-                # Also check if it contains the card description by looking for key phrases
+                # Also check if it contains card description by looking for key phrases
                 if not any(phrase in content_text.lower() for phrase in ['description:', 'test item', 'test type']):
                     data['c'] = content_text.strip()
         
@@ -492,67 +317,6 @@ class ChatContextProcessor:
         
         if actions:
             data['a'] = actions  # No truncation - preserve all actions
-        
-        return data
-    
-    def extract_condition_card_data(self, soup: BeautifulSoup) -> Dict[str, Any]:
-        """
-        Extract data from condition card
-        
-        Expected structure:
-        <div class="chat-card condition-card">
-            <h3 class="condition-name">Prone</h3>
-            <div class="condition-description">Description...</div>
-        </div>
-        """
-        data = {}
-        
-        # Extract condition name
-        name_elem = soup.select_one('.condition-name, .card-header h3, h3')
-        if name_elem:
-            data['cn'] = name_elem.get_text(strip=True)
-        
-        # Extract description
-        desc_elem = soup.select_one('.condition-description, .card-content')
-        if desc_elem:
-            desc_text = desc_elem.get_text(strip=True)
-            data['d'] = desc_text
-        
-        return data
-    
-    def extract_table_result_data(self, soup: BeautifulSoup) -> Dict[str, Any]:
-        """
-        Extract data from table result
-        
-        Expected structure:
-        <div class="roll-table-result">
-            <div class="table-result">
-                <div class="table-roll">42</div>
-                <div class="table-text">You find a treasure chest</div>
-            </div>
-        </div>
-        """
-        data = {}
-        
-        # Extract roll result
-        roll_elem = soup.select_one('.table-roll')
-        if roll_elem:
-            roll_text = roll_elem.get_text(strip=True)
-            try:
-                data['r'] = int(re.search(r'\d+', roll_text).group())
-            except (AttributeError, ValueError):
-                data['r'] = roll_text
-        
-        # Extract table text
-        text_elem = soup.select_one('.table-text')
-        if text_elem:
-            data['res'] = text_elem.get_text(strip=True)
-        
-        # Extract table name if available
-        # Look for parent elements or headers that might contain table name
-        table_name_elem = soup.select_one('[data-table], .table-name')
-        if table_name_elem:
-            data['tn'] = table_name_elem.get_text(strip=True)
         
         return data
     
@@ -576,25 +340,13 @@ class ChatContextProcessor:
             # Extract data based on message type
             if message_type == 'dr':
                 data = self.extract_dice_roll_data(soup)
-            elif message_type == 'pl':
-                data = self.extract_player_chat_data(soup)
-            elif message_type == 'ar':
-                data = self.extract_attack_roll_data(soup)
-            elif message_type == 'sv':
-                data = self.extract_saving_throw_data(soup)
-            elif message_type == 'wp':
-                data = self.extract_whisper_data(soup)
-            elif message_type == 'gm':
-                data = self.extract_gm_message_data(soup)
-            elif message_type == 'cc':
-                data = self.extract_chat_card_data(soup)
+            elif message_type == 'cm':
+                data = self.extract_chat_message_data(soup)
             elif message_type == 'cd':
-                data = self.extract_condition_card_data(soup)
-            elif message_type == 'tr':
-                data = self.extract_table_result_data(soup)
+                data = self.extract_chat_card_data(soup)
             else:
-                # Fallback to player chat extraction
-                data = self.extract_player_chat_data(soup)
+                # Fallback to chat message extraction
+                data = self.extract_chat_message_data(soup)
             
             # Add type code
             result = {'t': message_type}
@@ -610,7 +362,7 @@ class ChatContextProcessor:
             logger.error(f"Error converting HTML to compact JSON: {e}")
             # Return safe fallback
             return {
-                't': 'pl',
+                't': 'cm',
                 's': 'Unknown',
                 'c': 'Error processing message'
             }
@@ -627,31 +379,19 @@ class ChatContextProcessor:
         """
         try:
             # Get message type
-            message_type = compact_data.get('t', 'pl')
-            full_type_name = self.REVERSE_TYPE_CODES.get(message_type, 'player-chat')
+            message_type = compact_data.get('t', 'cm')
+            full_type_name = self.REVERSE_TYPE_CODES.get(message_type, 'chat-message')
             
             # Generate HTML based on type
             if message_type == 'dr':
                 html = self._generate_dice_roll_html(compact_data)
-            elif message_type == 'pl':
-                html = self._generate_player_chat_html(compact_data)
-            elif message_type == 'ar':
-                html = self._generate_attack_roll_html(compact_data)
-            elif message_type == 'sv':
-                html = self._generate_saving_throw_html(compact_data)
-            elif message_type == 'wp':
-                html = self._generate_whisper_html(compact_data)
-            elif message_type == 'gm':
-                html = self._generate_gm_message_html(compact_data)
-            elif message_type == 'cc':
-                html = self._generate_chat_card_html(compact_data)
+            elif message_type == 'cm':
+                html = self._generate_chat_message_html(compact_data)
             elif message_type == 'cd':
-                html = self._generate_condition_card_html(compact_data)
-            elif message_type == 'tr':
-                html = self._generate_table_result_html(compact_data)
+                html = self._generate_chat_card_html(compact_data)
             else:
-                # Fallback to player chat
-                html = self._generate_player_chat_html(compact_data)
+                # Fallback to chat message
+                html = self._generate_chat_message_html(compact_data)
             
             logger.debug(f"JSON to HTML: {message_type} → HTML generated")
             return html
@@ -659,7 +399,7 @@ class ChatContextProcessor:
         except Exception as e:
             logger.error(f"Error converting compact JSON to HTML: {e}")
             # Return safe fallback
-            return f'''<div class="chat-message player-chat">
+            return f'''<div class="chat-message">
     <div class="message-content">
         <p>Error generating response: {html_module.escape(str(e))}</p>
     </div>
@@ -748,12 +488,12 @@ class ChatContextProcessor:
     <h4 class="roll-total">{total}</h4>
 </div>'''
     
-    def _generate_player_chat_html(self, data: Dict[str, Any]) -> str:
-        """Generate HTML for player chat message"""
+    def _generate_chat_message_html(self, data: Dict[str, Any]) -> str:
+        """Generate HTML for chat message"""
         speaker = data.get('s', 'Unknown')
         content = data.get('c', '')
         
-        return f'''<div class="chat-message player-chat">
+        return f'''<div class="chat-message">
     <header class="message-header">
         <h4 class="message-speaker">{html_module.escape(str(speaker))}</h4>
     </header>
@@ -762,96 +502,8 @@ class ChatContextProcessor:
     </div>
 </div>'''
     
-    def _generate_attack_roll_html(self, data: Dict[str, Any]) -> str:
-        """Generate HTML for attack roll message"""
-        speaker = data.get('s', 'Unknown')
-        attack_formula = data.get('af', '1d20')
-        attack_total = data.get('at', 0)
-        damage_formula = data.get('df', '')
-        damage_total = data.get('dt', 0)
-        
-        html = f'''<div class="dnd5e chat-card attack-card">
-    <header class="card-header">
-        <h3 class="item-name">Attack</h3>
-    </header>
-    <div class="card-content">'''
-        
-        if attack_formula:
-            html += f'''
-        <div class="attack-roll">
-            <div class="roll-formula">{html_module.escape(str(attack_formula))}</div>
-            <h4 class="roll-total">{attack_total}</h4>
-        </div>'''
-        
-        if damage_formula:
-            html += f'''
-        <div class="damage-roll">
-            <div class="roll-formula">{html_module.escape(str(damage_formula))}</div>
-            <h4 class="roll-total">{damage_total}</h4>
-        </div>'''
-        
-        html += '''
-    </div>
-</div>'''
-        
-        return html
-    
-    def _generate_saving_throw_html(self, data: Dict[str, Any]) -> str:
-        """Generate HTML for saving throw message"""
-        speaker = data.get('s', 'Unknown')
-        save_type = data.get('st', 'Unknown')
-        formula = data.get('f', '1d20')
-        total = data.get('tt', 0)
-        dc = data.get('dc', 0)
-        success = data.get('succ')
-        
-        success_class = 'success' if success is True else 'failure' if success is False else ''
-        vs_text = f" vs DC {dc}" if dc else ""
-        
-        return f'''<div class="dnd5e chat-card save-card" data-actor-id="">
-    <header class="card-header">
-        <h3 class="save-title">{html_module.escape(str(save_type))} Saving Throw</h3>
-    </header>
-    <div class="card-content">
-        <div class="dice-roll">
-            <div class="roll-formula">{html_module.escape(str(formula))}</div>
-            <h4 class="roll-total {success_class}">{total}{vs_text}</h4>
-        </div>
-    </div>
-</div>'''
-    
-    def _generate_whisper_html(self, data: Dict[str, Any]) -> str:
-        """Generate HTML for whisper message"""
-        speaker = data.get('s', 'Unknown')
-        targets = data.get('tg', [])
-        content = data.get('c', '')
-        
-        targets_str = ', '.join(str(t) for t in targets) if targets else 'GM'
-        speaker_text = f"{speaker} → {targets_str}"
-        
-        return f'''<div class="chat-message whisper">
-    <header class="message-header">
-        <i class="fas fa-eye-slash"></i>
-        <h4 class="message-speaker">{html_module.escape(str(speaker_text))}</h4>
-    </header>
-    <div class="message-content">
-        <p>{html_module.escape(str(content))}</p>
-    </div>
-</div>'''
-    
-    def _generate_gm_message_html(self, data: Dict[str, Any]) -> str:
-        """Generate HTML for GM message"""
-        content = data.get('c', '')
-        
-        return f'''<div class="chat-message gm-message">
-    <div class="message-content">
-        <p>{html_module.escape(str(content))}</p>
-    </div>
-</div>'''
-    
     def _generate_chat_card_html(self, data: Dict[str, Any]) -> str:
         """Generate HTML for chat card"""
-        card_type = data.get('ct', 'generic')
         name = data.get('n', 'Unknown')
         description = data.get('d', '')
         actions = data.get('a', [])
@@ -863,7 +515,7 @@ class ChatContextProcessor:
                 buttons_html += f'<button data-action="{html_module.escape(str(action))}">{html_module.escape(str(action))}</button>'
             buttons_html += '</div>'
         
-        return f'''<div class="dnd5e chat-card item-card">
+        return f'''<div class="chat-card">
     <header class="card-header">
         <h3 class="item-name">{html_module.escape(str(name))}</h3>
     </header>
@@ -871,33 +523,6 @@ class ChatContextProcessor:
         <p>{html_module.escape(str(description))}</p>
     </div>
     {buttons_html}
-</div>'''
-    
-    def _generate_condition_card_html(self, data: Dict[str, Any]) -> str:
-        """Generate HTML for condition card"""
-        condition_name = data.get('cn', 'Unknown')
-        description = data.get('d', '')
-        
-        return f'''<div class="dnd5e chat-card condition-card">
-    <header class="card-header">
-        <h3 class="condition-name">{html_module.escape(str(condition_name))}</h3>
-    </header>
-    <div class="card-content">
-        <p>{html_module.escape(str(description))}</p>
-    </div>
-</div>'''
-    
-    def _generate_table_result_html(self, data: Dict[str, Any]) -> str:
-        """Generate HTML for table result"""
-        roll = data.get('r', 0)
-        result = data.get('res', '')
-        table_name = data.get('tn', 'Random Table')
-        
-        return f'''<div class="roll-table-result">
-    <div class="table-result">
-        <div class="table-roll">{html_module.escape(str(roll))}</div>
-        <div class="table-text">{html_module.escape(str(result))}</div>
-    </div>
 </div>'''
     
     def process_message_list(self, messages: List[Any]) -> List[Dict[str, Any]]:
@@ -937,7 +562,7 @@ class ChatContextProcessor:
                 logger.error(f"Error processing message: {e}")
                 # Add safe fallback
                 fallback_message = {
-                    't': 'pl',
+                    't': 'cm',
                     's': 'Unknown',
                     'c': 'Error processing message'
                 }
@@ -950,64 +575,56 @@ class ChatContextProcessor:
         
         return processed_messages
     
-    def generate_system_prompt(self) -> str:
+    def generate_system_prompt(self, ai_role: str = "player") -> str:
         """
-        Generate system prompt with type codes and schema definitions
+        Generate system prompt with type codes and schema definitions based on AI role
         
+        Args:
+            ai_role: The current AI role setting ("player", "gm assistant", or "gamemaster")
+            
         Returns:
             System prompt string for AI API
         """
         type_codes_str = ', '.join([f"'{code}': '{name}'" for code, name in self.REVERSE_TYPE_CODES.items()])
         
-        system_prompt = f"""You are an AI assistant for tabletop RPG games. Chat messages use a compact JSON format with type codes and field abbreviations:
+        # Role-based prompt variations
+        if ai_role == "player":
+            base_prompt = """You are a player character in this tabletop RPG session. Respond naturally to the conversation as a player would, participating in the story and engaging with other characters. When you need to generate game mechanics like dice rolls or actions, use the compact JSON format specified below."""
+        elif ai_role == "gm assistant":
+            base_prompt = """You are a GM's assistant in this tabletop RPG session. Your role is to respond to specific commands, queries, or requests from the most recent chat message. Provide helpful guidance, rules clarifications, or execute specific actions as requested. Focus on being responsive to direct commands rather than driving the narrative forward. When you need to generate game mechanics, use the compact JSON format specified below."""
+        elif ai_role == "gamemaster":
+            base_prompt = """You are the Gamemaster for this tabletop RPG session. Your role is to drive the narrative continuously until it becomes the player's turn again. Control the story, describe scenes, manage NPCs, create challenges, and keep the game moving forward. Generate multiple actions, descriptions, and events as needed to advance the story before handing control back to players. During combat, roll all dice for non-player actions.  When you need to generate game mechanics, use the compact JSON format specified below."""
+        else:
+            # Default fallback
+            base_prompt = """You are an AI assistant for tabletop RPG games. Respond naturally to the conversation as an AI assistant would. When you need to generate game mechanics, use the compact JSON format specified below."""
+        
+        system_prompt = f"""{base_prompt}
 
-Type Codes (Abbreviations):
+Chat messages use a compact JSON format with type codes and field abbreviations:
+
+Type Codes (Generic Foundry VTT):
 - dr: dice_roll
-- pl: player_chat  
-- ar: attack_roll
-- sv: saving_throw
-- gm: gm_message
-- wp: whisper
-- cc: chat_card
-- cd: condition_card
-- tr: table_result
+- cm: chat_message
+- cd: chat_card
 
 Field Abbreviations:
-- t: message type (dr, pl, ar, sv, gm, wp, cc, cd, tr)
+- t: message type (dr, cm, cd)
 - f: formula (dice roll formula)
 - r: results (individual dice results array)
 - tt: total (roll total result)
 - s: speaker (character name who sent message)
 - c: content (message text content)
 - ft: flavor_text (roll context like "Intelligence (Investigation) Check")
-- af: attack_formula (attack roll formula)
-- at: attack_total (attack roll total)
-- df: damage_formula (damage roll formula)
-- dt: damage_total (damage roll total)
-- st: save_type (saving throw ability type)
-- dc: dc (difficulty class for saves)
-- succ: success (true/false for save success)
-- tg: targets (whisper target list)
-- ct: card_type (item/spell/generic for chat cards)
 - n: name (item/spell/condition name)
 - d: description (card description text)
 - a: actions (button actions array)
-- cn: condition_name (condition card name)
-- res: result (table result text)
-- tn: table_name (table name)
 
 Message Schemas:
 - Dice Roll: {{"t": "dr", "ft": "flavor_text", "f": "formula", "r": [results], "tt": total}}
-- Player Chat: {{"t": "pl", "s": "speaker", "c": "content"}}
-- Attack Roll: {{"t": "ar", "af": "attack_formula", "at": "attack_total", "df": "damage_formula", "dt": "damage_total", "s": "speaker"}}
-- Saving Throw: {{"t": "sv", "st": "save_type", "f": "formula", "tt": "total", "dc": "dc", "succ": true/false, "s": "speaker"}}
-- Whisper: {{"t": "wp", "s": "speaker", "c": "content", "tg": ["targets"]}}
-- GM Message: {{"t": "gm", "c": "content"}}
-- Chat Card: {{"t": "cc", "ct": "card_type", "n": "name", "d": "description", "a": ["actions"]}}
-- Condition Card: {{"t": "cd", "cn": "condition_name", "d": "description"}}
-- Table Result: {{"t": "tr", "r": roll, "res": "result", "tn": "table_name"}}
+- Chat Message: {{"t": "cm", "s": "speaker", "c": "content"}}
+- Chat Card: {{"t": "cd", "n": "name", "d": "description", "a": ["actions"]}}
 
-Respond naturally to the conversation as an AI assistant for tabletop RPGs. When you need to generate game mechanics, use the compact JSON format above with the field abbreviations."""
+When generating game mechanics, use the compact JSON format above with field abbreviations. Be system-agnostic and work with any tabletop RPG system."""
         
         return system_prompt
 
@@ -1025,30 +642,27 @@ def test_processor():
             <h4 class="roll-total">8</h4>
         </div>''',
         
-        # Player chat
-        '''<div class="chat-message player-chat">
+        # Chat message
+        '''<div class="chat-message">
             <header class="message-header">
-                <h4 class="message-speaker">Fighter</h4>
+                <h4 class="message-sender">Fighter</h4>
             </header>
             <div class="message-content">
-                <p>I attack goblin!</p>
+                <p>I attack the goblin!</p>
             </div>
         </div>''',
         
-        # Attack roll
-        '''<div class="dnd5e chat-card attack-card">
+        # Chat card
+        '''<div class="chat-card">
             <header class="card-header">
-                <h3 class="item-name">Longsword</h3>
+                <h3 class="item-name">Dagger</h3>
             </header>
             <div class="card-content">
-                <div class="attack-roll">
-                    <div class="roll-formula">1d20+5</div>
-                    <h4 class="roll-total">15</h4>
-                </div>
-                <div class="damage-roll">
-                    <div class="roll-formula">2d6+3</div>
-                    <h4 class="roll-total">10</h4>
-                </div>
+                <p>A simple melee weapon with a sharp blade.</p>
+            </div>
+            <div class="card-buttons">
+                <button data-action="attack">Attack</button>
+                <button data-action="throw">Throw</button>
             </div>
         </div>''',
     ]
@@ -1074,9 +688,15 @@ def test_processor():
         
         print("-" * 40)
     
-    # Test system prompt generation
-    print("\nSystem Prompt:")
-    print(processor.generate_system_prompt())
+    # Test system prompt generation with different roles
+    print("\nSystem Prompt (Player Role):")
+    print(processor.generate_system_prompt("player"))
+    print("\nSystem Prompt (GM Assistant Role):")
+    print(processor.generate_system_prompt("gm assistant"))
+    print("\nSystem Prompt (Gamemaster Role):")
+    print(processor.generate_system_prompt("gamemaster"))
+    print("\nSystem Prompt (Default):")
+    print(processor.generate_system_prompt("unknown"))
     
     print("=" * 60)
 

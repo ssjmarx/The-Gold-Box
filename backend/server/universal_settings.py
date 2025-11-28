@@ -190,7 +190,7 @@ class UniversalSettings:
                 logger.error(f"UniversalSettings: Settings is not a dictionary: {type(settings)}")
                 settings = {}
             
-            logger.info(f"UniversalSettings: Raw settings extracted: {settings}")
+            # logger.info(f"UniversalSettings: Raw settings extracted: {settings}")
             
             # Validate and normalize each setting
             validated_settings = {}
@@ -222,7 +222,7 @@ class UniversalSettings:
                 'validated_settings_count': len(validated_settings) - 1  # Subtract metadata
             }
             
-            logger.info(f"UniversalSettings: Final validated settings for {endpoint_name}: {validated_settings}")
+            # logger.info(f"UniversalSettings: Final validated settings for {endpoint_name}: {validated_settings}")
             
             return validated_settings
             
@@ -362,7 +362,7 @@ class UniversalSettings:
             else:
                 provider_config['headers'] = {}
             
-            logger.info(f"UniversalSettings: Provider config extracted (use_tactical={use_tactical}): {provider_config}")
+            # logger.info(f"UniversalSettings: Provider config extracted (use_tactical={use_tactical}): {provider_config}")
             
             return provider_config
             

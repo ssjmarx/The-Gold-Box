@@ -112,9 +112,9 @@ async def process_chat(
         logger.info(f"Processing chat request {request_id} with {len(messages)} messages")
         
         # Step 1: Convert HTML messages to compact JSON
-        logger.info(f"DEBUG: Raw frontend messages received: {messages}")
+        # logger.info(f"DEBUG: Raw frontend messages received: {messages}")
         processed_messages = processor.process_message_list(messages)
-        logger.info(f"DEBUG: Processed messages to compact JSON: {processed_messages}")
+        # logger.info(f"DEBUG: Processed messages to compact JSON: {processed_messages}")
         
         # Step 2: Prepare system prompt and context
         system_prompt = processor.generate_system_prompt()
@@ -150,39 +150,39 @@ async def process_chat(
                     'settings': settings
                 }
                 universal_settings = extract_universal_settings(request_data_for_settings, "process_chat")
-                logger.info(f"DEBUG: Universal settings extracted from request: {universal_settings}")
+                # logger.info(f"DEBUG: Universal settings extracted from request: {universal_settings}")
             else:
                 # Fallback to stored settings when no settings provided
-                logger.info("DEBUG: Settings not provided in request, retrieving stored settings")
+                # logger.info("DEBUG: Settings not provided in request, retrieving stored settings")
                 try:
                     from server import settings_manager
                     stored_settings = settings_manager.get_settings()
-                    logger.info(f"DEBUG: Retrieved stored settings: {stored_settings}")
+                    # logger.info(f"DEBUG: Retrieved stored settings: {stored_settings}")
                     
                     if stored_settings:
                         request_data_for_settings = {
                             'settings': stored_settings
                         }
                         universal_settings = extract_universal_settings(request_data_for_settings, "process_chat")
-                        logger.info(f"DEBUG: Universal settings extracted from storage: {universal_settings}")
+                        # logger.info(f"DEBUG: Universal settings extracted from storage: {universal_settings}")
                     else:
                         logger.warning("DEBUG: No stored settings found, using defaults")
                         universal_settings = extract_universal_settings({}, "process_chat")
-                        logger.info(f"DEBUG: Universal settings extracted from defaults: {universal_settings}")
+                        # logger.info(f"DEBUG: Universal settings extracted from defaults: {universal_settings}")
                         
                 except ImportError as e:
                     logger.error(f"DEBUG: Failed to import settings_manager: {e}")
                     # Final fallback to defaults
                     universal_settings = extract_universal_settings({}, "process_chat")
-                    logger.info(f"DEBUG: Universal settings extracted from defaults: {universal_settings}")
+                    # logger.info(f"DEBUG: Universal settings extracted from defaults: {universal_settings}")
             
             # Extract provider config from universal settings
             provider_config = get_provider_config(universal_settings, use_tactical=False)
-            logger.info(f"DEBUG: Provider config extracted: {provider_config}")
+            # logger.info(f"DEBUG: Provider config extracted: {provider_config}")
             
             # DEBUG: Log the full prompt being sent
-            logger.info(f"DEBUG: System prompt being sent:\n{system_prompt}")
-            logger.info(f"DEBUG: Conversation context being sent:\n{compact_json_context}")
+            # logger.info(f"DEBUG: System prompt being sent:\n{system_prompt}")
+            # logger.info(f"DEBUG: Conversation context being sent:\n{compact_json_context}")
             
             ai_response_data = await ai_service.process_compact_context(
                 processed_messages=processed_messages,
@@ -194,7 +194,7 @@ async def process_chat(
             tokens_used = ai_response_data.get("tokens_used", 0)
             
             # DEBUG: Log the full response received
-            logger.info(f"DEBUG: Raw AI response received:\n{ai_response}")
+            # logger.info(f"DEBUG: Raw AI response received:\n{ai_response}")
             
         except Exception as e:
             logger.error(f"AI API call failed: {e}")

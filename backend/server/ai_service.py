@@ -50,11 +50,11 @@ class AIService:
             headers = config.get('headers', {})
             
             # Enhanced logging for debugging with universal settings info
-            print(f"DEBUG: AI Service called with pre-validated config")
-            print(f"DEBUG: Provider: {provider_id}, Model: {model}, Base URL: {base_url}")
-            print(f"DEBUG: Timeout: {timeout}s, Max Retries: {max_retries}")
-            print(f"DEBUG: Custom Headers: {len(headers)} headers provided")
-            print(f"DEBUG: Available environment variables: {[k for k in os.environ.keys() if 'API_KEY' in k]}")
+            # print(f"DEBUG: AI Service called with pre-validated config")
+            # print(f"DEBUG: Provider: {provider_id}, Model: {model}, Base URL: {base_url}")
+            # print(f"DEBUG: Timeout: {timeout}s, Max Retries: {max_retries}")
+            # print(f"DEBUG: Custom Headers: {len(headers)} headers provided")
+            # print(f"DEBUG: Available environment variables: {[k for k in os.environ.keys() if 'API_KEY' in k]}")
             
             # Get provider configuration
             provider = self.provider_manager.get_provider(provider_id)
@@ -70,12 +70,12 @@ class AIService:
             if not api_key:
                 env_var_name = f'{provider_id.upper()}_API_KEY'
                 api_key = os.environ.get(env_var_name, '')
-                print(f"DEBUG: Looking for API key in environment variable: {env_var_name}")
-                print(f"DEBUG: API key found in environment: {'Yes' if api_key else 'No'}")
+                # print(f"DEBUG: Looking for API key in environment variable: {env_var_name}")
+                # print(f"DEBUG: API key found in environment: {'Yes' if api_key else 'No'}")
                 
                 # If not in environment, try to load from key manager
                 if not api_key:
-                    print(f"DEBUG: API key not in environment, trying key manager...")
+                    # print(f"DEBUG: API key not in environment, trying key manager...")
                     try:
                         from .key_manager import MultiKeyManager
                         key_manager = MultiKeyManager()
@@ -83,13 +83,14 @@ class AIService:
                         if key_manager.load_keys_with_password("") is True:
                             if hasattr(key_manager, 'keys_data') and key_manager.keys_data:
                                 api_key = key_manager.keys_data.get(provider_id, '')
-                                print(f"DEBUG: API key found in key manager: {'Yes' if api_key else 'No'}")
+                                # print(f"DEBUG: API key found in key manager: {'Yes' if api_key else 'No'}")
                                 # Set environment variable for LiteLLM
                                 if api_key:
                                     os.environ[env_var_name] = api_key
-                                    print(f"DEBUG: Set {env_var_name} from key manager")
+                                    # print(f"DEBUG: Set {env_var_name} from key manager")
                     except Exception as e:
-                        print(f"DEBUG: Failed to load from key manager: {e}")
+                        # print(f"DEBUG: Failed to load from key manager: {e}")
+                        pass
             
             if not api_key:
                 error_msg = f'API key not configured for provider "{provider_id}" (checked {env_var_name})'

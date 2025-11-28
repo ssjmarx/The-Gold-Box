@@ -93,11 +93,12 @@ class APIChatProcessor:
                         # Extract speaker if present in embedded data
                         if "s" in embedded_data:
                             compact_msg["s"] = embedded_data["s"]
-                        logger.info(f"DEBUG: Extracted embedded roll data from content: {embedded_data}")
+                        # logger.info(f"DEBUG: Extracted embedded roll data from content: {embedded_data}")
                         return compact_msg
                 except (json.JSONDecodeError, Exception) as e:
-                    logger.warning(f"DEBUG: Failed to parse embedded roll data from content: {e}")
+                    # logger.warning(f"DEBUG: Failed to parse embedded roll data from content: {e}")
                     # Fall through to normal processing if JSON parsing fails
+                    pass
             # For card messages, extract structured data
             if msg_type in ["card", "activation-card"]:
                 structured_data = self._extract_structured_data(content, msg_type)
@@ -190,10 +191,11 @@ class APIChatProcessor:
                                 # Extract speaker if present in embedded data
                                 if "s" in embedded_data:
                                     compact_msg["s"] = embedded_data["s"]
-                                logger.info(f"DEBUG: Extracted embedded roll data from content: {embedded_data}")
+                                # logger.info(f"DEBUG: Extracted embedded roll data from content: {embedded_data}")
                                 return compact_msg
                         except (json.JSONDecodeError, Exception) as e:
-                            logger.warning(f"DEBUG: Failed to parse embedded roll data from content: {e}")
+                            # logger.warning(f"DEBUG: Failed to parse embedded roll data from content: {e}")
+                            pass
                     # Keep as dice-roll type but with processed content
                     compact_msg["c"] = api_message.get("content", "")
         
