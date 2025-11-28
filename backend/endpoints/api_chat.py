@@ -675,10 +675,22 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
             logger.error(f"Failed to collect chat messages: {chat_response.status_code}")
             # logger.error(f"DEBUG: Raw chat response: {chat_response.text}")
         
-        # Step 2: Get roll messages for the same time period
+        # Step 2: Get roll messages for the same time period with fresh data
+        # Mirror the behavior of /messages endpoint - clear internal register and get fresh data
+        import time
+        cache_buster = int(time.time() * 1000)  # Unique timestamp to prevent caching
+        
         rolls_response = requests.get(
             f"http://localhost:3010/rolls",
-            params={"clientId": client_id, "limit": count, "sort": "timestamp", "order": "desc", "refresh": True},
+            params={
+                "clientId": client_id, 
+                "limit": count, 
+                "sort": "timestamp", 
+                "order": "desc", 
+                "refresh": True,
+                "clear": True,  # Force clear internal register and perform fresh search
+                "_": cache_buster  # Cache-busting parameter to ensure fresh request
+            },
             headers=headers,
             timeout=3
         )

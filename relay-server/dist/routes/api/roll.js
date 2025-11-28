@@ -15,6 +15,7 @@ const commonMiddleware = [requestForwarder_1.requestForwarderMiddleware, auth_1.
  * Get recent rolls
  *
  * Retrieves a list of up to 20 recent rolls made in the Foundry world.
+ * Supports a 'clear' parameter to force fresh data retrieval by clearing the rolls cache.
  *
  * @route GET /rolls
  * @returns {object} An array of recent rolls with details
@@ -25,8 +26,21 @@ exports.rollRouter.get("/rolls", ...commonMiddleware, (0, route_helpers_1.create
         { name: 'clientId', from: 'query', type: 'string' } // Client ID for the Foundry world
     ],
     optionalParams: [
-        { name: 'limit', from: 'query', type: 'number' } // Optional limit on the number of rolls to return (default is 20)
-    ]
+        { name: 'limit', from: 'query', type: 'number' }, // Optional limit on number of rolls to return (default is 20)
+        { name: 'clear', from: 'query', type: 'boolean' }, // Optional flag to clear rolls cache and get fresh data
+        { name: 'refresh', from: 'query', type: 'boolean' } // Optional flag to refresh rolls data
+    ],
+    buildPayload: (params) => {
+        const payload = {};
+        if (params.limit)
+            payload.limit = params.limit;
+        // Add clear/refresh flags to force fresh data
+        if (params.clear || params.refresh) {
+            payload.clear = true;
+            payload.refresh = true;
+        }
+        return payload;
+    }
 }));
 /**
  * Get the last roll

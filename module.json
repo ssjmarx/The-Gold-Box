@@ -1,5 +1,5 @@
 {
-  "id": "gold-box",
+  "id": "the-gold-box",
   "title": "The Gold Box",
   "description": "An AI-powered Foundry VTT module that provides intelligent TTRPG assistance through a sophisticated Python backend with enhanced chat processing capabilities.",
   "version": "0.3.0",
@@ -13,7 +13,7 @@
       {
         "id": "foundryvtt-gold-api",
         "compatibility": {
-          "minimum": "2.0.0"
+          "minimum": "1.0.0"
         }
       }
     ]
