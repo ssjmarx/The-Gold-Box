@@ -2,6 +2,15 @@
     "folders": [
 		{
 			"path": "."
+		},
+		{
+			"path": "../foundryvtt-gold-api"
+		},
+		{
+			"path": "../foundryvtt-gold-api-relay"
+		},
+		{
+			"path": "../References"
 		}
 	]
 }
