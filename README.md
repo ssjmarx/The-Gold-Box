@@ -65,22 +65,27 @@ Foundry VTT (Frontend)     Python Backend (API)          AI Services
 
 ### Processing Modes
 
-The Gold Box supports three distinct chat processing modes:
+The Gold Box supports four distinct chat processing modes:
 
-1. **Simple Mode** (`/api/simple_chat`)
+1. **Simple Mode** (`/api/simple_chat`) - *Deprecated*
    - Direct HTML-based message collection from Foundry chat
    - Minimal processing overhead
    - Compatible with all Foundry versions
 
-2. **Processed Mode** (`/api/process_chat`)
+2. **Processed Mode** (`/api/process_chat`) - *Deprecated*
    - Enhanced HTML processing with structured data extraction
    - Token-efficient compact JSON format
    - Better context preservation for AI
 
-3. **API Mode** (`/api/api_chat`) - *New in v0.3.0*
+3. **API Mode** (`/api/api_chat`) - *Recommended*
    - REST API-based message collection via Foundry Gold API module
    - Most reliable and maintainable approach
    - Foundation for advanced Foundry integration features
+
+4. **Context Mode** (`/api/context_chat`) - *Experimental/Unfinished*
+   - Full board state integration including tokens, walls, lighting, and map notes
+   - Complete scene context for AI processing
+   - Currently in development - not fully implemented
 
 ## Supported AI Providers
 
@@ -161,4 +166,4 @@ This project is licensed under **Creative Commons Attribution-NonCommercial-Shar
 - Define LLM "role" with Foundry permissions
 - Access other generative services, such as image and voice
 
-**Current Version: 0.2.5** - Enhanced security framework, comprehensive chat context processor, and multi-provider support
+**Current Version: 0.3.1** - REST API integration, enhanced processing modes, and critical bug fixes

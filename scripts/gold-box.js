@@ -161,7 +161,7 @@ class GoldBoxAPI {
    * Send message context to backend with timeout handling
    */
   async sendMessageContext(messages, moduleInstance) {
-    const timeout = game.settings.get('gold-box', 'aiResponseTimeout') || 60;
+    const timeout = game.settings.get('the-gold-box', 'aiResponseTimeout') || 60;
     
     try {
       // Send request with timeout and retry logic
@@ -229,7 +229,7 @@ class GoldBoxAPI {
     }
     }
     try {
-      const processingMode = game.settings.get('gold-box', 'chatProcessingMode') || 'simple';
+      const processingMode = game.settings.get('the-gold-box', 'chatProcessingMode') || 'simple';
       
       let endpoint;
       let requestData;
@@ -242,12 +242,12 @@ class GoldBoxAPI {
       if (adminPassword && adminPassword.trim()) {
         const syncResult = await this.syncSettings(settings, adminPassword);
         if (syncResult.success) {
-          console.log('The Gold Box: ✅ Settings synced successfully to admin endpoint');
+          console.log('The Gold Box: Settings synced successfully to admin endpoint');
         } else {
-          console.warn('The Gold Box: ⚠️ Settings sync failed:', syncResult.error);
+          console.warn('The Gold Box: Settings sync failed:', syncResult.error);
         }
       } else {
-        console.warn('The Gold Box: ⚠️ No backend password configured, skipping settings sync');
+        console.warn('The Gold Box: No backend password configured, skipping settings sync');
       }
       
       // STEP 2: Make chat request WITHOUT settings (use stored settings from backend)
@@ -265,7 +265,7 @@ class GoldBoxAPI {
           message: messages.length > 0 ? messages[messages.length - 1].content : 'No message provided',
           context_options: {
             include_chat_history: true,
-            message_count: game.settings.get('gold-box', 'maxMessageContext') || 15,
+            message_count: game.settings.get('the-gold-box', 'maxMessageContext') || 15,
             include_scene_data: true,
             include_tokens: true,
             include_walls: true,
@@ -274,7 +274,7 @@ class GoldBoxAPI {
             include_templates: true
           },
           ai_options: {
-            model: game.settings.get('gold-box', 'generalLlmModel') || 'gpt-4',
+            model: game.settings.get('the-gold-box', 'generalLlmModel') || 'gpt-4',
             temperature: 0.7,
             max_tokens: 2000
           }
@@ -292,7 +292,7 @@ class GoldBoxAPI {
         console.log("API BRIDGE DEBUG: API bridge connection info:", this.apiBridge ? this.apiBridge.getConnectionInfo() : "No bridge");
         requestData = {
           // NO settings here - backend will use stored settings
-          context_count: game.settings.get('gold-box', 'maxMessageContext') || 15,
+          context_count: game.settings.get('the-gold-box', 'maxMessageContext') || 15,
           settings: clientId ? { 'relay client id': clientId } : null // Include client ID, allow null if not connected
         };
         console.log('The Gold Box: Using API mode with client ID:', clientId || 'not connected', '- settings from backend storage');
@@ -328,24 +328,24 @@ class GoldBoxAPI {
     if (typeof game !== 'undefined' && game.settings) {
       console.log("SETTINGS DEBUG: Game and game.settings available");
       const settings = {
-        'maximum message context': game.settings.get('gold-box', 'maxMessageContext') || 15,
-        'chat processing mode': game.settings.get('gold-box', 'chatProcessingMode') || 'simple',
-        'ai role': game.settings.get('gold-box', 'aiRole') || 'dm',
-        'general llm provider': game.settings.get('gold-box', 'generalLlmProvider') || '',
-        'general llm base url': game.settings.get('gold-box', 'generalLlmBaseUrl') || '',
-        'general llm model': game.settings.get('gold-box', 'generalLlmModel') || '',
-        'general llm version': game.settings.get('gold-box', 'generalLlmVersion') || 'v1',
-        'general llm timeout': game.settings.get('gold-box', 'aiResponseTimeout') || 60,
-        'general llm max retries': game.settings.get('gold-box', 'generalLlmMaxRetries') || 3,
-        'general llm custom headers': game.settings.get('gold-box', 'generalLlmCustomHeaders') || '',
-        'tactical llm provider': game.settings.get('gold-box', 'tacticalLlmProvider') || '',
-        'tactical llm base url': game.settings.get('gold-box', 'tacticalLlmBaseUrl') || '',
-        'tactical llm model': game.settings.get('gold-box', 'tacticalLlmModel') || '',
-        'tactical llm version': game.settings.get('gold-box', 'tacticalLlmVersion') || 'v1',
-        'tactical llm timeout': game.settings.get('gold-box', 'tacticalLlmTimeout') || 30,
-        'tactical llm max retries': game.settings.get('gold-box', 'tacticalLlmMaxRetries') || 3,
-        'tactical llm custom headers': game.settings.get('gold-box', 'tacticalLlmCustomHeaders') || '',
-        'backend password': game.settings.get('gold-box', 'backendPassword') || ''
+        'maximum message context': game.settings.get('the-gold-box', 'maxMessageContext') || 15,
+        'chat processing mode': game.settings.get('the-gold-box', 'chatProcessingMode') || 'simple',
+        'ai role': game.settings.get('the-gold-box', 'aiRole') || 'dm',
+        'general llm provider': game.settings.get('the-gold-box', 'generalLlmProvider') || '',
+        'general llm base url': game.settings.get('the-gold-box', 'generalLlmBaseUrl') || '',
+        'general llm model': game.settings.get('the-gold-box', 'generalLlmModel') || '',
+        'general llm version': game.settings.get('the-gold-box', 'generalLlmVersion') || 'v1',
+        'general llm timeout': game.settings.get('the-gold-box', 'aiResponseTimeout') || 60,
+        'general llm max retries': game.settings.get('the-gold-box', 'generalLlmMaxRetries') ||3,
+        'general llm custom headers': game.settings.get('the-gold-box', 'generalLlmCustomHeaders') || '',
+        'tactical llm provider': game.settings.get('the-gold-box', 'tacticalLlmProvider') || '',
+        'tactical llm base url': game.settings.get('the-gold-box', 'tacticalLlmBaseUrl') || '',
+        'tactical llm model': game.settings.get('the-gold-box', 'tacticalLlmModel') || '',
+        'tactical llm version': game.settings.get('the-gold-box', 'tacticalLlmVersion') || 'v1',
+        'tactical llm timeout': game.settings.get('the-gold-box', 'tacticalLlmTimeout') || 30,
+        'tactical llm max retries': game.settings.get('the-gold-box', 'tacticalLlmMaxRetries') ||3,
+        'tactical llm custom headers': game.settings.get('the-gold-box', 'tacticalLlmCustomHeaders') || '',
+        'backend password': game.settings.get('the-gold-box', 'backendPassword') || ''
       };
       console.log("SETTINGS DEBUG: Retrieved settings count:", Object.keys(settings).length);
       console.log("SETTINGS DEBUG: Settings keys:", Object.keys(settings));
@@ -364,14 +364,14 @@ class GoldBoxAPI {
     
     if (isProcessing) {
       button.disabled = true;
-      const processingMode = game.settings.get('gold-box', 'chatProcessingMode') || 'simple';
-      button.innerHTML = processingMode === 'context' ? '🗺️ Context Processing...' : '🤔 AI Thinking...';
+      const processingMode = game.settings.get('the-gold-box', 'chatProcessingMode') || 'simple';
+      button.innerHTML = processingMode === 'context' ? 'Context Processing...' : 'AI Thinking...';
       button.style.opacity = '0.6';
       button.style.cursor = 'not-allowed';
     } else {
       button.disabled = false;
-      const processingMode = game.settings.get('gold-box', 'chatProcessingMode') || 'simple';
-      button.innerHTML = processingMode === 'context' ? '🗺️ AI Context Turn' : '🤖 Take AI Turn';
+      const processingMode = game.settings.get('the-gold-box', 'chatProcessingMode') || 'simple';
+      button.innerHTML = processingMode === 'context' ? 'AI Context Turn' : 'Take AI Turn';
       button.style.opacity = '1';
       button.style.cursor = 'pointer';
     }
@@ -403,7 +403,7 @@ class GoldBoxAPI {
       font-weight: bold;
       box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
     `;
-    indicator.innerHTML = '🧠 AI Processing...';
+    indicator.innerHTML = 'AI Processing...';
     
     document.body.appendChild(indicator);
   }
@@ -487,7 +487,7 @@ class GoldBoxModule {
     }
     
     // Register backend status setting (display-only)
-    game.settings.register('gold-box', 'backendStatus', {
+    game.settings.register('the-gold-box', 'backendStatus', {
       name: "Backend Status",
       hint: "Current status of backend server (automatically detected)",
       scope: "world",
@@ -498,7 +498,7 @@ class GoldBoxModule {
 
     // Register Backend Password setting (moved to top)
     try {
-      game.settings.register('gold-box', 'backendPassword', {
+      game.settings.register('the-gold-box', 'backendPassword', {
         name: "Backend Password",
         hint: "Password for admin operations on backend server (used to sync settings)",
         scope: "world",
@@ -512,23 +512,23 @@ class GoldBoxModule {
     }
 
     // Register Chat Processing Mode setting
-    game.settings.register('gold-box', 'chatProcessingMode', {
-      name: "Chat Processing Mode",
-      hint: "Choose how AI processes chat messages",
+    game.settings.register('the-gold-box', 'chatProcessingMode', {
+      name: game.i18n.localize("GOLD_BOX.SETTINGS.CHAT_PROCESSING_MODE"),
+      hint: game.i18n.localize("GOLD_BOX.SETTINGS.CHAT_PROCESSING_MODE_HINT"),
       scope: "world",
       config: true,
       type: String,
       choices: {
-        "simple": "Simple (existing /api/simple_chat)",
-        "processed": "Processed (new /api/process_chat)",
-        "api": "API (Foundry REST API - experimental)",
-        "context": "Context (NEW: Full board state integration)"
+        "simple": "Simple (deprecated)",
+        "processed": "Processed (deprecated)",
+        "api": "API (recommended)",
+        "context": "Context (unfinished)"
       },
       default: "simple"
     });
 
     // Register maximum message context setting
-    game.settings.register('gold-box', 'maxMessageContext', {
+    game.settings.register('the-gold-box', 'maxMessageContext', {
       name: "Maximum Message Context",
       hint: "Number of recent chat messages to send to AI for context (default: 15)",
       scope: "world",
@@ -538,7 +538,7 @@ class GoldBoxModule {
     });
 
     // Register AI Response Timeout setting
-    game.settings.register('gold-box', 'aiResponseTimeout', {
+    game.settings.register('the-gold-box', 'aiResponseTimeout', {
       name: "AI Response Timeout (seconds)",
       hint: "Maximum time to wait for AI response before re-enabling button (default: 60)",
       scope: "world",
@@ -548,7 +548,7 @@ class GoldBoxModule {
     });
 
     // Register AI role setting with dropdown
-    game.settings.register('gold-box', 'aiRole', {
+    game.settings.register('the-gold-box', 'aiRole', {
       name: "AI Role",
       hint: "What role AI should play in your game",
       scope: "world",
@@ -563,7 +563,7 @@ class GoldBoxModule {
     });
 
     // Register General LLM Provider setting
-    game.settings.register('gold-box', 'generalLlmProvider', {
+    game.settings.register('the-gold-box', 'generalLlmProvider', {
       name: "General LLM - Provider",
       hint: "Provider name for General LLM (e.g., openai, anthropic, opencode, custom-provider)",
       scope: "world",
@@ -573,7 +573,7 @@ class GoldBoxModule {
     });
 
     // Register General LLM Base URL setting
-    game.settings.register('gold-box', 'generalLlmBaseUrl', {
+    game.settings.register('the-gold-box', 'generalLlmBaseUrl', {
       name: "General LLM - Base URL",
       hint: "Base URL for General LLM provider (e.g., https://api.openai.com/v1, https://api.z.ai/api/coding/paas/v4)",
       scope: "world",
@@ -583,7 +583,7 @@ class GoldBoxModule {
     });
 
     // Register General LLM Model setting
-    game.settings.register('gold-box', 'generalLlmModel', {
+    game.settings.register('the-gold-box', 'generalLlmModel', {
       name: "General LLM - Model",
       hint: "Model name for General LLM (e.g., gpt-3.5-turbo, claude-3-5-sonnet-20241022, openai/glm-4.6)",
       scope: "world",
@@ -593,7 +593,7 @@ class GoldBoxModule {
     });
 
     // Register General LLM Version setting
-    game.settings.register('gold-box', 'generalLlmVersion', {
+    game.settings.register('the-gold-box', 'generalLlmVersion', {
       name: "General LLM - API Version",
       hint: "API version for General LLM (e.g., v1, v2, custom)",
       scope: "world",
@@ -603,7 +603,7 @@ class GoldBoxModule {
     });
 
     // Register General LLM Timeout setting
-    game.settings.register('gold-box', 'generalLlmTimeout', {
+    game.settings.register('the-gold-box', 'generalLlmTimeout', {
       name: "General LLM - Timeout (seconds)",
       hint: "Request timeout for General LLM in seconds (default: 30)",
       scope: "world",
@@ -613,7 +613,7 @@ class GoldBoxModule {
     });
 
     // Register General LLM Max Retries setting
-    game.settings.register('gold-box', 'generalLlmMaxRetries', {
+    game.settings.register('the-gold-box', 'generalLlmMaxRetries', {
       name: "General LLM - Max Retries",
       hint: "Maximum retry attempts for General LLM (default: 3)",
       scope: "world",
@@ -623,7 +623,7 @@ class GoldBoxModule {
     });
 
     // Register General LLM Custom Headers setting
-    game.settings.register('gold-box', 'generalLlmCustomHeaders', {
+    game.settings.register('the-gold-box', 'generalLlmCustomHeaders', {
       name: "General LLM - Custom Headers (JSON)",
       hint: "Custom headers for General LLM in JSON format (advanced)",
       scope: "world",
@@ -633,7 +633,7 @@ class GoldBoxModule {
     });
 
     // Register Tactical LLM Provider setting
-    game.settings.register('gold-box', 'tacticalLlmProvider', {
+    game.settings.register('the-gold-box', 'tacticalLlmProvider', {
       name: "Tactical LLM - Provider",
       hint: "Provider name for Tactical LLM (placeholder for future implementation)",
       scope: "world",
@@ -643,7 +643,7 @@ class GoldBoxModule {
     });
 
     // Register Tactical LLM Base URL setting
-    game.settings.register('gold-box', 'tacticalLlmBaseUrl', {
+    game.settings.register('the-gold-box', 'tacticalLlmBaseUrl', {
       name: "Tactical LLM - Base URL",
       hint: "Base URL for Tactical LLM provider (placeholder for future implementation)",
       scope: "world",
@@ -653,7 +653,7 @@ class GoldBoxModule {
     });
 
     // Register Tactical LLM Model setting
-    game.settings.register('gold-box', 'tacticalLlmModel', {
+    game.settings.register('the-gold-box', 'tacticalLlmModel', {
       name: "Tactical LLM - Model",
       hint: "Model name for Tactical LLM (placeholder for future implementation)",
       scope: "world",
@@ -663,7 +663,7 @@ class GoldBoxModule {
     });
 
     // Register Tactical LLM Version setting
-    game.settings.register('gold-box', 'tacticalLlmVersion', {
+    game.settings.register('the-gold-box', 'tacticalLlmVersion', {
       name: "Tactical LLM - API Version",
       hint: "API version for Tactical LLM (e.g., v1, v2, custom)",
       scope: "world",
@@ -673,7 +673,7 @@ class GoldBoxModule {
     });
 
     // Register Tactical LLM Timeout setting
-    game.settings.register('gold-box', 'tacticalLlmTimeout', {
+    game.settings.register('the-gold-box', 'tacticalLlmTimeout', {
       name: "Tactical LLM - Timeout (seconds)",
       hint: "Request timeout for Tactical LLM in seconds (default: 30)",
       scope: "world",
@@ -683,7 +683,7 @@ class GoldBoxModule {
     });
 
     // Register Tactical LLM Max Retries setting
-    game.settings.register('gold-box', 'tacticalLlmMaxRetries', {
+    game.settings.register('the-gold-box', 'tacticalLlmMaxRetries', {
       name: "Tactical LLM - Max Retries",
       hint: "Maximum retry attempts for Tactical LLM (default: 3)",
       scope: "world",
@@ -693,7 +693,7 @@ class GoldBoxModule {
     });
 
     // Register Tactical LLM Custom Headers setting
-    game.settings.register('gold-box', 'tacticalLlmCustomHeaders', {
+    game.settings.register('the-gold-box', 'tacticalLlmCustomHeaders', {
       name: "Tactical LLM - Custom Headers (JSON)",
       hint: "Custom headers for Tactical LLM in JSON format (advanced)",
       scope: "world",
@@ -873,8 +873,8 @@ class GoldBoxModule {
     }
     
     // Get current processing mode for button text
-    const processingMode = game.settings.get('gold-box', 'chatProcessingMode') || 'simple';
-    const buttonText = processingMode === 'context' ? '🗺️ AI Context Turn' : '🤖 Take AI Turn';
+    const processingMode = game.settings.get('the-gold-box', 'chatProcessingMode') || 'simple';
+    const buttonText = processingMode === 'context' ? 'AI Context Turn' : 'Take AI Turn';
     
     // Create button with enhanced styling and accessibility
     const button = $(`
@@ -925,8 +925,8 @@ class GoldBoxModule {
     console.log('The Gold Box: Adding simple button to container...');
     
     // Get current processing mode for button text
-    const processingMode = game.settings.get('gold-box', 'chatProcessingMode') || 'simple';
-    const buttonText = processingMode === 'context' ? '🗺️ AI Context Turn' : '🤖 Take AI Turn';
+    const processingMode = game.settings.get('the-gold-box', 'chatProcessingMode') || 'simple';
+    const buttonText = processingMode === 'context' ? 'AI Context Turn' : 'Take AI Turn';
     
     // Create button with enhanced styling
     const button = $(`
@@ -969,8 +969,8 @@ class GoldBoxModule {
   updateChatButtonText() {
     const button = $('#gold-box-ai-turn-btn');
     if (button.length > 0) {
-      const processingMode = game.settings.get('gold-box', 'chatProcessingMode') || 'simple';
-      const buttonText = processingMode === 'context' ? '🗺️ AI Context Turn' : '🤖 Take AI Turn';
+      const processingMode = game.settings.get('the-gold-box', 'chatProcessingMode') || 'simple';
+      const buttonText = processingMode === 'context' ? 'AI Context Turn' : 'Take AI Turn';
       button.text(buttonText);
       console.log('The Gold Box: Updated button text to:', buttonText);
     }
@@ -1052,8 +1052,8 @@ class GoldBoxModule {
   displayAIResponse(response, metadata) {
     // Use hardcoded name since we removed moduleElementsName setting
     const customName = 'The Gold Box';
-    const role = game.settings.get('gold-box', 'aiRole') || 'dm';
-    const processingMode = game.settings.get('gold-box', 'chatProcessingMode') || 'simple';
+    const role = game.settings.get('the-gold-box', 'aiRole') || 'dm';
+    const processingMode = game.settings.get('the-gold-box', 'chatProcessingMode') || 'simple';
     
     const roleDisplay = {
       'dm': 'Dungeon Master',
@@ -1077,7 +1077,7 @@ class GoldBoxModule {
     if (processingMode === 'context') {
       contextInfo = `
         <div class="gold-box-context-info">
-          <p><strong>🗺️ Context Mode Active</strong> - AI considered complete board state</p>
+          <p><strong>Context Mode Active</strong> - AI considered complete board state</p>
           ${metadata && metadata.metadata ? `
             <p><em>Context Elements:</em> ${metadata.metadata.board_elements ? Object.keys(metadata.metadata.board_elements).filter(k => metadata.metadata.board_elements[k]).join(', ') : 'scene data'}</p>
             <p><em>Attributes Mapped:</em> ${metadata.metadata.attributes_mapped || 0} attributes</p>
@@ -1092,7 +1092,7 @@ class GoldBoxModule {
       messageContent = `
         <div class="gold-box-error">
           <div class="gold-box-header">
-            <strong>⚠️ ${customName} - Relay Transmission Error</strong>
+            <strong>${customName} - Relay Transmission Error</strong>
             <div class="gold-box-timestamp">${new Date().toLocaleTimeString()}</div>
           </div>
           <div class="gold-box-content">
@@ -1189,7 +1189,7 @@ class GoldBoxModule {
           <p>Run <code>./start-backend.py</code> from The Gold Box module directory to automatically set up and start the backend server.</p>
           <p>See README.md file for manual setup instructions.</p>
           <p>Go to The Gold Box settings and click "Discover Backend" to automatically find and connect to a running backend server.</p>
-        ui.notifications.error('❌ No backend server found. Please start the backend server.');
+        ui.notifications.error('No backend server found. Please start the backend server.');
               <p><em>Configure your desired provider in The Gold Box settings.</em></p>
           <p><strong>Option 2: Manual setup</strong></p>
           <p>See the README.md file for manual setup instructions.</p>
@@ -1225,17 +1225,17 @@ class GoldBoxModule {
       const connectionInfo = this.api.connectionManager.getConnectionInfo();
       
       if (connectionInfo.state === ConnectionState.CONNECTED) {
-        await game.settings.set('gold-box', 'backendStatus', 'connected');
+        await game.settings.set('the-gold-box', 'backendStatus', 'connected');
         console.log('The Gold Box: Backend connected via ConnectionManager:', connectionInfo);
         return;
       } else {
         // Show instructions if connection failed
-        await game.settings.set('gold-box', 'backendStatus', 'disconnected');
+        await game.settings.set('the-gold-box', 'backendStatus', 'disconnected');
         console.log('The Gold Box: Connection failed, ConnectionManager state:', connectionInfo.state);
         this.displayStartupInstructions();
       }
     } catch (error) {
-      await game.settings.set('gold-box', 'backendStatus', 'error');
+      await game.settings.set('the-gold-box', 'backendStatus', 'error');
       console.error('The Gold Box: Error checking backend:', error);
       this.displayStartupInstructions();
     }
@@ -1263,13 +1263,13 @@ class GoldBoxModule {
       }
       
       if (typeof ui !== 'undefined' && ui.notifications) {
-        ui.notifications.info('✅ Backend connection verified!');
+        ui.notifications.info('Backend connection verified!');
       }
       return true;
     } else {
       // No backend found
       if (typeof ui !== 'undefined' && ui.notifications) {
-        ui.notifications.error('❌ No backend server found. Please start the backend server.');
+        ui.notifications.error('No backend server found. Please start the backend server.');
       }
       return false;
     }
@@ -1318,7 +1318,7 @@ class GoldBoxModule {
               <div class="gold-box-timestamp">${new Date().toLocaleTimeString()}</div>
             </div>
             <div class="gold-box-content">
-              <p><strong>✅ Found ${configuredProviders.length} configured LLM provider(s):</strong></p>
+              <p><strong>Found ${configuredProviders.length} configured LLM provider(s):</strong></p>
               <ul>${providerList}</ul>
               <p><em>Configure your desired provider in Gold Box settings.</em></p>
             </div>

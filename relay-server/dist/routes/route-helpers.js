@@ -101,28 +101,34 @@ function createApiRoute(config) {
             }
         }
         const clientId = params.clientId;
-        // Get the client instance
+        // Get client instance
         const client = await ClientManager_1.ClientManager.getClient(clientId);
         if (!client) {
             return (0, shared_1.safeResponse)(res, 404, { error: "Invalid client ID" });
         }
         try {
             const requestId = `${config.type}_${Date.now()}`;
-            // Register the pending request
+            // Register pending request
             const pendingRequestData = {
                 res,
                 type: config.type,
-                clientId: clientId,
+                clientId,
                 timestamp: Date.now(),
                 ...(config.buildPendingRequest ? config.buildPendingRequest(params) : {}),
             };
             shared_1.pendingRequests.set(requestId, pendingRequestData);
-            // Build the payload, excluding clientId
+            // Build the payload for the client
             const payloadSource = config.buildPayload
                 ? await config.buildPayload(params, req)
                 : params;
             const { clientId: _clientId, type: userDefinedType, ...payload } = payloadSource;
-            // Send the message to the Foundry client
+            // Debug logging to track what's being sent to Foundry client
+            console.log("=== RELAY SENDING TO FOUNDRY ===");
+            console.log("Type:", config.type);
+            console.log("Request ID:", requestId);
+            console.log("Payload:", JSON.stringify(payload, null, 2));
+            logger_1.log.info(`Sending ${config.type} request to Foundry client ${clientId}:`, payload);
+            // Send message to Foundry client
             const sent = client.send({
                 type: config.type,
                 requestId,

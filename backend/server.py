@@ -995,9 +995,13 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
         # The relay server uses memory store in local dev which bypasses auth
         headers["x-api-key"] = "local-dev"  # This works for local memory store mode
         
-        # TIMING FIX: Small delay to allow Foundry module to store messages
+        # TIMING FIX: Enhanced delay to allow Foundry module to process changes and store them
         # The createChatMessage hook in Foundry module runs AFTER message creation
-        await asyncio.sleep(0.5)  # 500ms delay for message storage
+        # We need to allow time for:
+        # 1. Message creation in Foundry
+        # 2. Hook processing in Foundry module  
+        # 3. Relay server processing and storage
+        await asyncio.sleep(1.0)  # Increased to 1 second delay for complete processing
         
         # Collect both chat messages AND rolls for complete context
         chat_messages = []
@@ -1008,7 +1012,7 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
             f"http://localhost:3010/messages",  # PHASE 3 FIX: Use correct Gold API endpoint
             params={"clientId": client_id, "limit": count, "sort": "timestamp", "order": "desc", "refresh": True},
             headers=headers,
-            timeout=3  # PHASE 2 FIX: Reduce timeout to prevent blocking
+            timeout=5  # Increased timeout to give more time for processing
         )
         
         # logger.info(f"DEBUG: Chat messages response status: {chat_response.status_code}")
@@ -1044,12 +1048,14 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
             logger.error(f"Failed to collect chat messages: {chat_response.status_code}")
             # logger.error(f"DEBUG: Raw chat response: {chat_response.text}")
         
-        # Step 2: Get roll messages for same time period
+        # Step 2: Get roll messages for same time period (with additional delay for processing)
+        await asyncio.sleep(0.5)  # Additional delay before roll request
+        
         rolls_response = requests.get(
             f"http://localhost:3010/rolls",
             params={"clientId": client_id, "limit": count, "sort": "timestamp", "order": "desc", "refresh": True},
             headers=headers,
-            timeout=3
+            timeout=5  # Increased timeout for consistency
         )
         
         # logger.info(f"DEBUG: Rolls response status: {rolls_response.status_code}")

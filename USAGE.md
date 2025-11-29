@@ -614,4 +614,47 @@ For configuration help:
 
 ---
 
-**Last Updated**: Version 0.2.5 - Enhanced security framework, comprehensive chat context processor, and multi-provider support
+**Last Updated**: Version 0.3.1 - REST API integration, enhanced processing modes, and critical bug fixes
+
+---
+
+## Processing Mode Configuration
+
+The Gold Box supports four distinct chat processing modes, configurable in Foundry module settings:
+
+### Available Modes
+
+1. **Simple Mode** (`/api/simple_chat`) - *Deprecated*
+   - Direct HTML-based message collection from Foundry chat
+   - Minimal processing overhead
+   - Compatible with all Foundry versions
+
+2. **Processed Mode** (`/api/process_chat`) - *Deprecated*
+   - Enhanced HTML processing with structured data extraction
+   - Token-efficient compact JSON format
+   - Better context preservation for AI
+
+3. **API Mode** (`/api/api_chat`) - *Recommended*
+   - REST API-based message collection via Foundry Gold API module
+   - Most reliable and maintainable approach
+   - Foundation for advanced Foundry integration features
+
+4. **Context Mode** (`/api/context_chat`) - *Experimental/Unfinished*
+   - Full board state integration including tokens, walls, lighting, and map notes
+   - Complete scene context for AI processing
+   - Currently in development - not fully implemented
+
+### Mode Selection
+
+Configure processing mode in Foundry VTT:
+1. Go to **Game Settings → Module Settings → The Gold Box**
+2. Set **Chat Processing Mode** to your preferred option
+3. **Recommended**: Use "API (recommended)" for most reliable operation
+4. **Experimental**: Use "Context (unfinished)" for testing (may have issues)
+
+### Recent Changes (v0.3.1)
+
+- **Fixed Module Name Issue**: Resolved "Unmapped" settings problem by standardizing namespace to `the-gold-box`
+- **Updated Mode Labels**: Added status indicators (deprecated, recommended, unfinished) for clarity
+- **Enhanced Settings Storage**: Fixed frontend settings not being properly saved/retrieved
+- **Version Bump**: Updated to version 0.3.1 for patch release

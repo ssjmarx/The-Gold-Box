@@ -95,8 +95,78 @@ async def process_simple_chat(request_data: Dict[str, Any] = None, provider_id: 
             # DEBUG: Log what we're receiving
             print(f"DEBUG simple_chat: message_context keys: {list(message_context[0].keys()) if message_context else 'None'}")
             
-            # Process message context with universal provider config
-            return await ai_service.process_message_context(message_context, settings)
+            # Step 4.1: Validate data quality before sending to AI
+            from server.ai_prompt_validator import validate_ai_prompt_context
+            
+            # Separate chat messages and rolls from message context
+            chat_messages = []
+            rolls = []
+            
+            for msg in message_context:
+                if msg.get('t') == 'cm':
+                    chat_messages.append(msg)
+                elif msg.get('t') == 'dr':
+                    rolls.append(msg)
+            
+            validation_result = validate_ai_prompt_context(
+                messages=chat_messages,
+                rolls=rolls,
+                scene_data=None,  # Simple chat doesn't use scene data
+                strict_mode=False  # Use lenient mode for now
+            )
+            
+            # Check if data quality is acceptable (more lenient threshold)
+            if not validation_result.get('should_block_prompt', False):  # Fixed logic - should_block_prompt=True means block
+                # Data quality is acceptable, proceed with AI request
+                print(f"=== AI PROMPT VALIDATION PASSED ===")
+                print(f"Quality Score: {validation_result.get('data_quality_score', 0):.1f}%")
+                print(f"Context: {validation_result.get('context_completeness', 0):.1f}% complete")
+                print(f"Freshness: {validation_result.get('data_freshness', 0):.1f}% fresh")
+                
+                # Process message context with universal provider config
+                return await ai_service.process_message_context(message_context, settings)
+            else:
+                # Data quality is unacceptable, block and return error
+                print(f"=== AI PROMPT VALIDATION BLOCKED ===")
+                print(f"Quality Score: {validation_result.get('data_quality_score', 0):.1f}% (below threshold)")
+                print(f"Context: {validation_result.get('context_completeness', 0):.1f}% complete")
+                print(f"Freshness: {validation_result.get('data_freshness', 0):.1f}% fresh")
+                print(f"Errors: {len(validation_result.get('errors', []))}")
+                print(f"Warnings: {len(validation_result.get('warnings', []))}")
+                
+                # Return structured error response
+                block_message = ""
+                validator_instance = None
+                try:
+                    from server.ai_prompt_validator import AIPromptValidator
+                    validator_instance = AIPromptValidator(strict_mode=False)
+                    validator_instance.validation_results = validation_result
+                    block_message = validator_instance.get_block_message()
+                except ImportError:
+                    block_message = f"🚫 **AI Prompt Blocked - Data Quality Issues**\n\n**Quality Score:** {validation_result.get('data_quality_score', 0):.1f}% (below acceptable threshold)\n\n**Context Completeness:** {validation_result.get('context_completeness', 0):.1f}%\n\n**Data Freshness:** {validation_result.get('data_freshness', 0):.1f}%\n\n**Errors:**\n"
+                    for error in validation_result.get('errors', [])[:3]:
+                        block_message += f"• {error}\n"
+                    block_message += f"**Warnings:**\n"
+                    for warning in validation_result.get('warnings', [])[:2]:
+                        block_message += f"• {warning}\n"
+                
+                return {
+                    'success': False,
+                    'error': 'AI prompt blocked due to data quality issues',
+                    'details': {
+                        'quality_score': validation_result.get('data_quality_score', 0),
+                        'context_completeness': validation_result.get('context_completeness', 0),
+                        'data_freshness': validation_result.get('data_freshness', 0),
+                        'errors': validation_result.get('errors', []),
+                        'warnings': validation_result.get('warnings', []),
+                        'block_message': block_message,
+                        'recommendations': validation_result.get('recommendations', [])
+                    },
+                    'metadata': {
+                        'validation_timestamp': validation_result.get('validation_timestamp'),
+                        'data_source': 'simple_chat_validation'
+                    }
+                }
         
         # Legacy single prompt mode
         elif prompt:

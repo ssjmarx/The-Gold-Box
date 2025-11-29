@@ -12,5 +12,8 @@
 		{
 			"path": "../References"
 		}
-	]
+	],
+	"settings": {
+		"git.ignoreLimitWarning": true
+	}
 }

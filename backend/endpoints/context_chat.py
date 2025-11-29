@@ -121,11 +121,70 @@ class ContextChatEndpoint:
             self.logger.info(f"System Prompt: {context_data.get('system_prompt', 'No system prompt')}")
             self.logger.info("=== END RAW CONTEXT DATA (CONTEXT CHAT) ===")
             
-            # Step 4: Prepare AI request with context
-            ai_request = self._prepare_ai_request(validated_request, context_data)
+            # Step 4.1: Validate data quality before sending to AI
+            from server.ai_prompt_validator import validate_ai_prompt_context
+            validation_result = validate_ai_prompt_context(
+                messages=context_data.get('chat_history', []),
+                rolls=context_data.get('rolls_data', []),  # Note: rolls_data is the correct field name
+                scene_data=context_data.get('board_state'),
+                strict_mode=False  # Use lenient mode for now
+            )
             
-            # Step 4: Send to AI service with universal settings
-            ai_response = await self.ai_service.process_chat_request(ai_request, universal_settings)
+            # Check if data quality is acceptable (more lenient threshold)
+            if not validation_result.get('should_block_prompt', False):  # Fixed logic - should_block_prompt=True means block
+                # Data quality is acceptable, proceed with AI request
+                self.logger.info(f"=== AI PROMPT VALIDATION PASSED ===")
+                self.logger.info(f"Quality Score: {validation_result.get('data_quality_score', 0):.1f}%")
+                self.logger.info(f"Context: {validation_result.get('context_completeness', 0):.1f}% complete")
+                self.logger.info(f"Freshness: {validation_result.get('data_freshness', 0):.1f}% fresh")
+                
+                # Step 4.2: Prepare AI request with context
+                ai_request = self._prepare_ai_request(validated_request, context_data)
+                
+                # Step 5: Send to AI service with universal settings
+                ai_response = await self.ai_service.process_chat_request(ai_request, universal_settings)
+            else:
+                # Data quality is unacceptable, block and return error
+                self.logger.warning(f"=== AI PROMPT VALIDATION BLOCKED ===")
+                self.logger.warning(f"Quality Score: {validation_result.get('data_quality_score', 0):.1f}% (below threshold)")
+                self.logger.warning(f"Context: {validation_result.get('context_completeness', 0):.1f}% complete")
+                self.logger.warning(f"Freshness: {validation_result.get('data_freshness', 0):.1f}% fresh")
+                self.logger.warning(f"Errors: {len(validation_result.get('errors', []))}")
+                self.logger.warning(f"Warnings: {len(validation_result.get('warnings', []))}")
+                
+                # Return structured error response
+                block_message = ""
+                validator_instance = None
+                try:
+                    from server.ai_prompt_validator import AIPromptValidator
+                    validator_instance = AIPromptValidator(strict_mode=False)
+                    validator_instance.validation_results = validation_result
+                    block_message = validator_instance.get_block_message()
+                except ImportError:
+                    block_message = f"🚫 **AI Prompt Blocked - Data Quality Issues**\n\n**Quality Score:** {validation_result.get('data_quality_score', 0):.1f}% (below acceptable threshold)\n\n**Context Completeness:** {validation_result.get('context_completeness', 0):.1f}%\n\n**Data Freshness:** {validation_result.get('data_freshness', 0):.1f}%\n\n**Errors:**\n"
+                    for error in validation_result.get('errors', [])[:3]:
+                        block_message += f"• {error}\n"
+                    block_message += f"**Warnings:**\n"
+                    for warning in validation_result.get('warnings', [])[:2]:
+                        block_message += f"• {warning}\n"
+                
+                return {
+                    'status': 'error',
+                    'error': 'AI prompt blocked due to data quality issues',
+                    'details': {
+                        'quality_score': validation_result.get('data_quality_score', 0),
+                        'context_completeness': validation_result.get('context_completeness', 0),
+                        'data_freshness': validation_result.get('data_freshness', 0),
+                        'errors': validation_result.get('errors', []),
+                        'warnings': validation_result.get('warnings', []),
+                        'block_message': block_message,
+                        'recommendations': validation_result.get('recommendations', [])
+                    },
+                    'metadata': {
+                        'validation_timestamp': validation_result.get('validation_timestamp'),
+                        'data_source': 'context_validation'
+                    }
+                }
             
             # Step 5: Format response
             response = self._format_response(ai_response, context_data)
