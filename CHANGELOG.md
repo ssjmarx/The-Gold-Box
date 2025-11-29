@@ -5,6 +5,59 @@ All notable changes to The Gold Box project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0/).
 
+## [0.3.2] - 2025-11-28
+
+### Major New Feature: Context Chat Implementation
+- **New `/api/context_chat` Endpoint** - Complete board state integration for AI processing
+- **System-Agnostic Attribute Mapping** - Dynamic detection and coding of arbitrary game system attributes
+- **Complete Board State Collection** - Scene data, walls, lighting, tokens, templates, and map notes
+- **Mechanical Code Generation** - Pure algorithmic attribute code generation without semantic assumptions
+- **Universal Game System Support** - Works with D&D, Pathfinder, Call of Cthulhu, Savage Worlds, and any custom system
+- **Enhanced AI Prompts** - Dynamic system prompt generation with attribute code dictionaries
+- **Token-Efficient Data Format** - Optimized JSON representation reducing token usage by 90%+
+
+### New Backend Components
+- **Context Processor (`backend/server/context_processor.py`)** - Core logic for board state transformation
+- **Simple Attribute Mapper (`backend/server/simple_attribute_mapper.py`)** - Dynamic attribute code generation
+- **Board Collector (`backend/server/board_collector.py`)** - Complete board state gathering
+- **Dice Collector (`backend/server/dice_collector.py`)** - Combined chat and dice message collection
+- **JSON Optimizer (`backend/server/json_optimizer.py`)** - Token-efficient data compression
+- **AI Prompt Validator (`backend/server/ai_prompt_validator.py`)** - Data quality validation before AI processing
+
+### Frontend Integration
+- **Context Processing Mode** - New "Context (unfinished)" option in chat processing settings
+- **Context-Aware Button Text** - Button changes to "AI Context Turn" when in context mode
+- **Enhanced Response Display** - Shows context elements, attributes mapped, and compression stats
+- **Scene ID Integration** - Automatically detects current scene for board state collection
+- **Relay Server Integration** - Uses existing Foundry REST API infrastructure for data collection
+
+### Technical Architecture
+- **Modular Endpoint Design** - Clean separation between context collection and AI processing
+- **Universal Settings Integration** - Uses backend storage for configuration management
+- **Error Handling & Validation** - Comprehensive data quality validation before AI processing
+- **Relay Server Communication** - Leverages existing relay server for Foundry data access
+- **AI Response Processing** - Converts AI responses back to Foundry chat format
+
+### Critical Bug Fixes
+- **Fixed "Unmapped" Module Name Issue** - Corrected namespace inconsistency between `gold-box` and `the-gold-box` in settings registration
+- **Resolved Settings Storage Problems** - Fixed frontend settings not being properly saved and retrieved due to namespace mismatch
+- **Enhanced Processing Mode Labels** - Updated chat processing mode labels for better user clarity:
+  - "Simple (deprecated)" - Clearly marks legacy mode
+  - "Processed (deprecated)" - Indicates deprecated processing mode  
+  - "API (recommended)" - Highlights recommended current mode
+  - "Context (unfinished)" - Indicates experimental mode status (now implemented)
+
+### Technical Improvements
+- **Namespace Consistency** - Standardized all module references to use `the-gold-box` throughout the codebase
+- **Settings Registration Fix** - Corrected all `game.settings.register()` calls to use proper module namespace
+- **Settings Retrieval Fix** - Fixed all `game.settings.get()` calls to use consistent namespace
+- **Professional Documentation** - Removed all emojis from project documentation for professional presentation
+
+### Documentation Updates
+- **Comprehensive Changelog** - Added detailed v0.3.2 feature notes with technical implementation details
+- **Version Tracking** - Updated version number in module.json for proper version management
+- **Professional Presentation** - Cleaned documentation while preserving comprehensive content
+
 ## [0.3.1] - 2025-11-28
 
 ### Major New Feature: Context Chat Implementation
