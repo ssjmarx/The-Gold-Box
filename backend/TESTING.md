@@ -1,4 +1,4 @@
-# Testing The Gold Box Backend Server (v0.2.5)
+# Testing The Gold Box Backend Server (v0.3.3)
 
 This document provides comprehensive curl commands to test all API endpoints and security features of The Gold Box backend server from the terminal.
 
@@ -407,7 +407,7 @@ Save this as `comprehensive_test.sh` and make it executable:
 ```bash
 #!/bin/bash
 
-echo "=== The Gold Box Backend Comprehensive Test Suite v0.2.5 ==="
+echo "=== The Gold Box Backend Comprehensive Test Suite v0.3.3 ==="
 echo
 
 # Initialize session

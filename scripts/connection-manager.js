@@ -1,6 +1,7 @@
 /**
  * Connection Manager for Gold Box Backend
- * Singleton class to handle all backend connections and session management
+ * WebSocket-first implementation with HTTP fallback
+ * Phase 4: Removed Relay Server dependency
  */
 
 /**
@@ -11,6 +12,14 @@ const ConnectionState = {
   CONNECTING: 'connecting',
   CONNECTED: 'connected',
   ERROR: 'error'
+};
+
+/**
+ * Connection Types
+ */
+const ConnectionType = {
+  WEBSOCKET: 'websocket',
+  HTTP: 'http'
 };
 
 /**
@@ -27,8 +36,12 @@ class ConnectionManager {
     
     // Connection state
     this.state = ConnectionState.DISCONNECTED;
+    this.connectionType = ConnectionType.WEBSOCKET; // WebSocket-first approach
     this.baseUrl = 'http://localhost:5000';
     this.port = 5000;
+    
+    // WebSocket client reference
+    this.webSocketClient = null;
     
     // Session management
     this.sessionId = null;
@@ -70,7 +83,17 @@ class ConnectionManager {
   }
   
   /**
-   * Initialize connection to backend
+   * Set WebSocket client reference
+   * @param {GoldBoxWebSocketClient} webSocketClient - WebSocket client instance
+   */
+  setWebSocketClient(webSocketClient) {
+    this.webSocketClient = webSocketClient;
+    this.connectionType = ConnectionType.WEBSOCKET;
+    console.log('ConnectionManager: WebSocket client set, connection type:', this.connectionType);
+  }
+
+  /**
+   * Initialize connection to backend (WebSocket-first approach)
    * @returns {Promise<boolean>} - True if connection successful
    */
   async initialize() {
@@ -253,22 +276,6 @@ class ConnectionManager {
 
     document.addEventListener('visibilitychange', this.visibilityChangeHandler);
     console.log('ConnectionManager: Visibility change handler setup complete');
-  }
-
-  /**
-   * Adjust refresh behavior for background tabs
-   */
-  adjustRefreshForBackground() {
-    if (!this.sessionExpiry) return;
-
-    const now = Date.now();
-    const timeToExpiry = this.sessionExpiry.getTime() - now;
-
-    // If session is close to expiry even in background, refresh immediately
-    if (timeToExpiry < this.refreshConfig.criticalThreshold * 2) {
-      console.log('ConnectionManager: Session close to expiry in background, refreshing immediately');
-      this.refreshSession();
-    }
   }
 
   /**
@@ -645,14 +652,28 @@ class ConnectionManager {
   }
   
   /**
-   * Make an API request to backend
+   * Make an API request to backend (WebSocket-first with HTTP fallback)
    * @param {string} endpoint - API endpoint
    * @param {Object} data - Request data
    * @param {string} method - HTTP method (default: POST)
    * @returns {Promise<Object>} - Response data
    */
   async makeRequest(endpoint, data, method = 'POST') {
-    // Ensure we're connected before making request
+    // Phase 4: Try WebSocket first if available and connected
+    if (this.connectionType === ConnectionType.WEBSOCKET && 
+        this.webSocketClient && 
+        this.webSocketClient.isConnected) {
+      
+      try {
+        console.log(`ConnectionManager: Using WebSocket for ${endpoint}`);
+        return await this.makeWebSocketRequest(endpoint, data);
+      } catch (error) {
+        console.warn('ConnectionManager: WebSocket request failed, falling back to HTTP:', error);
+        // Fall back to HTTP on WebSocket failure
+      }
+    }
+    
+    // Ensure we're connected before making HTTP request
     if (this.state !== ConnectionState.CONNECTED || !this.isSessionValid()) {
       console.log('ConnectionManager: Not connected, initializing...');
       await this.initialize();
@@ -662,7 +683,7 @@ class ConnectionManager {
     const headers = this.getSecurityHeaders();
     
     try {
-      console.log(`ConnectionManager: Making ${method} request to ${endpoint}`);
+      console.log(`ConnectionManager: Making HTTP ${method} request to ${endpoint}`);
       
       const response = await fetch(`${this.baseUrl}${endpoint}`, {
         method: method,
@@ -688,8 +709,170 @@ class ConnectionManager {
       };
       
     } catch (error) {
-      console.error('ConnectionManager: Request failed:', error);
+      console.error('ConnectionManager: HTTP request failed:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Make request via WebSocket (Phase 4 enhancement)
+   * @param {string} endpoint - API endpoint
+   * @param {Object} data - Request data
+   * @returns {Promise<Object>} - Response data
+   */
+  async makeWebSocketRequest(endpoint, data) {
+    if (!this.webSocketClient || !this.webSocketClient.isConnected) {
+      throw new Error('WebSocket not available or not connected');
+    }
+
+    // Convert HTTP endpoint to WebSocket message type
+    const messageType = this.endpointToMessageType(endpoint);
+    
+    try {
+      let response;
+      
+      switch (messageType) {
+        case 'chat_request':
+          response = await this.webSocketClient.sendChatRequest(data.messages || [], data);
+          break;
+          
+        case 'simple_chat':
+          // For simple_chat, send as chat_request with compatibility mode
+          response = await this.webSocketClient.sendChatRequest(data.messages || [], data);
+          break;
+          
+        case 'context_chat':
+          // For context_chat, send scene data along with messages
+          response = await this.webSocketClient.sendChatRequest(data.messages || [], {
+            ...data,
+            scene_id: data.scene_id,
+            context_options: data.context_options
+          });
+          break;
+          
+        default:
+          // For unknown endpoints, fall back to HTTP
+          throw new Error(`WebSocket mapping not available for endpoint: ${endpoint}`);
+      }
+      
+      return {
+        success: true,
+        data: response.data || response
+      };
+      
+    } catch (error) {
+      console.error('ConnectionManager: WebSocket request failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Convert HTTP endpoint to WebSocket message type
+   * @param {string} endpoint - HTTP endpoint
+   * @returns {string} - WebSocket message type
+   */
+  endpointToMessageType(endpoint) {
+    const endpointMap = {
+      '/api/simple_chat': 'simple_chat',
+      '/api/api_chat': 'chat_request',
+      '/api/context_chat': 'context_chat',
+      '/api/process_chat': 'process_chat'
+    };
+    
+    return endpointMap[endpoint] || 'unknown';
+  }
+
+  /**
+   * Send data via real-time synchronization (Phase 4)
+   * @param {string} syncType - Type of sync data
+   * @param {Object} syncData - Data to synchronize
+   * @returns {Promise<boolean>} - Success status
+   */
+  async syncDataRealTime(syncType, syncData) {
+    if (this.connectionType === ConnectionType.WEBSOCKET && 
+        this.webSocketClient && 
+        this.webSocketClient.isConnected) {
+      
+      try {
+        const syncMessage = {
+          type: 'data_sync',
+          data: {
+            sync_type: syncType,
+            sync_data: syncData,
+            timestamp: Date.now()
+          }
+        };
+        
+        await this.webSocketClient.send(syncMessage);
+        console.log(`ConnectionManager: Real-time sync sent for ${syncType}`);
+        return true;
+        
+      } catch (error) {
+        console.error('ConnectionManager: Real-time sync failed:', error);
+        return false;
+      }
+    }
+    
+    // Fallback: store for batch sync when WebSocket becomes available
+    this.storeBatchSyncData(syncType, syncData);
+    return false;
+  }
+
+  /**
+   * Store batch sync data for later transmission
+   * @param {string} syncType - Type of sync data
+   * @param {Object} syncData - Data to synchronize
+   */
+  storeBatchSyncData(syncType, syncData) {
+    if (!this.batchSyncQueue) {
+      this.batchSyncQueue = [];
+    }
+    
+    this.batchSyncQueue.push({
+      sync_type: syncType,
+      sync_data: syncData,
+      timestamp: Date.now()
+    });
+    
+    // Limit queue size to prevent memory issues
+    if (this.batchSyncQueue.length > 100) {
+      this.batchSyncQueue = this.batchSyncQueue.slice(-50); // Keep last 50 items
+    }
+    
+    console.log(`ConnectionManager: Stored batch sync data for ${syncType} (${this.batchSyncQueue.length} items queued)`);
+  }
+
+  /**
+   * Flush batch sync data when WebSocket becomes available
+   */
+  async flushBatchSyncData() {
+    if (!this.batchSyncQueue || this.batchSyncQueue.length === 0) {
+      return;
+    }
+    
+    if (this.connectionType !== ConnectionType.WEBSOCKET || 
+        !this.webSocketClient || 
+        !this.webSocketClient.isConnected) {
+      return;
+    }
+    
+    try {
+      const batchMessage = {
+        type: 'batch_sync',
+        data: {
+          sync_items: this.batchSyncQueue,
+          flush_timestamp: Date.now()
+        }
+      };
+      
+      await this.webSocketClient.send(batchMessage);
+      console.log(`ConnectionManager: Flushed ${this.batchSyncQueue.length} batch sync items`);
+      
+      // Clear queue after successful flush
+      this.batchSyncQueue = [];
+      
+    } catch (error) {
+      console.error('ConnectionManager: Failed to flush batch sync data:', error);
     }
   }
   

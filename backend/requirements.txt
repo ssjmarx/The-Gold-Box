@@ -22,3 +22,6 @@ beautifulsoup4==4.12.3       # MIT License - HTML parsing for Foundry chat messa
 # AI Integration (Phase 1)
 litellm==1.80.0              # MIT License - Unified LLM interface (major update!)
 slowapi==0.1.9               # MIT License - Rate limiting for FastAPI
+
+# WebSocket Support (Phase 1)
+websockets>=11.0.3             # BSD 3-Clause License - WebSocket server implementation

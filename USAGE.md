@@ -620,26 +620,17 @@ For configuration help:
 
 ## Processing Mode Configuration
 
-The Gold Box supports four distinct chat processing modes, configurable in Foundry module settings:
+The Gold Box supports two chat processing modes, configurable in Foundry module settings:
 
 ### Available Modes
 
-1. **Simple Mode** (`/api/simple_chat`) - *Deprecated*
-   - Direct HTML-based message collection from Foundry chat
-   - Minimal processing overhead
-   - Compatible with all Foundry versions
-
-2. **Processed Mode** (`/api/process_chat`) - *Deprecated*
-   - Enhanced HTML processing with structured data extraction
-   - Token-efficient compact JSON format
-   - Better context preservation for AI
-
-3. **API Mode** (`/api/api_chat`) - *Recommended*
-   - REST API-based message collection via Foundry Gold API module
+1. **API Mode** (`/api/api_chat`) - *Recommended*
+   - Direct WebSocket communication with real-time message exchange
    - Most reliable and maintainable approach
-   - Foundation for advanced Foundry integration features
+   - Native integration without external dependencies
+   - Supports structured AI responses (chat messages, dice rolls, cards)
 
-4. **Context Mode** (`/api/context_chat`) - *Experimental/Unfinished*
+2. **Context Mode** (`/api/context_chat`) - *Experimental/Unfinished*
    - Full board state integration including tokens, walls, lighting, and map notes
    - Complete scene context for AI processing
    - Currently in development - not fully implemented
@@ -652,9 +643,10 @@ Configure processing mode in Foundry VTT:
 3. **Recommended**: Use "API (recommended)" for most reliable operation
 4. **Experimental**: Use "Context (unfinished)" for testing (may have issues)
 
-### Recent Changes (v0.3.1)
+### Recent Changes (v0.3.3)
 
-- **Fixed Module Name Issue**: Resolved "Unmapped" settings problem by standardizing namespace to `the-gold-box`
-- **Updated Mode Labels**: Added status indicators (deprecated, recommended, unfinished) for clarity
-- **Enhanced Settings Storage**: Fixed frontend settings not being properly saved/retrieved
-- **Version Bump**: Updated to version 0.3.1 for patch release
+- **Deprecated Endpoint Cleanup**: Removed "Simple" and "Processed" modes to streamline codebase
+- **API Mode Refinement**: Enhanced WebSocket integration with structured AI responses
+- **Clear AI Labeling**: All AI-generated content now clearly labeled as "The Gold Box"
+- **Release Preparation**: Updated documentation and configuration for production release
+- **Version Bump**: Updated to version 0.3.3 for major feature release

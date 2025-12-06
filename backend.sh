@@ -92,49 +92,11 @@ check_python() {
     log_success "Python and pip availability verified"
 }
 
-# Check Node.js version and availability
+# Node.js is no longer required - removed relay server dependency
+# This function is kept for compatibility but does nothing
 check_nodejs() {
-    log_info "Checking Node.js installation..."
-    
-    # Try to find Node.js
-    NODE_CMD=""
-    if command -v node >/dev/null 2>&1; then
-        NODE_VERSION=$(node --version 2>&1 | sed 's/v//')
-        NODE_CMD="node"
-        log_success "Found Node.js $NODE_VERSION"
-    elif command -v nodejs >/dev/null 2>&1; then
-        NODE_VERSION=$(nodejs --version 2>&1 | sed 's/v//')
-        NODE_CMD="nodejs"
-        log_success "Found Node.js $NODE_VERSION"
-    else
-        log_warning "Node.js not found"
-        log_info "Node.js is required for the relay server (API chat functionality)"
-        log_info "Installing Node.js automatically..."
-        
-        install_nodejs
-        return
-    fi
-    
-    # Check Node.js version (need 16+ for relay server)
-    NODE_MAJOR=$(echo $NODE_VERSION | cut -d. -f1)
-    if [ "$NODE_MAJOR" -lt 16 ]; then
-        log_warning "Found Node.js $NODE_VERSION, but version 16+ is recommended for relay server"
-        log_info "The relay server may not work properly with older Node.js versions"
-        log_info "Consider upgrading Node.js for best compatibility"
-    fi
-    
-    # Check npm availability
-    if command -v npm >/dev/null 2>&1; then
-        NPM_VERSION=$(npm --version 2>&1)
-        log_success "Found npm $NPM_VERSION"
-    else
-        log_warning "Node.js found but npm not available"
-        log_info "Installing npm..."
-        install_nodejs
-        return
-    fi
-    
-    log_success "Node.js and npm availability verified"
+    log_info "Node.js check skipped (relay server removed)"
+    log_success "WebSocket integration eliminates external dependencies"
 }
 
 # Install Node.js based on operating system
@@ -283,36 +245,6 @@ activate_virtual_environment() {
     log_success "Virtual environment active: $VIRTUAL_ENV"
 }
 
-# Verify relay server is available
-verify_relay_server() {
-    log_info "Verifying relay server availability..."
-    
-    # Check if relay-server directory exists
-    if [ ! -d "relay-server" ]; then
-        log_error "relay-server directory not found!"
-        log_error "Please install a complete The Gold Box module that includes the built relay server"
-        log_error "This should happen automatically when installing via Foundry manifest"
-        exit 1
-    fi
-    
-    # Check if dist folder exists (built project)
-    if [ ! -d "relay-server/dist" ]; then
-        log_error "relay-server/dist not found!"
-        log_error "The relay server appears to be incomplete"
-        log_error "Please reinstall the The Gold Box module"
-        exit 1
-    fi
-    
-    # Check if package.json exists
-    if [ ! -f "relay-server/package.json" ]; then
-        log_error "relay-server/package.json not found!"
-        log_error "The relay server appears to be incomplete"
-        log_error "Please reinstall the The Gold Box module"
-        exit 1
-    fi
-    
-    log_success "Relay server verified and ready"
-}
 
 # Install and upgrade dependencies
 install_dependencies() {
@@ -413,11 +345,9 @@ main() {
     
     check_project_structure
     check_python
-    check_nodejs
     create_virtual_environment
     activate_virtual_environment
     install_dependencies
-    verify_relay_server
     start_server
 }
 

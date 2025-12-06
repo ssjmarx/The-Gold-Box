@@ -421,12 +421,11 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         # logger.info(f"Full JSON context being sent to AI:\n{compact_json_context}")
         # logger.info("=== END CHAT CONTEXT DEBUG ===")
         
-        # Step 5: Prepare AI messages
-        processor = ChatContextProcessor()
+        # Step 5: Prepare enhanced AI messages with role-based prompts (from legacy context chat)
+        ai_role = universal_settings.get('ai role', 'gm') if universal_settings else 'gm'
         
-        # Get AI role from settings for role-based prompt generation
-        ai_role = universal_settings.get('ai role', 'player') if universal_settings else 'player'
-        system_prompt = processor.generate_system_prompt(ai_role)
+        # Generate enhanced system prompt based on AI role (from legacy context chat)
+        system_prompt = _generate_enhanced_system_prompt(ai_role, compact_messages)
         
         ai_messages = [
             {"role": "system", "content": system_prompt},
@@ -471,13 +470,13 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         # Step 7: Process AI response back to API format and send to Foundry
         api_formatted = ai_chat_processor.process_ai_response(ai_response, compact_messages)
         
-        # Step 7.5: Send messages to Foundry via relay server
+        # Step 7.5: Send messages to Foundry via WebSocket (new implementation)
         if api_formatted:
-            # Get client ID for relay server
+            # Get client ID for WebSocket transmission
             client_id = settings.get('relay client id') if settings else None
             if client_id:
-                success_count, total_messages = await _send_messages_to_foundry(api_formatted, client_id)
-                logger.info(f"Relay server transmission: {success_count}/{total_messages} messages sent successfully")
+                success_count, total_messages = await _send_messages_to_websocket(api_formatted, client_id)
+                logger.info(f"WebSocket transmission: {success_count}/{total_messages} messages sent successfully")
                 
                 # Step 8: Return confirmation response
                 return APIChatResponse(
@@ -503,7 +502,7 @@ async def api_chat(http_request: Request, request: APIChatRequest):
                         "context_count": len(compact_messages),
                         "tokens_used": tokens_used,
                         "messages_sent": 0,
-                        "relay_error": "No client ID available",
+                        "websocket_error": "No client ID available",
                         "api_formatted": api_formatted,
                         "provider_used": provider_id,
                         "model_used": model
@@ -523,19 +522,147 @@ async def api_chat(http_request: Request, request: APIChatRequest):
             error=str(e)
         )
 
-async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = None) -> List[Dict[str, Any]]:
-    """Collect recent chat messages and dice rolls via Foundry REST API"""
-    try:
-        import requests
+def _generate_enhanced_system_prompt(ai_role: str, compact_messages: List[Dict[str, Any]]) -> str:
+    """
+    Generate enhanced system prompt based on AI role (from legacy context chat)
+    
+    Args:
+        ai_role: AI role ('gm', 'gm assistant', 'player')
+        compact_messages: List of compact messages for context
         
-        # Get client ID from unified settings with better fallback handling (Phase 2 fix)
+    Returns:
+        Enhanced system prompt string
+    """
+    # Build context codes and abbreviations from compact messages
+    context_codes = []
+    context_abbreviations = []
+    context_schemas = []
+    
+    # Analyze compact messages to determine available context
+    has_rolls = any(msg.get('t') == 'dr' for msg in compact_messages)
+    has_chat = any(msg.get('t') == 'cm' for msg in compact_messages)
+    has_cards = any(msg.get('t') == 'cd' for msg in compact_messages)
+    
+    # Add context codes based on available data
+    if has_chat:
+        context_codes.append('cm: chat_message')
+        context_abbreviations.append('cm: chat messages')
+        context_schemas.append('cm: {"t": "cm", "s": "speaker", "c": "content"}')
+    
+    if has_rolls:
+        context_codes.append('dr: dice_roll')
+        context_abbreviations.extend(['dr: dice rolls', 'f: formula', 'r: results', 'tt: total'])
+        context_schemas.append('dr: {"t": "dr", "ft": "flavor_text", "f": "formula", "r": "results", "tt": "total"}')
+    
+    if has_cards:
+        context_codes.append('cd: card')
+        context_abbreviations.extend(['cd: cards', 'tt: title', 'st: subtitle', 'btn: buttons'])
+        context_schemas.append('cd: {"t": "cd", "tt": "title", "st": "subtitle", "btn": "buttons"}')
+    
+    # Get AI role specific prompt content (from legacy context chat)
+    role_prompts = {
+        'gm': 'You are assigned as a full gamemaster. Your role is to describe the scene, describe NPC actions, and create dice rolls whenever NPCs do anything that requires one. Keep generating descriptions, actions, and dice rolls until every NPC in the scene has gone, and then turn the action back over to players.',
+        'gm assistant': 'You are assigned as a GM\'s assistant. Your role is to aid the GM in whatever task they are currently doing, which they will usually prompt for you in the most recent message.',
+        'player': 'You are assigned as a Player. Your role is to participate in the story via in-character chat and actions. Describe what your character is doing and roll dice as appropriate for your actions.'
+    }
+    
+    role_specific_prompt = role_prompts.get(ai_role.lower(), role_prompts['gm'])
+    
+    # Build enhanced system prompt
+    system_prompt = f"""You are an AI assistant for tabletop RPG games, with the role {ai_role}. {role_specific_prompt}
+
+Data from chat and environment is formatted as follows:
+
+Type Codes:
+{', '.join(context_codes) if context_codes else 'No specific type codes detected'}
+
+Field Abbreviations:
+{', '.join(context_abbreviations) if context_abbreviations else 'No specific abbreviations detected'}
+
+Message Schemas:
+{'; '.join(context_schemas) if context_schemas else 'No specific schemas detected'}
+
+Type Codes:
+- dr: dice_roll
+- cm: chat_message
+- cd: chat_card
+
+Field Abbreviations:
+- t: message type (dr, cm, cd)
+- f: formula (dice roll formula)
+- r: results (individual dice results array)
+- tt: total (roll total result)
+- s: speaker (character name who sent message)
+- c: content (message text content)
+- ft: flavor_text (roll context like "Intelligence (Investigation) Check")
+- n: name (item/spell/condition name)
+- d: description (card description text)
+- a: actions (button actions array)
+
+Message Schemas:
+- Dice Roll: {{"t": "dr", "ft": "flavor_text", "f": "formula", "r": [results], "tt": total}}
+- Chat Message: {{"t": "cm", "s": "speaker", "c": "content"}}
+- Chat Card: {{"t": "cd", "n": "name", "d": "description", "a": ["actions"]}}"""
+    
+    return system_prompt
+
+async def _send_messages_to_websocket(api_formatted_data, client_id):
+    """Send processed messages to Foundry via WebSocket (new implementation)"""
+    try:
+        # Use the FastAPI WebSocket connection manager from server.py
+        # This avoids the standalone WebSocket server conflict
+        from server import get_websocket_connection_manager
+        
+        # Handle both single message and multi-message formats
+        if api_formatted_data.get("type") == "multi-message":
+            messages = api_formatted_data.get("messages", [])
+        else:
+            messages = [api_formatted_data]
+        
+        # Get the FastAPI WebSocket connection manager
+        ws_manager = get_websocket_connection_manager()
+        
+        # Send each message to WebSocket client
+        success_count = 0
+        for message in messages:
+            try:
+                # Format message for WebSocket client (frontend expects 'chat_response' type)
+                ws_message = {
+                    "type": "chat_response",
+                    "data": {
+                        "message": message,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                }
+                
+                # Send to WebSocket client using FastAPI connection manager
+                success = await ws_manager.send_to_client(client_id, ws_message)
+                if success:
+                    success_count += 1
+                    logger.info(f"Successfully sent {message.get('type', 'unknown')} to WebSocket client {client_id}")
+                else:
+                    logger.warning(f"Failed to send {message.get('type', 'unknown')} to WebSocket client {client_id}")
+                
+            except Exception as e:
+                logger.error(f"Error sending individual message to WebSocket client: {e}")
+        
+        return success_count, len(messages)
+                
+    except Exception as e:
+        logger.error(f"Error sending messages to WebSocket client: {e}")
+        return 0, len(messages) if 'messages' in locals() else 0
+
+async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+    """Collect recent chat messages and dice rolls via WebSocket message collector"""
+    try:
+        # Get client ID from unified settings with better fallback handling
         client_id = None
         if request_data:
             # Priority 1: Get from unified settings in request
             settings = request_data.get('settings', {})
             client_id = settings.get('relay client id')
             if client_id:
-                # logger.info("DEBUG: Client ID found in unified settings")
+                logger.info(f"Client ID found in unified settings: {client_id}")
                 pass
             else:
                 # Priority 2: Try to get from stored settings as fallback
@@ -545,7 +672,7 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
                     if stored_settings:
                         client_id = stored_settings.get('relay client id')
                         if client_id:
-                            # logger.info("DEBUG: Client ID found in stored settings (fallback)")
+                            logger.info(f"Client ID found in stored settings (fallback): {client_id}")
                             pass
                 except ImportError:
                     pass
@@ -554,7 +681,7 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
                     # Priority 3: Fallback to separate parameter (backward compatibility)
                     client_id = request_data.get('relayClientId')
                     if client_id:
-                        # logger.info("DEBUG: Client ID found in separate parameter (backward compatibility)")
+                        logger.info(f"Client ID found in separate parameter (backward compatibility): {client_id}")
                         pass
         else:
             # Try to get from stored settings when no request data
@@ -564,202 +691,36 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
                 if stored_settings:
                     client_id = stored_settings.get('relay client id')
                     if client_id:
-                        # logger.info("DEBUG: Client ID found in stored settings (no request data)")
+                        logger.info(f"Client ID found in stored settings (no request data): {client_id}")
                         pass
             except ImportError:
                 pass
         
-        # If no client ID provided, try to get one from relay server
+        # If no client ID, return empty list
         if not client_id:
-            # logger.info("DEBUG: No client ID provided, attempting to get available clients from relay server")
-            try:
-                # Try to get list of available clients from relay server (PHASE 2 FIX: Correct endpoint)
-                clients_response = requests.get(
-                    f"http://localhost:3010/clients",
-                    timeout=5
-                )
-                if clients_response.status_code == 200:
-                    clients = clients_response.json()
-                    if clients and len(clients) > 0:
-                        # Use the first available client
-                        client_id = clients[0].get('id')
-                        # logger.info(f"DEBUG: Using first available client: {client_id}")
-                    else:
-                        # logger.warning("DEBUG: No clients available on relay server")
-                        pass
-                else:
-                    # logger.warning(f"DEBUG: Failed to get clients list: {clients_response.status_code}")
-                    pass
-            except Exception as e:
-                # logger.warning(f"DEBUG: Error getting clients list: {e}")
-                pass
+            logger.warning("No client ID available for message collection")
+            return []
         
-        # If still no client ID, try some common defaults or generate a test one
-        if not client_id:
-            # logger.warning("DEBUG: Still no client ID, trying fallback approaches")
-            # Try some common client IDs that might be registered
-            fallback_ids = ["foundry-test", "test-client", "default-client"]
-            for fallback_id in fallback_ids:
-                try:
-                    test_response = requests.get(
-                        f"http://localhost:3010/chat/messages",
-                        params={"clientId": fallback_id, "limit": 1},
-                        timeout=3
-                    )
-                    if test_response.status_code == 200:
-                        client_id = fallback_id
-                        # logger.info(f"DEBUG: Found working fallback client ID: {client_id}")
-                        break
-                except:
-                    continue
-            
-            # If all fallbacks fail, use a generated ID but expect it to fail
-            if not client_id:
-                client_id = "generated-test-client"
-                # logger.warning(f"DEBUG: Using generated client ID (may fail): {client_id}")
+        logger.info(f"Collecting {count} messages for client {client_id} via WebSocket message collector")
         
-        # logger.info(f"DEBUG: Using client ID for relay server request: {client_id}")
+        # Import message collector
+        from server.message_collector import get_combined_client_messages
         
-        # Get chat messages from relay server with proper authentication
-        headers = {}
-        # In development mode, we can use a local dev key or bypass auth
-        # The relay server uses memory store in local dev which bypasses auth
-        headers["x-api-key"] = "local-dev"  # This works for local memory store mode
+        # Small delay to allow any recent messages to be processed
+        await asyncio.sleep(0.1)
         
-        # TIMING FIX: Small delay to allow Foundry module to store messages
-        # The createChatMessage hook in Foundry module runs AFTER message creation
-        await asyncio.sleep(0.5)  # 500ms delay for message storage
+        # Get combined messages and rolls from WebSocket message collector
+        merged_messages = get_combined_client_messages(client_id, count)
         
-        # Collect both chat messages AND rolls for complete context
-        chat_messages = []
-        roll_messages = []
+        logger.info(f"Collected {len(merged_messages)} messages via WebSocket for client {client_id}")
         
-        # Step 1: Get chat messages (always force fresh data)
-        chat_response = requests.get(
-            f"http://localhost:3010/messages",  # PHASE 3 FIX: Use correct Gold API endpoint
-            params={"clientId": client_id, "limit": count, "sort": "timestamp", "order": "desc", "refresh": True},
-            headers=headers,
-            timeout=3  # PHASE 2 FIX: Reduce timeout to prevent blocking
-        )
-        
-        # logger.info(f"DEBUG: Chat messages response status: {chat_response.status_code}")
-        # logger.info(f"DEBUG: Chat messages response text: {chat_response.text}")
-        
-        if chat_response.status_code == 200:
-            try:
-                response_data = chat_response.json()
-                # logger.info(f"DEBUG: Parsed chat response data: {response_data}")
-                
-                # Extract messages from response structure
-                if isinstance(response_data, dict):
-                    if 'messages' in response_data:
-                        chat_messages = response_data['messages']
-                        # logger.info(f"DEBUG: Extracted messages from 'messages' field: {len(chat_messages) if chat_messages else 0}")
-                    else:
-                        # logger.warning(f"DEBUG: No 'messages' field found in chat response. Available keys: {list(response_data.keys())}")
-                        pass
-                elif isinstance(response_data, list):
-                    # Direct list response (fallback)
-                    chat_messages = response_data
-                    # logger.info(f"DEBUG: Chat response is direct list: {len(chat_messages)} messages")
-                else:
-                    # logger.warning(f"DEBUG: Unexpected chat response format: {type(response_data)}")
-                    pass
-                
-                # logger.info(f"DEBUG: Final chat messages count: {len(chat_messages) if chat_messages else 0}")
-            except json.JSONDecodeError as e:
-                # logger.error(f"DEBUG: Failed to parse chat JSON: {e}")
-                # logger.error(f"DEBUG: Raw chat response: {chat_response.text}")
-                pass
-        else:
-            logger.error(f"Failed to collect chat messages: {chat_response.status_code}")
-            # logger.error(f"DEBUG: Raw chat response: {chat_response.text}")
-        
-        # Step 2: Get roll messages for the same time period with fresh data
-        # Mirror the behavior of /messages endpoint - clear internal register and get fresh data
-        import time
-        cache_buster = int(time.time() * 1000)  # Unique timestamp to prevent caching
-        
-        rolls_response = requests.get(
-            f"http://localhost:3010/rolls",
-            params={
-                "clientId": client_id, 
-                "limit": count, 
-                "sort": "timestamp", 
-                "order": "desc", 
-                "refresh": True,
-                "clear": True,  # Force clear internal register and perform fresh search
-                "_": cache_buster  # Cache-busting parameter to ensure fresh request
-            },
-            headers=headers,
-            timeout=3
-        )
-        
-        # logger.info(f"DEBUG: Rolls response status: {rolls_response.status_code}")
-        # logger.info(f"DEBUG: Rolls response text: {rolls_response.text}")
-        
-        if rolls_response.status_code == 200:
-            try:
-                rolls_data = rolls_response.json()
-                # logger.info(f"DEBUG: Parsed rolls response data: {rolls_data}")
-                
-                # Extract rolls from response structure
-                if isinstance(rolls_data, dict):
-                    # Check for 'data' field first (relay server puts rolls here)
-                    if 'data' in rolls_data:
-                        roll_messages = rolls_data['data']
-                        # logger.info(f"DEBUG: Extracted rolls from 'data' field: {len(roll_messages) if roll_messages else 0}")
-                    # Fallback to 'rolls' field for backward compatibility
-                    elif 'rolls' in rolls_data:
-                        roll_messages = rolls_data['rolls']
-                        # logger.info(f"DEBUG: Extracted rolls from 'rolls' field: {len(roll_messages) if roll_messages else 0}")
-                    else:
-                        # logger.warning(f"DEBUG: No 'data' or 'rolls' field found in rolls response. Available keys: {list(rolls_data.keys())}")
-                        pass
-                elif isinstance(rolls_data, list):
-                    # Direct list response (fallback)
-                    roll_messages = rolls_data
-                    # logger.info(f"DEBUG: Rolls response is direct list: {len(roll_messages)} rolls")
-                else:
-                    # logger.warning(f"DEBUG: Unexpected rolls response format: {type(rolls_data)}")
-                    pass
-                
-                # logger.info(f"DEBUG: Final roll messages count: {len(roll_messages) if roll_messages else 0}")
-            except json.JSONDecodeError as e:
-                # logger.error(f"DEBUG: Failed to parse rolls JSON: {e}")
-                # logger.error(f"DEBUG: Raw rolls response: {rolls_response.text}")
-                pass
-        else:
-            logger.error(f"Failed to collect rolls: {rolls_response.status_code}")
-            # logger.error(f"DEBUG: Raw rolls response: {rolls_response.text}")
-        
-        # Step 3: Merge and sort all messages chronologically
-        all_messages = []
-        
-        # Add chat messages with type marker
-        for msg in chat_messages:
-            msg['_source'] = 'chat'
-            msg['_timestamp'] = msg.get('timestamp', 0)
-            all_messages.append(msg)
-        
-        # Add roll messages with type marker
-        for roll in roll_messages:
-            roll['_source'] = 'roll'
-            roll['_timestamp'] = roll.get('timestamp', 0)
-            all_messages.append(roll)
-        
-        # Sort by timestamp (newest first, then we'll reverse for chronological)
-        all_messages.sort(key=lambda x: x.get('_timestamp', 0), reverse=True)
-        
-        # Take the most recent 'count' messages and reverse to chronological order
-        merged_messages = list(reversed(all_messages[:count]))
-        
-        # logger.info(f"DEBUG: Merged {len(chat_messages)} chat messages and {len(roll_messages)} roll messages")
-        # logger.info(f"DEBUG: Final merged count: {len(merged_messages)}")
-        # logger.info(f"DEBUG: Message sources: {[msg.get('_source') for msg in merged_messages[:5]]}")
+        # Log message sources for debugging
+        if merged_messages:
+            sources = [msg.get('_source') for msg in merged_messages[:5]]
+            logger.debug(f"Message sources: {sources}")
         
         return merged_messages
             
     except Exception as e:
-        logger.error(f"Error collecting messages via API: {e}")
+        logger.error(f"Error collecting messages via WebSocket: {e}")
         return []

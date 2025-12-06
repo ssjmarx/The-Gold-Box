@@ -2,25 +2,18 @@
   "id": "the-gold-box",
   "title": "The Gold Box",
   "description": "An AI-powered Foundry VTT module that provides intelligent TTRPG assistance through a sophisticated Python backend with enhanced chat processing capabilities.",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "url": "https://github.com/ssjmarx/The-Gold-Box",
   "license": "CC-BY-NC-SA-4.0",
   "readme": "https://github.com/ssjmarx/The-Gold-Box/blob/main/README.md",
   "bugs": "https://github.com/ssjmarx/The-Gold-Box/issues",
   "changelog": "https://github.com/ssjmarx/The-Gold-Box/blob/main/CHANGELOG.md",
   "relationships": {
-    "requires": [
-      {
-        "id": "foundryvtt-gold-api",
-        "compatibility": {
-          "minimum": "1.0.0"
-        }
-      }
-    ]
+    "requires": []
   },
   "esmodules": [
     "scripts/connection-manager.js",
-    "scripts/api-bridge.js",
+    "scripts/websocket-client.js",
     "scripts/gold-box.js"
   ],
   "styles": [

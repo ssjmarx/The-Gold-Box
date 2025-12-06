@@ -103,6 +103,15 @@ A Flask extension for handling Cross Origin Resource Sharing (CORS). Used for le
 
 A Python module to read key-value pairs from a .env file and set them as environment variables.
 
+### WebSockets Server
+- **License**: BSD 3-Clause License
+- **File**: `websockets-BSD-3-Clause.txt`
+- **Copyright**: (c) 2013, Aymeric Augustin
+- **Website**: https://websockets.readthedocs.io/
+- **Version**: >=11.0.3
+
+An implementation of the WebSocket Protocol (RFC 6455) for Python.
+
 ### FoundryVTT REST API (ThreeHats Fork)
 - **License**: MIT License
 - **File**: `FoundryVTT-REST-API-MIT.txt`
@@ -132,6 +141,7 @@ Forked relay server for Foundry REST API providing WebSocket communication and m
 6. **BeautifulSoup4**: HTML parsing for Foundry VTT chat messages
 7. **Cryptography**: Encryption and security functions for key management
 8. **python-dotenv**: Environment variable management
+9. **WebSockets**: WebSocket server implementation for real-time communication
 
 ### Legacy Framework (Flask-based - Fallback)
 1. **Flask**: Legacy web framework for backward compatibility
@@ -146,7 +156,7 @@ Forked relay server for Foundry REST API providing WebSocket communication and m
 
 ### Dependency Licenses
 - **MIT License**: FastAPI, Pydantic, BeautifulSoup4, LiteLLM, SlowAPI, Flask-CORS
-- **BSD 3-Clause License**: Uvicorn, Gunicorn, Cryptography, Flask, python-dotenv
+- **BSD 3-Clause License**: Uvicorn, Gunicorn, Cryptography, Flask, python-dotenv, WebSockets
 
 ### Compatibility Assessment
 ✅ **MIT License**: Fully compatible with CC-BY-NC-SA 4.0

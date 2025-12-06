@@ -7,7 +7,7 @@ License: CC-BY-NC-SA 4.0 (compatible with dependencies)
 Dependencies: FastAPI (MIT), Uvicorn (BSD 3-Clause)
 """
 
-from fastapi import FastAPI, Request, HTTPException, status
+from fastapi import FastAPI, Request, HTTPException, status, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import logging
@@ -23,6 +23,7 @@ import stat
 import getpass
 import json
 import base64
+import asyncio
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -41,11 +42,11 @@ def get_absolute_path(relative_path: str) -> Path:
 
 # Get the absolute path to the backend directory (where server.py is located)
 from server.key_manager import MultiKeyManager
-from endpoints.simple_chat import process_simple_chat
-from endpoints.process_chat import router as process_chat_router
 from endpoints.api_chat import router as api_chat_router
 from endpoints.api_chat import APIChatProcessor
 from endpoints.context_chat import ContextChatEndpoint
+from server.client_manager import get_client_manager
+from server.message_protocol import MessageProtocol
 # Import security module
 from security.security import (
     RateLimiter, UniversalInputValidator, 
@@ -56,6 +57,8 @@ from security.security import (
 from security.sessionvalidator import session_validator
 # Import universal settings for debug endpoints
 from server.universal_settings import extract_universal_settings, get_provider_config, UniversalSettings
+# Import message collector for WebSocket integration
+from server.message_collector import get_message_collector, add_client_message, add_client_roll
 
 # Load environment variables from .env file
 load_dotenv()
@@ -181,8 +184,6 @@ app = FastAPI(
     redoc_url=None
 )
 
-# Include process_chat router
-app.include_router(process_chat_router)
 
 # Include API chat router
 app.include_router(api_chat_router)
@@ -297,129 +298,447 @@ frontend_settings = {}
 # Global relay server process
 relay_server_process = None
 
-async def start_relay_server():
-    """Start relay server as a subprocess"""
-    global relay_server_process
+# WebSocket connection manager using FastAPI's built-in WebSocket support
+class WebSocketConnectionManager:
+    """Manages WebSocket connections using FastAPI's built-in WebSocket support"""
     
-    # Check if Node.js and npm are available
-    try:
-        # Check for Node.js
-        import subprocess
-        node_check = subprocess.run(['node', '--version'], 
-                                capture_output=True, text=True, timeout=5)
-        if node_check.returncode != 0:
-            logger.error("Node.js not available - relay server cannot start")
-            return False
-        
-        # Check for npm
-        npm_check = subprocess.run(['npm', '--version'], 
-                               capture_output=True, text=True, timeout=5)
-        if npm_check.returncode != 0:
-            logger.error("npm not available - relay server cannot start")
-            return False
-        
-        node_version = node_check.stdout.strip().replace('v', '')
-        npm_version = npm_check.stdout.strip()
-        logger.info(f"Found Node.js {node_version} and npm {npm_version}")
-        
-    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError) as e:
-        logger.error(f"Node.js/npm not available: {e}")
-        logger.error("Relay server requires Node.js and npm to be installed")
-        logger.error("Please run: ./backend.sh (which will auto-install Node.js)")
-        return False
-    except Exception as e:
-        logger.error(f"Error checking Node.js/npm: {e}")
-        return False
+    def __init__(self):
+        self.active_connections: List[WebSocket] = []
+        self.connection_info: Dict[str, Dict[str, Any]] = {}
     
-    # Check if relay server is already running
-    try:
-        import requests
-        response = requests.get("http://localhost:3010/api/health", timeout=2)
-        if response.status_code == 200:
-            logger.info("Relay server already running on port 3010")
-            return True
-    except:
-        logger.info("Relay server not running, starting...")
+    async def connect(self, websocket: WebSocket, client_id: str, connection_info: Dict[str, Any]):
+        """Accept and register a new WebSocket connection"""
+        await websocket.accept()
+        self.active_connections.append(websocket)
+        self.connection_info[client_id] = {
+            "websocket": websocket,
+            "connected_at": datetime.now().isoformat(),
+            **connection_info
+        }
+        logger.info(f"WebSocket client connected: {client_id}")
+        
+        # Send connection confirmation
+        await self.send_to_client(client_id, {
+            "type": "connected",
+            "data": {
+                "client_id": client_id,
+                "server_time": datetime.now().isoformat(),
+                "message": "Successfully connected to The Gold Box WebSocket server"
+            }
+        })
     
-    # Start relay server
-    try:
-        relay_path = os.path.join(os.path.dirname(__file__), "..", "relay-server")
-        if not os.path.exists(relay_path):
-            logger.error("Relay server submodule not found. Run: git submodule update --init --recursive")
-            return False
-        
-        logger.info(f"Starting relay server from: {relay_path}")
-        
-        # Check if package.json exists in relay server
-        package_json_path = os.path.join(relay_path, "package.json")
-        if not os.path.exists(package_json_path):
-            logger.error("relay-server package.json not found")
-            return False
-        
-        # Check if node_modules exists, if not run npm install
-        node_modules_path = os.path.join(relay_path, "node_modules")
-        if not os.path.exists(node_modules_path):
-            logger.info("Installing relay server dependencies...")
+    async def disconnect(self, client_id: str):
+        """Remove and disconnect a WebSocket client"""
+        if client_id in self.connection_info:
+            websocket = self.connection_info[client_id]["websocket"]
             try:
-                install_result = subprocess.run(
-                    ['npm', 'install'],
-                    cwd=relay_path,
-                    capture_output=True,
-                    text=True,
-                    timeout=300  # 5 minute timeout
-                )
-                if install_result.returncode != 0:
-                    logger.error(f"npm install failed: {install_result.stderr}")
-                    return False
-                logger.info("Relay server dependencies installed successfully")
-            except subprocess.TimeoutExpired:
-                logger.error("npm install timed out after 5 minutes")
-                return False
-            except Exception as e:
-                logger.error(f"npm install error: {e}")
-                return False
-        
-        # Set DATABASE_URL environment variable for relay server
-        env = os.environ.copy()
-        env["DATABASE_URL"] = "sqlite:./relay-server.db"
-        env["DB_TYPE"] = "memory"  # Use memory store to bypass authentication for local development
-        
-        # Start relay server as subprocess
-        relay_server_process = subprocess.Popen(
-            ["npm", "start"],
-            cwd=relay_path,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=env
-        )
-        
-        # Wait for it to start
-        import asyncio
-        await asyncio.sleep(5)  # Increased wait time
-        
-        # Check if it's running
-        try:
-            response = requests.get("http://localhost:3010/api/health", timeout=2)
-            if response.status_code == 200:
-                logger.info("Relay server started successfully on port 3010")
+                await websocket.close()
+            except:
+                pass
+            
+            # Remove from active connections
+            if websocket in self.active_connections:
+                self.active_connections.remove(websocket)
+            
+            del self.connection_info[client_id]
+            logger.info(f"WebSocket client disconnected: {client_id}")
+    
+    async def send_to_client(self, client_id: str, message: Dict[str, Any]):
+        """Send message to specific client"""
+        if client_id in self.connection_info:
+            websocket = self.connection_info[client_id]["websocket"]
+            try:
+                message["timestamp"] = time.time()
+                await websocket.send_json(message)
                 return True
-        except:
-            pass
-        
-        # Check if process is still running
-        if relay_server_process.poll() is not None:
-            stdout, stderr = relay_server_process.communicate()
-            logger.error(f"Relay server failed to start:")
-            logger.error(f"STDOUT: {stdout.decode() if stdout else 'None'}")
-            logger.error(f"STDERR: {stderr.decode() if stderr else 'None'}")
+            except Exception as e:
+                logger.error(f"Error sending to WebSocket client {client_id}: {e}")
+                # Remove disconnected client
+                await self.disconnect(client_id)
+                return False
+        else:
+            logger.warning(f"Attempted to send to unknown WebSocket client: {client_id}")
             return False
+    
+    async def handle_message(self, client_id: str, message: Dict[str, Any]):
+        """Handle incoming WebSocket message"""
+        try:
+            message_type = message.get("type")
+            
+            # Handle ping messages
+            if message_type == "ping":
+                await self.send_to_client(client_id, {
+                    "type": "pong",
+                    "timestamp": time.time()
+                })
+                return
+            
+            # Handle chat requests using existing logic
+            if message_type == MessageProtocol.TYPE_CHAT_REQUEST:
+                message_data = MessageProtocol.extract_message_data(message)
+                if not message_data:
+                    await self.send_to_client(client_id, {
+                        "type": "error",
+                        "data": {
+                            "error": "Invalid chat request data",
+                            "timestamp": time.time()
+                        }
+                    })
+                    return
+                
+                # Handle message collection from WebSocket clients
+                if message_type == MessageProtocol.TYPE_CHAT_REQUEST:
+                    # This is a chat request, collect messages and process
+                    messages = message_data.get("messages", [])
+                    context_count = message_data.get("context_count", 15)
+                    scene_id = message_data.get("scene_id")
+                    
+                    # Add each message to the message collector for this client
+                    for msg in messages:
+                        if isinstance(msg, dict):
+                            add_client_message(client_id, msg)
+                        elif isinstance(msg, str):
+                            # Convert string messages to dict format
+                            add_client_message(client_id, {
+                                "content": msg,
+                                "type": "chat",
+                                "timestamp": int(time.time() * 1000)
+                            })
+                    
+                    logger.info(f"Collected {len(messages)} messages from WebSocket client {client_id}")
+                    
+                    # CRITICAL FIX: Get stored messages from message collector for processing
+                    from server.message_collector import get_combined_client_messages
+                    stored_messages = get_combined_client_messages(client_id, context_count)
+                    logger.info(f"Retrieved {len(stored_messages)} stored messages for processing")
+                    
+                    logger.info(f"Processing WebSocket chat request from {client_id}: {len(stored_messages)} messages")
+                
+                # Get stored settings for processing
+                from server import settings_manager
+                stored_settings = settings_manager.get_settings()
+                
+                # Extract universal settings with proper request data structure
+                request_data_for_settings = {
+                    'settings': stored_settings
+                }
+                universal_settings = extract_universal_settings(request_data_for_settings, "websocket_chat")
+                
+                # Check user's chat processing mode setting
+                chat_processing_mode = universal_settings.get('chat processing mode', 'general')
+                logger.info(f"WebSocket: Using chat processing mode: {chat_processing_mode}")
+                
+                # Debug logging to verify settings extraction
+                logger.info(f"DEBUG: WebSocket extracted universal_settings provider: {universal_settings.get('general llm provider', 'NOT_FOUND')}")
+                logger.info(f"DEBUG: WebSocket extracted universal_settings model: {universal_settings.get('general llm model', 'NOT_FOUND')}")
+                
+                provider_config = get_provider_config(universal_settings, use_tactical=False)
+                
+                # Debug logging to verify provider config
+                logger.info(f"DEBUG: WebSocket provider_config: {provider_config}")
+                
+                # CRITICAL FIX: Add client ID to universal settings for response delivery
+                universal_settings['relay client id'] = client_id
+                logger.info(f"WebSocket: Added client ID to settings: {client_id}")
+                
+                # CRITICAL FIX: Process AI directly via WebSocket instead of calling API endpoints
+                # This avoids the relay server dependency and ensures WebSocket response delivery
+                logger.info("WebSocket: Processing AI directly via WebSocket (bypassing HTTP endpoints)")
+                
+                # Import AI service directly
+                from server.ai_service import get_ai_service
+                from server.processor import ChatContextProcessor
+                
+                ai_service = get_ai_service()
+                processor = ChatContextProcessor()
+                
+                # Convert stored messages to compact JSON for AI
+                api_chat_processor = APIChatProcessor()
+                compact_messages = api_chat_processor.process_api_messages(stored_messages)
+                
+                # Get AI role from settings for enhanced role-based prompt generation (from API chat endpoint)
+                ai_role = universal_settings.get('ai role', 'gm') if universal_settings else 'gm'
+                
+                # Generate enhanced system prompt based on AI role (from legacy context chat)
+                from endpoints.api_chat import _generate_enhanced_system_prompt
+                system_prompt = _generate_enhanced_system_prompt(ai_role, compact_messages)
+                compact_json_context = json.dumps(compact_messages, indent=2)
+                
+                # Prepare AI messages
+                ai_messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Chat Context (Compact JSON Format):\n{compact_json_context}\n\nPlease respond to this conversation as an AI assistant for tabletop RPGs. If you need to generate game mechanics, use compact JSON format specified in system prompt."}
+                ]
+                
+                logger.info("=== AI SERVICE CALL DEBUG ===")
+                logger.info(f"Calling AI service with {len(stored_messages)} compact messages")
+                logger.info(f"Settings being passed to AI service: {universal_settings}")
+                
+                # Call AI service directly
+                ai_response_data = await ai_service.process_compact_context(
+                    processed_messages=compact_messages,
+                    system_prompt=system_prompt,
+                    settings=universal_settings
+                )
+                
+                ai_response = ai_response_data.get("response", "")
+                tokens_used = ai_response_data.get("tokens_used", 0)
+                logger.info(f"AI service returned response of length: {len(ai_response)} characters")
+                logger.info(f"Tokens used: {tokens_used}")
+                
+                # CRITICAL FIX: Use AIChatProcessor to properly process AI responses (same as API chat endpoint)
+                # This will parse compact JSON from AI responses and convert to Foundry-compatible format
+                logger.info("=== AI RESPONSE PROCESSING DEBUG ===")
+                logger.info(f"Raw AI response for WebSocket: {ai_response}")
+                
+                # Import AIChatProcessor for proper response processing
+                from server.ai_chat_processor import AIChatProcessor
+                
+                # Process AI response using the same processor as API chat endpoint
+                ai_chat_processor = AIChatProcessor()
+                api_formatted = ai_chat_processor.process_ai_response(ai_response, compact_messages)
+                
+                logger.info(f"AI response processed: {api_formatted}")
+                
+                # Send processed messages to Foundry via WebSocket (new implementation)
+                if api_formatted and api_formatted.get("success", False):
+                    # Get client ID for WebSocket transmission
+                    client_id_for_ws = universal_settings.get('relay client id')
+                    if client_id_for_ws:
+                        from endpoints.api_chat import _send_messages_to_websocket
+                        success_count, total_messages = await _send_messages_to_websocket(api_formatted, client_id_for_ws)
+                        logger.info(f"WebSocket transmission: {success_count}/{total_messages} messages sent successfully")
+                        
+                        # Create success result
+                        result = {
+                            'success': True,
+                            'response': f"✅ Successfully sent {success_count} message(s) to Foundry chat",
+                            'metadata': {
+                                'context_count': len(compact_messages),
+                                'tokens_used': tokens_used,
+                                'messages_sent': success_count,
+                                'total_messages': total_messages,
+                                'api_formatted': api_formatted,
+                                'provider_used': provider_config['provider'],
+                                'model_used': provider_config['model']
+                            }
+                        }
+                    else:
+                        logger.warning("No client ID available for WebSocket transmission")
+                        # Return response with API formatted data for frontend display
+                        result = {
+                            'success': True,
+                            'response': ai_response,  # Return raw AI response as fallback
+                            'metadata': {
+                                'context_count': len(compact_messages),
+                                'tokens_used': tokens_used,
+                                'messages_sent': 0,
+                                'websocket_error': "No client ID available",
+                                'api_formatted': api_formatted,
+                                'provider_used': provider_config['provider'],
+                                'model_used': provider_config['model']
+                            }
+                        }
+                else:
+                    logger.error("Failed to process AI response to API format")
+                    result = {
+                        'success': False,
+                        'error': "Failed to process AI response for WebSocket transmission"
+                    }
+                
+                logger.info("=== END AI RESPONSE PROCESSING DEBUG ===")
+                
+                # Send response back via WebSocket
+                if result['success']:
+                    response_content = result.get('response', '')
+                    metadata = result.get('metadata', {})
+                    
+                    try:
+                        # Extract request ID from original message
+                        original_request_id = MessageProtocol.extract_request_id(message)
+                        logger.info(f"DEBUG: Original request ID: {original_request_id}")
+                        
+                        # Create chat response message with same request ID
+                        chat_response_message = MessageProtocol.create_chat_response(
+                            response_content,
+                            metadata,
+                            original_request_id
+                        )
+                        
+                        logger.info(f"DEBUG: Created response message with request_id: {chat_response_message.get('request_id')}")
+                        
+                        # Send response via WebSocket
+                        send_success = await self.send_to_client(client_id, chat_response_message)
+                        
+                        if send_success:
+                            logger.info(f"✅ WebSocket chat response sent successfully to {client_id}")
+                            logger.info(f"✅ Response content: {response_content[:100]}...")  # Log first 100 chars
+                        else:
+                            logger.error(f"❌ Failed to send WebSocket chat response to {client_id}")
+                            
+                    except Exception as e:
+                        logger.error(f"❌ Exception creating/sending WebSocket response: {e}")
+                        # Try to send a simple error message as fallback
+                        await self.send_to_client(client_id, {
+                            "type": "error",
+                            "data": {
+                                "error": f"Response creation failed: {e}",
+                                "timestamp": time.time()
+                            }
+                        })
+                else:
+                    error_msg = result.get('error', 'Unknown error')
+                    logger.error(f"❌ WebSocket chat error for {client_id}: {error_msg}")
+                    
+                    try:
+                        await self.send_to_client(client_id, {
+                            "type": "error",
+                            "data": {
+                                "error": error_msg,
+                                "timestamp": time.time()
+                            }
+                        })
+                        logger.info(f"✅ Error message sent to {client_id}")
+                    except Exception as e:
+                        logger.error(f"❌ Failed to send error message to {client_id}: {e}")
+            else:
+                logger.warning(f"Unknown message type {message_type} from {client_id}")
+                await self.send_to_client(client_id, {
+                    "type": "error",
+                    "data": {
+                        "error": f"Unknown message type: {message_type}",
+                        "timestamp": time.time()
+                    }
+                })
+                
+        except Exception as e:
+            logger.error(f"Error handling WebSocket message from {client_id}: {e}")
+            await self.send_to_client(client_id, {
+                "type": "error",
+                "data": {
+                    "error": f"Message processing error: {e}",
+                    "timestamp": time.time()
+                }
+            })
+
+# Global WebSocket connection manager
+websocket_manager = WebSocketConnectionManager()
+
+def get_websocket_connection_manager():
+    """Get the global WebSocket connection manager instance"""
+    return websocket_manager
+
+# Export websocket_manager to server module for other files to import
+try:
+    import server
+    server.websocket_manager = websocket_manager
+except ImportError:
+    # This can happen during initial imports, but that's OK
+    pass
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """
+    FastAPI WebSocket endpoint for The Gold Box
+    Handles real-time communication with Foundry VTT frontend
+    """
+    client_id = None
+    
+    try:
+        # Accept the WebSocket connection first
+        await websocket.accept()
+        logger.info("WebSocket connection accepted")
         
-        logger.warning("Relay server may be starting up (health check failed but process is running)")
+        # Wait for initial connection message
+        connect_message = await websocket.receive_json()
+        logger.info(f"Received connection message: {connect_message}")
+        
+        # Validate connection message
+        if connect_message.get("type") != "connect":
+            await websocket.close(code=1008, reason="Expected connection message")
+            logger.warning("WebSocket: Expected connect message")
+            return
+        
+        client_id = connect_message.get("client_id")
+        token = connect_message.get("token")
+        
+        if not client_id or not token:
+            await websocket.close(code=1008, reason="Missing client_id or token")
+            logger.warning("WebSocket: Missing client_id or token")
+            return
+        
+        # Check for duplicate connections
+        if client_id in websocket_manager.connection_info:
+            await websocket.close(code=1008, reason="Client ID already connected")
+            logger.warning(f"WebSocket: Duplicate client ID {client_id}")
+            return
+        
+        # Connect the client
+        connection_info = {
+            "token": token,
+            "world_info": connect_message.get("world_info", {}),
+            "user_info": connect_message.get("user_info", {})
+        }
+        
+        # Manually add to connection manager since we already accepted
+        websocket_manager.active_connections.append(websocket)
+        websocket_manager.connection_info[client_id] = {
+            "websocket": websocket,
+            "connected_at": datetime.now().isoformat(),
+            **connection_info
+        }
+        logger.info(f"WebSocket client connected: {client_id}")
+        
+        # Send connection confirmation
+        await websocket_manager.send_to_client(client_id, {
+            "type": "connected",
+            "data": {
+                "client_id": client_id,
+                "server_time": datetime.now().isoformat(),
+                "message": "Successfully connected to The Gold Box WebSocket server"
+            }
+        })
+        
+        # Handle messages from this client
+        try:
+            while True:
+                message = await websocket.receive_json()
+                await websocket_manager.handle_message(client_id, message)
+                
+        except WebSocketDisconnect:
+            logger.info(f"WebSocket client {client_id} disconnected normally")
+        except Exception as e:
+            logger.error(f"WebSocket error for {client_id}: {e}")
+        finally:
+            # Clean up connection
+            await websocket_manager.disconnect(client_id)
+            
+    except Exception as e:
+        logger.error(f"WebSocket connection error: {e}")
+        if client_id:
+            await websocket_manager.disconnect(client_id)
+        else:
+            # Try to close the connection if it was opened
+            try:
+                await websocket.close(code=1011, reason="Internal server error")
+            except:
+                pass
+
+async def start_websocket_chat_handler():
+    """Initialize WebSocket chat handler (now using FastAPI built-in WebSocket)"""
+    try:
+        logger.info("WebSocket endpoint /ws registered with FastAPI")
+        logger.info("WebSocket chat handler started successfully")
         return True
         
     except Exception as e:
-        logger.error(f"Error starting relay server: {e}")
+        logger.error(f"Failed to start WebSocket chat handler: {e}")
         return False
+
+async def start_relay_server():
+    """Start relay server as a subprocess (deprecated, using WebSocket instead)"""
+    logger.info("Relay server is deprecated, using native WebSocket server instead")
+    return True
 
 def stop_relay_server():
     """Stop relay server process"""
@@ -841,19 +1160,10 @@ async def simple_chat_endpoint(request: Request):
         # logger.info(f"  max_retries: {max_retries}")
         # logger.info(f"  custom_headers_str: {custom_headers_str}")
         
-        result = await process_simple_chat(
-            request_data=request_data,  # Pass full request data with unified settings
-            provider_id=provider_id,
-            model=model,
-            prompt=None,  # Will be set from message context
-            message_context=messages,
-            temperature=0.1,  # Default temperature
-            max_tokens=None,  # No token limit by default
-            base_url=base_url,  # Pass base URL if provided
-            api_version=api_version,  # Pass API version
-            timeout=timeout,  # Pass timeout
-            max_retries=max_retries,  # Pass max retries
-            custom_headers=custom_headers_str  # Pass custom headers as JSON string
+        # Since simple_chat module was removed, return an error
+        raise HTTPException(
+            status_code=501,
+            detail="Simple chat endpoint has been deprecated. Please use API chat endpoint instead."
         )
         
         # logger.info(f"DEBUG: process_simple_chat returned: {result}")
@@ -1868,12 +2178,11 @@ if __name__ == '__main__':
     print("🔒 Universal Security Middleware is now active and protecting all endpoints")
     print("=" * 60)
     
-    # Start relay server
-    print("Starting relay server...")
-    import asyncio
-    relay_started = asyncio.run(start_relay_server())
-    if not relay_started:
-        print("⚠️  Warning: Failed to start relay server. API chat functionality may not work.")
+    # Initialize WebSocket chat handler (now using FastAPI built-in WebSocket)
+    print("Initializing WebSocket endpoint...")
+    websocket_started = asyncio.run(start_websocket_chat_handler())
+    if not websocket_started:
+        print("⚠️  Warning: Failed to initialize WebSocket endpoint. Native chat functionality may not work.")
     
     # Start FastAPI server with uvicorn
     uvicorn.run(

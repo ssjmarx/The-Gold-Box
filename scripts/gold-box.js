@@ -99,50 +99,50 @@ class GoldBoxAPI {
   }
 
   /**
-   * Sync settings to backend via admin API
+   * Display individual dice roll from WebSocket response
    */
-  async syncSettings(settings, adminPassword) {
+  displayDiceRoll(msgData) {
     try {
-      const headers = this.connectionManager.getSecurityHeaders();
-      // CRITICAL FIX: Add adminPassword to headers
-      if (adminPassword) {
-        headers["X-Admin-Password"] = adminPassword;
-        console.log("FINAL HTTP FIX: AdminPassword added to headers:", adminPassword ? "SUCCESS" : "FAILED");
+      console.log('The Gold Box: Displaying dice roll:', msgData);
+      
+      const rollData = msgData.roll || {};
+      const formula = rollData.formula || '';
+      const result = rollData.result || [];
+      const total = rollData.total || 0;
+      
+      // Create roll object for Foundry
+      const roll = new Roll(formula);
+      
+      // Create flavor text for roll
+      let flavor = 'The Gold Box Roll';
+      if (msgData.author?.name) {
+        flavor = `${msgData.author.name} Roll`;
       }
       
-      const response = await fetch(`${this.connectionManager.baseUrl}/api/admin`, {
-        method: 'POST',
-        headers: headers,
-        body: JSON.stringify({
-          command: 'update_settings',
-          settings: settings
-        })
+      // Create chat message with roll (using current API - define rolls directly)
+      ChatMessage.create({
+        user: game.user.id,
+        speaker: {
+          alias: msgData.author?.name || 'The Gold Box'
+        },
+        content: roll.formula,
+        rolls: [roll], // Current API: define rolls directly instead of using type
+        sound: CONFIG.sounds.dice,
+        style: CONST.CHAT_MESSAGE_STYLES.ROLL // Current API: use style instead of type
+      }).then(message => {
+        // Update roll with actual results (Foundry creates the roll, we need to set the results)
+        if (message && rollData.total !== undefined) {
+          roll._total = rollData.total;
+          message.update({
+            content: roll.formula,
+            rolls: [roll]
+          });
+        }
       });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || `HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      return {
-        success: true,
-        data: data
-      };
+      
     } catch (error) {
-      console.error('Gold Box API Connection Error:', error);
-      return {
-        success: false,
-        error: error.message
-      };
+      console.error('The Gold Box: Error displaying dice roll:', error);
     }
-  }
-
-  /**
-   * Test backend connection
-   */
-  async testConnection() {
-    return await this.connectionManager.testConnection();
   }
 
   /**
@@ -229,7 +229,7 @@ class GoldBoxAPI {
     }
     }
     try {
-      const processingMode = game.settings.get('the-gold-box', 'chatProcessingMode') || 'simple';
+      const processingMode = game.settings.get('the-gold-box', 'chatProcessingMode') || 'api';
       
       let endpoint;
       let requestData;
@@ -250,14 +250,33 @@ class GoldBoxAPI {
         console.warn('The Gold Box: No backend password configured, skipping settings sync');
       }
       
-      // STEP 2: Make chat request WITHOUT settings (use stored settings from backend)
+      // STEP 2: Check if WebSocket is available and use it
+      if (processingMode === 'api' && this.webSocketClient) {
+        // Check if WebSocket is connected (more robust check)
+        const wsConnected = this.webSocketClient.isConnected || this.webSocketClient.connectionState === 'connected';
+        if (wsConnected) {
+          console.log('The Gold Box: Using WebSocket for API mode');
+          return await this.sendViaWebSocket(messages);
+        } else {
+          console.log('The Gold Box: WebSocket client exists but not connected, falling back to HTTP API');
+          console.log('The Gold Box: WebSocket client exists:', !!this.webSocketClient);
+          console.log('The Gold Box: WebSocket connection state:', this.webSocketClient.connectionState || 'unknown');
+          console.log('The Gold Box: WebSocket isConnected property:', this.webSocketClient.isConnected);
+        }
+      } else if (processingMode === 'api') {
+        console.log('The Gold Box: WebSocket not available, falling back to HTTP API');
+        console.log('The Gold Box: WebSocket client exists:', !!this.webSocketClient);
+        console.log('The Gold Box: WebSocket connected:', this.webSocketClient ? this.webSocketClient.isConnected : 'N/A');
+      }
+      
+      // STEP 3: Fallback to HTTP API
       if (processingMode === 'context') {
         // NEW: Context mode with full board state integration
         endpoint = '/api/context_chat';
         
         // Get scene ID from current scene
         const sceneId = canvas?.scene?.id || game.scenes?.active?.id;
-        const clientId = this.apiBridge ? this.apiBridge.getClientId() : null;
+        const clientId = this.webSocketClient ? this.webSocketClient.clientId : (this.apiBridge ? this.apiBridge.getClientId() : null);
         
         requestData = {
           client_id: clientId || 'default-client',
@@ -284,12 +303,11 @@ class GoldBoxAPI {
       } else if (processingMode === 'api') {
         endpoint = '/api/api_chat';
         // Include client ID in request data if available
-        const clientId = this.apiBridge ? this.apiBridge.getClientId() : null;
+        const clientId = this.webSocketClient ? this.webSocketClient.clientId : (this.apiBridge ? this.apiBridge.getClientId() : null);
         console.log("API BRIDGE DEBUG: API bridge available:", !!this.apiBridge);
         console.log("API BRIDGE DEBUG: Client ID:", clientId);
-        console.log("RELAY DEBUG: Final requestData being sent:", JSON.stringify(requestData, null, 2));
-        console.log("API BRIDGE DEBUG: Full API bridge object:", this.apiBridge);
-        console.log("API BRIDGE DEBUG: API bridge connection info:", this.apiBridge ? this.apiBridge.getConnectionInfo() : "No bridge");
+        console.log("WEBSOCKET DEBUG: WebSocket client available:", !!this.webSocketClient);
+        console.log("WEBSOCKET DEBUG: WebSocket connected:", this.webSocketClient ? this.webSocketClient.isConnected : "N/A");
         requestData = {
           // NO settings here - backend will use stored settings
           context_count: game.settings.get('the-gold-box', 'maxMessageContext') || 15,
@@ -297,13 +315,8 @@ class GoldBoxAPI {
         };
         console.log('The Gold Box: Using API mode with client ID:', clientId || 'not connected', '- settings from backend storage');
       } else {
-        // Existing logic for other modes
-        endpoint = processingMode === 'processed' ? '/api/process_chat' : '/api/simple_chat';
-        requestData = {
-          // NO settings here - backend will use stored settings
-          messages: messages
-        };
-        console.log('The Gold Box: Using', processingMode, 'mode with endpoint:', endpoint, '- settings from backend storage');
+        // Should never reach here with only 'api' and 'context' modes
+        throw new Error(`Unsupported processing mode: ${processingMode}. Supported modes: 'api', 'context'`);
       }
       
       // Use ConnectionManager for request
@@ -313,6 +326,37 @@ class GoldBoxAPI {
       
     } catch (error) {
       console.error('Gold Box API Error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send chat request via WebSocket
+   */
+  async sendViaWebSocket(messages) {
+    if (!this.webSocketClient || !this.webSocketClient.isConnected) {
+      throw new Error('WebSocket not connected');
+    }
+
+    try {
+      const response = await this.webSocketClient.sendChatRequest(messages, {
+        contextCount: game.settings.get('the-gold-box', 'maxMessageContext') || 15,
+        sceneId: canvas?.scene?.id || game.scenes?.active?.id
+      });
+
+      if (response.success) {
+        return {
+          success: true,
+          data: {
+            response: response.data.response,
+            metadata: response.data
+          }
+        };
+      } else {
+        throw new Error(response.error || 'WebSocket request failed');
+      }
+    } catch (error) {
+      console.error('The Gold Box: WebSocket chat request error:', error);
       throw error;
     }
   }
@@ -336,19 +380,21 @@ class GoldBoxAPI {
         'general llm model': game.settings.get('the-gold-box', 'generalLlmModel') || '',
         'general llm version': game.settings.get('the-gold-box', 'generalLlmVersion') || 'v1',
         'general llm timeout': game.settings.get('the-gold-box', 'aiResponseTimeout') || 60,
-        'general llm max retries': game.settings.get('the-gold-box', 'generalLlmMaxRetries') ||3,
+        'general llm max retries': game.settings.get('the-gold-box', 'generalLlmMaxRetries') || 3,
         'general llm custom headers': game.settings.get('the-gold-box', 'generalLlmCustomHeaders') || '',
         'tactical llm provider': game.settings.get('the-gold-box', 'tacticalLlmProvider') || '',
         'tactical llm base url': game.settings.get('the-gold-box', 'tacticalLlmBaseUrl') || '',
         'tactical llm model': game.settings.get('the-gold-box', 'tacticalLlmModel') || '',
         'tactical llm version': game.settings.get('the-gold-box', 'tacticalLlmVersion') || 'v1',
         'tactical llm timeout': game.settings.get('the-gold-box', 'tacticalLlmTimeout') || 30,
-        'tactical llm max retries': game.settings.get('the-gold-box', 'tacticalLlmMaxRetries') ||3,
+        'tactical llm max retries': game.settings.get('the-gold-box', 'tacticalLlmMaxRetries') || 3,
         'tactical llm custom headers': game.settings.get('the-gold-box', 'tacticalLlmCustomHeaders') || '',
         'backend password': game.settings.get('the-gold-box', 'backendPassword') || ''
       };
       console.log("SETTINGS DEBUG: Retrieved settings count:", Object.keys(settings).length);
       console.log("SETTINGS DEBUG: Settings keys:", Object.keys(settings));
+      console.log("SETTINGS DEBUG: General LLM Provider:", settings['general llm provider']);
+      console.log("SETTINGS DEBUG: General LLM Model:", settings['general llm model']);
       return settings;
     } else {
       console.warn("SETTINGS DEBUG: Game or game.settings not available");
@@ -417,6 +463,40 @@ class GoldBoxAPI {
       indicator.remove();
     }
   }
+
+  /**
+   * Sync settings to backend admin endpoint
+   */
+  async syncSettings(settings, adminPassword) {
+    try {
+      const response = await fetch(`${this.baseUrl}/api/admin`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Admin-Password': adminPassword
+        },
+        body: JSON.stringify({
+          command: 'update_settings',
+          settings: settings
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        return {
+          success: true,
+          data: data
+        };
+      } else {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
 }
 
 class GoldBoxModule {
@@ -439,38 +519,273 @@ class GoldBoxModule {
     // Initialize API with game settings
     this.api.init();
     
-    // Check backend connection automatically (delayed until world is ready)
-    Hooks.once('ready', () => {
-      // Initialize API bridge after game is ready
-      this.initializeAPIBridge();
-      this.checkBackendAndShowInstructions();
-    });
+        // Check backend connection automatically (delayed until world is ready)
+        Hooks.once('ready', async () => {
+          // Phase 4: Initialize with enhanced Connection Manager
+          await this.initializeWithConnectionManager();
+          
+          this.checkBackendAndShowInstructions();
+        });
     
     console.log('The Gold Box is ready for AI adventures!');
   }
 
   /**
-   * Initialize API bridge connection
+   * Initialize WebSocket connection (replaces API bridge)
+   */
+  async initializeWebSocketConnection() {
+    console.log('The Gold Box: Initializing native WebSocket connection...');
+    
+    // Check if WebSocket client is available
+    if (typeof GoldBoxWebSocketClient !== 'undefined') {
+      try {
+        this.webSocketClient = new GoldBoxWebSocketClient(
+          this.api.baseUrl,
+          (message) => this.handleWebSocketMessage(message),
+          (error) => this.handleWebSocketError(error)
+        );
+
+        // Initialize message collector
+        if (typeof MessageCollector !== 'undefined') {
+          this.messageCollector = new MessageCollector();
+          this.messageCollector.start();
+          console.log('The Gold Box: Message collector started');
+        }
+
+        // Connect to WebSocket server
+        const connected = await this.webSocketClient.connect();
+        
+        if (connected) {
+          console.log('The Gold Box: WebSocket connection established successfully');
+          
+          // Wait for connection to be fully established
+          await this.webSocketClient.waitForConnection(5000);
+          
+          // Store WebSocket client reference in API for message collection
+          this.api.webSocketClient = this.webSocketClient;
+          
+          console.log('The Gold Box: WebSocket connection ready');
+          console.log('The Gold Box: WebSocket client details:', this.webSocketClient.getConnectionStatus());
+          return true;
+        } else {
+          console.warn('The Gold Box: WebSocket connection failed');
+          this.webSocketClient = null;
+          if (this.messageCollector) {
+            this.messageCollector.stop();
+          }
+          return false;
+        }
+        
+      } catch (error) {
+        console.error('The Gold Box: WebSocket connection error:', error);
+        this.webSocketClient = null;
+        if (this.messageCollector) {
+          this.messageCollector.stop();
+        }
+        return false;
+      }
+    } else {
+      console.warn('The Gold Box: GoldBoxWebSocketClient class not available - WebSocket client module may not be loaded');
+      this.webSocketClient = null;
+      return false;
+    }
+  }
+
+  /**
+   * Initialize with enhanced Connection Manager (Phase 4)
+   */
+  async initializeWithConnectionManager() {
+    console.log('The Gold Box: Phase 4 initialization with enhanced Connection Manager...');
+    
+    try {
+      // Step 1: Initialize Connection Manager
+      await this.api.connectionManager.initialize();
+      console.log('The Gold Box: Connection Manager initialized');
+      
+      // Step 2: Try WebSocket connection first
+      const wsConnected = await this.initializeWebSocketConnection();
+      
+      if (wsConnected) {
+        console.log('The Gold Box: WebSocket connection established');
+        
+        // Step 3: Set WebSocket client in Connection Manager
+        this.api.connectionManager.setWebSocketClient(this.webSocketClient);
+        
+        // Step 4: Flush any batch sync data
+        await this.api.connectionManager.flushBatchSyncData();
+        
+        // Step 5: Set up real-time data synchronization
+        this.setupRealTimeSync();
+        
+        console.log('The Gold Box: Phase 4 initialization complete - WebSocket first');
+        return true;
+      } else {
+        console.log('The Gold Box: WebSocket failed, falling back to HTTP-only mode');
+        
+        // Fallback: Initialize API bridge for compatibility
+        await this.initializeAPIBridge();
+        
+        console.log('The Gold Box: Phase 4 initialization complete - HTTP fallback');
+        return false;
+      }
+      
+    } catch (error) {
+      console.error('The Gold Box: Phase 4 initialization failed:', error);
+      
+      // Emergency fallback
+      await this.initializeAPIBridge();
+      return false;
+    }
+  }
+
+  /**
+   * Set up real-time data synchronization (Phase 4)
+   */
+  setupRealTimeSync() {
+    if (!this.webSocketClient || !this.api.connectionManager) {
+      console.warn('The Gold Box: Cannot set up real-time sync - missing components');
+      return;
+    }
+    
+    // Set up message handlers for real-time sync
+    this.webSocketClient.onMessageType('data_sync', (message) => {
+      this.handleRealTimeSync(message);
+    });
+    
+    this.webSocketClient.onMessageType('batch_sync', (message) => {
+      this.handleBatchSync(message);
+    });
+    
+    console.log('The Gold Box: Real-time synchronization set up');
+  }
+
+  /**
+   * Handle real-time sync messages (Phase 4)
+   */
+  handleRealTimeSync(message) {
+    try {
+      const syncData = message.data;
+      console.log('The Gold Box: Received real-time sync:', syncData.sync_type);
+      
+      switch (syncData.sync_type) {
+        case 'settings_update':
+          // Handle settings synchronization
+          this.handleSettingsSync(syncData.sync_data);
+          break;
+          
+        case 'scene_change':
+          // Handle scene change notifications
+          this.handleSceneChangeSync(syncData.sync_data);
+          break;
+          
+        case 'user_activity':
+          // Handle user activity tracking
+          this.handleUserActivitySync(syncData.sync_data);
+          break;
+          
+        default:
+          console.log('The Gold Box: Unknown sync type:', syncData.sync_type);
+      }
+      
+    } catch (error) {
+      console.error('The Gold Box: Error handling real-time sync:', error);
+    }
+  }
+
+  /**
+   * Handle batch sync messages (Phase 4)
+   */
+  handleBatchSync(message) {
+    try {
+      const batchData = message.data;
+      console.log('The Gold Box: Received batch sync with', batchData.sync_items.length, 'items');
+      
+      // Process each sync item
+      batchData.sync_items.forEach(item => {
+        this.handleRealTimeSync({ data: item });
+      });
+      
+    } catch (error) {
+      console.error('The Gold Box: Error handling batch sync:', error);
+    }
+  }
+
+  /**
+   * Handle settings synchronization (Phase 4)
+   */
+  handleSettingsSync(settingsData) {
+    try {
+      console.log('The Gold Box: Processing settings sync');
+      
+      // Update local settings if needed
+      if (typeof game !== 'undefined' && game.settings) {
+        Object.keys(settingsData).forEach(key => {
+          if (settingsData[key] && settingsData[key] !== game.settings.get('the-gold-box', key)) {
+            console.log('The Gold Box: Syncing setting', key, '=', settingsData[key]);
+            // Note: This would require GM permissions
+          }
+        });
+      }
+      
+    } catch (error) {
+      console.error('The Gold Box: Error handling settings sync:', error);
+    }
+  }
+
+  /**
+   * Handle scene change synchronization (Phase 4)
+   */
+  handleSceneChangeSync(sceneData) {
+    try {
+      console.log('The Gold Box: Processing scene change sync');
+      
+      // Update UI or trigger scene-specific actions
+      if (sceneData.scene_id && canvas?.scene?.id !== sceneData.scene_id) {
+        console.log('The Gold Box: Scene changed to', sceneData.scene_id);
+        // Could trigger scene-specific AI behaviors here
+      }
+      
+    } catch (error) {
+      console.error('The Gold Box: Error handling scene change sync:', error);
+    }
+  }
+
+  /**
+   * Handle user activity synchronization (Phase 4)
+   */
+  handleUserActivitySync(activityData) {
+    try {
+      console.log('The Gold Box: Processing user activity sync');
+      
+      // Could be used for collaborative features or activity tracking
+      if (activityData.user_id && activityData.activity) {
+        console.log('The Gold Box: User activity:', activityData.user_id, activityData.activity);
+      }
+      
+    } catch (error) {
+      console.error('The Gold Box: Error handling user activity sync:', error);
+    }
+  }
+
+  /**
+   * Initialize API bridge (fallback for compatibility)
    */
   async initializeAPIBridge() {
-    console.log('The Gold Box: Initializing API bridge...');
+    console.log('The Gold Box: Initializing API bridge (fallback mode)...');
     
     // Check if APIBridge is available (loaded from api-bridge.js)
     if (typeof APIBridge !== 'undefined') {
       this.apiBridge = new APIBridge();
       const success = await this.apiBridge.initialize();
-      // CRITICAL FIX: Share API bridge with global game object
-      if (typeof game !== 'undefined') {
-        game.goldBox = this;
-        game.goldBox.apiBridge = this.apiBridge;
-        console.log('API BRIDGE DEBUG: Shared API bridge with game.goldBox');
-      }
+      
       if (!success) {
         console.warn('The Gold Box: API bridge initialization failed (this is expected if user is not GM)');
       }
+      return success;
     } else {
       console.warn('The Gold Box: APIBridge class not available - Foundry REST API module may not be loaded');
       this.apiBridge = null;
+      return false;
     }
   }
 
@@ -519,12 +834,10 @@ class GoldBoxModule {
       config: true,
       type: String,
       choices: {
-        "simple": "Simple (deprecated)",
-        "processed": "Processed (deprecated)",
         "api": "API (recommended)",
         "context": "Context (unfinished)"
       },
-      default: "simple"
+      default: "api"
     });
 
     // Register maximum message context setting
@@ -1008,6 +1321,198 @@ class GoldBoxModule {
   }
 
   /**
+   * Handle WebSocket message from server
+   */
+  handleWebSocketMessage(message) {
+    try {
+      console.log('The Gold Box: Received WebSocket message:', message);
+      
+      switch (message.type) {
+        case 'chat_response':
+          // Handle AI response from WebSocket - NEW: support structured message data
+          if (message.data && message.data.message) {
+            const msgData = message.data.message;
+            
+            // Handle different message types from structured AI response
+            switch (msgData.type) {
+              case 'chat-message':
+                // Display chat message in Foundry chat
+                this.displayChatMessage(msgData);
+                break;
+                
+              case 'dice-roll':
+                // Display dice roll in Foundry chat
+                this.displayDiceRoll(msgData);
+                break;
+                
+              case 'chat-card':
+                // Display chat card in Foundry chat
+                this.displayChatCard(msgData);
+                break;
+                
+              default:
+                console.log('The Gold Box: Unknown message type in chat_response:', msgData.type);
+                // Fallback: try to display as simple response
+                if (typeof msgData.content === 'string') {
+                  this.displayAIResponse(msgData.content, message.data);
+                }
+            }
+          } else if (message.data && message.data.response) {
+            // Fallback for legacy format (simple string response)
+            this.displayAIResponse(message.data.response, message.data);
+          }
+          break;
+          
+        case 'error':
+          // Handle error from WebSocket
+          if (message.data && message.data.error) {
+            this.displayErrorResponse(message.data.error);
+          }
+          break;
+          
+        case 'connected':
+          console.log('The Gold Box: WebSocket connection confirmed');
+          break;
+          
+        default:
+          console.log('The Gold Box: Unknown WebSocket message type:', message.type);
+      }
+    } catch (error) {
+      console.error('The Gold Box: Error handling WebSocket message:', error);
+    }
+  }
+
+  /**
+   * Display individual chat message from WebSocket response
+   */
+  displayChatMessage(msgData) {
+    try {
+      console.log('The Gold Box: Displaying chat message:', msgData);
+      
+      // Always use "The Gold Box" as the speaker to clearly label AI-generated content
+      const content = msgData.content || '';
+      
+      // Create chat message in Foundry (using current API)
+      ChatMessage.create({
+        user: game.user.id,
+        content: content,
+        speaker: {
+          alias: 'The Gold Box' // Always show as The Gold Box to avoid confusion
+        },
+        style: CONST.CHAT_MESSAGE_STYLES.IC // In-character message (current API)
+      });
+      
+    } catch (error) {
+      console.error('The Gold Box: Error displaying chat message:', error);
+    }
+  }
+
+  /**
+   * Display individual dice roll from WebSocket response
+   */
+  async displayDiceRoll(msgData) {
+    try {
+      console.log('The Gold Box: Displaying dice roll:', msgData);
+      
+      const rollData = msgData.roll || {};
+      const formula = rollData.formula || '';
+      const result = rollData.result || [];
+      const total = rollData.total || 0;
+      
+      // Create roll object for Foundry and evaluate it asynchronously
+      const roll = new Roll(formula);
+      await roll.evaluate(); // Async evaluation for complex formulas
+      
+      // Override the total with the AI-provided result
+      roll._total = total;
+      
+      // Create flavor text for the roll
+      let flavor = 'The Gold Box Roll';
+      if (msgData.author?.name) {
+        flavor = `${msgData.author.name} Roll`;
+      }
+      
+      // Create chat message with roll (using current API - no deprecated style)
+      await ChatMessage.create({
+        user: game.user.id,
+        speaker: {
+          alias: 'The Gold Box' // Always show as The Gold Box to avoid confusion
+        },
+        content: roll.formula,
+        rolls: [roll], // Current API: define rolls directly (roll is already evaluated)
+        sound: CONFIG.sounds.dice
+        // Removed deprecated style: CONST.CHAT_MESSAGE_STYLES.ROLL
+      });
+      
+    } catch (error) {
+      console.error('The Gold Box: Error displaying dice roll:', error);
+    }
+  }
+
+  /**
+   * Display individual chat card from WebSocket response
+   */
+  displayChatCard(msgData) {
+    try {
+      console.log('The Gold Box: Displaying chat card:', msgData);
+      
+      const title = msgData.title || 'The Gold Box';
+      const description = msgData.description || '';
+      const actions = msgData.actions || [];
+      
+      // Create HTML for the card
+      let cardContent = `
+        <div class="gold-box-chat-card">
+          <div class="card-header">
+            <h3>${title}</h3>
+          </div>
+          <div class="card-content">
+            ${description ? `<p>${description}</p>` : ''}
+          </div>
+          ${actions.length > 0 ? `
+            <div class="card-actions">
+              ${actions.map(action => {
+                if (typeof action === 'string') {
+                  return `<button class="gold-box-card-action" data-action="${action}">${action}</button>`;
+                } else if (action.name && action.action) {
+                  return `<button class="gold-box-card-action" data-action="${action.action}" data-name="${action.name}">${action.name}</button>`;
+                }
+                return `<button class="gold-box-card-action">${action.toString()}</button>`;
+              }).join('')}
+            </div>
+          ` : ''}
+        </div>
+      `;
+      
+      // Create chat message with card (using current API)
+      ChatMessage.create({
+        user: game.user.id,
+        speaker: {
+          alias: 'The Gold Box'
+        },
+        content: cardContent,
+        style: CONST.CHAT_MESSAGE_STYLES.OTHER // Current API: use style instead of type
+      });
+      
+    } catch (error) {
+      console.error('The Gold Box: Error displaying chat card:', error);
+    }
+  }
+
+  /**
+   * Handle WebSocket error
+   */
+  handleWebSocketError(error) {
+    console.error('The Gold Box: WebSocket error:', error);
+    
+    // Show error notification to user
+    if (typeof ui !== 'undefined' && ui.notifications) {
+      ui.notifications.error('WebSocket connection error: ' + (error.message || error));
+    }
+  }
+
+
+  /**
    * Collect ALL frontend settings into unified object
    */
   /**
@@ -1016,26 +1521,26 @@ class GoldBoxModule {
   getUnifiedFrontendSettings() {
     // Direct implementation to avoid delegation timing issues
     if (typeof game !== 'undefined' && game.settings) {
-      console.log("SETTINGS DEBUG: Game and game.settings available");
+        console.log("SETTINGS DEBUG: Game and game.settings available");
       const settings = {
-        'maximum message context': game.settings.get('gold-box', 'maxMessageContext') || 15,
-        'chat processing mode': game.settings.get('gold-box', 'chatProcessingMode') || 'simple',
-        'ai role': game.settings.get('gold-box', 'aiRole') || 'dm',
-        'general llm provider': game.settings.get('gold-box', 'generalLlmProvider') || '',
-        'general llm base url': game.settings.get('gold-box', 'generalLlmBaseUrl') || '',
-        'general llm model': game.settings.get('gold-box', 'generalLlmModel') || '',
-        'general llm version': game.settings.get('gold-box', 'generalLlmVersion') || 'v1',
-        'general llm timeout': game.settings.get('gold-box', 'aiResponseTimeout') || 60,
-        'general llm max retries': game.settings.get('gold-box', 'generalLlmMaxRetries') || 3,
-        'general llm custom headers': game.settings.get('gold-box', 'generalLlmCustomHeaders') || '',
-        'tactical llm provider': game.settings.get('gold-box', 'tacticalLlmProvider') || '',
-        'tactical llm base url': game.settings.get('gold-box', 'tacticalLlmBaseUrl') || '',
-        'tactical llm model': game.settings.get('gold-box', 'tacticalLlmModel') || '',
-        'tactical llm version': game.settings.get('gold-box', 'tacticalLlmVersion') || 'v1',
-        'tactical llm timeout': game.settings.get('gold-box', 'tacticalLlmTimeout') || 30,
-        'tactical llm max retries': game.settings.get('gold-box', 'tacticalLlmMaxRetries') || 3,
-        'tactical llm custom headers': game.settings.get('gold-box', 'tacticalLlmCustomHeaders') || '',
-        'backend password': game.settings.get('gold-box', 'backendPassword') || ''
+        'maximum message context': game.settings.get('the-gold-box', 'maxMessageContext') || 15,
+        'chat processing mode': game.settings.get('the-gold-box', 'chatProcessingMode') || 'simple',
+        'ai role': game.settings.get('the-gold-box', 'aiRole') || 'dm',
+        'general llm provider': game.settings.get('the-gold-box', 'generalLlmProvider') || '',
+        'general llm base url': game.settings.get('the-gold-box', 'generalLlmBaseUrl') || '',
+        'general llm model': game.settings.get('the-gold-box', 'generalLlmModel') || '',
+        'general llm version': game.settings.get('the-gold-box', 'generalLlmVersion') || 'v1',
+        'general llm timeout': game.settings.get('the-gold-box', 'aiResponseTimeout') || 60,
+        'general llm max retries': game.settings.get('the-gold-box', 'generalLlmMaxRetries') || 3,
+        'general llm custom headers': game.settings.get('the-gold-box', 'generalLlmCustomHeaders') || '',
+        'tactical llm provider': game.settings.get('the-gold-box', 'tacticalLlmProvider') || '',
+        'tactical llm base url': game.settings.get('the-gold-box', 'tacticalLlmBaseUrl') || '',
+        'tactical llm model': game.settings.get('the-gold-box', 'tacticalLlmModel') || '',
+        'tactical llm version': game.settings.get('the-gold-box', 'tacticalLlmVersion') || 'v1',
+        'tactical llm timeout': game.settings.get('the-gold-box', 'tacticalLlmTimeout') || 30,
+        'tactical llm max retries': game.settings.get('the-gold-box', 'tacticalLlmMaxRetries') || 3,
+        'tactical llm custom headers': game.settings.get('the-gold-box', 'tacticalLlmCustomHeaders') || '',
+        'backend password': game.settings.get('the-gold-box', 'backendPassword') || ''
       };
       console.log("SETTINGS DEBUG: Retrieved settings count:", Object.keys(settings).length);
       console.log("SETTINGS DEBUG: Settings keys:", Object.keys(settings));
