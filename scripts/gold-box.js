@@ -108,53 +108,6 @@ class GoldBoxAPI {
   }
 
   /**
-   * Display individual dice roll from WebSocket response
-   */
-  displayDiceRoll(msgData) {
-    try {
-      console.log('The Gold Box: Displaying dice roll:', msgData);
-      
-      const rollData = msgData.roll || {};
-      const formula = rollData.formula || '';
-      const result = rollData.result || [];
-      const total = rollData.total || 0;
-      
-      // Create roll object for Foundry
-      const roll = new Roll(formula);
-      
-      // Create flavor text for roll
-      let flavor = 'The Gold Box Roll';
-      if (msgData.author?.name) {
-        flavor = `${msgData.author.name} Roll`;
-      }
-      
-      // Create chat message with roll (using current API - define rolls directly)
-      ChatMessage.create({
-        user: game.user.id,
-        speaker: {
-          alias: msgData.author?.name || 'The Gold Box'
-        },
-        content: roll.formula,
-        rolls: [roll], // Current API: define rolls directly instead of using type
-        sound: CONFIG.sounds.dice,
-        style: CONST.CHAT_MESSAGE_STYLES.ROLL // Current API: use style instead of type
-      }).then(message => {
-        // Update roll with actual results (Foundry creates the roll, we need to set the results)
-        if (message && rollData.total !== undefined) {
-          roll._total = rollData.total;
-          message.update({
-            content: roll.formula,
-            rolls: [roll]
-          });
-        }
-      });
-      
-    } catch (error) {
-      console.error('The Gold Box: Error displaying dice roll:', error);
-    }
-  }
-
-  /**
    * Auto-discover and update port
    */
   async autoDiscoverAndUpdatePort() {
@@ -181,15 +134,15 @@ class GoldBoxAPI {
       
       if (response.success) {
         // Display success response
-        moduleInstance.displayAIResponse(response.data.response, response.data);
+        moduleInstance.uiManager.displayAIResponse(response.data.response, response.data);
       } else {
         // Display error response
-        moduleInstance.displayErrorResponse(response.error || 'Unknown error occurred');
+        moduleInstance.uiManager.displayErrorResponse(response.error || 'Unknown error occurred');
       }
       
     } catch (error) {
       console.error('The Gold Box: Error processing AI turn:', error);
-      moduleInstance.displayErrorResponse(error.message);
+      moduleInstance.uiManager.displayErrorResponse(error.message);
     }
   }
 
@@ -351,47 +304,6 @@ class GoldBoxAPI {
   }
 
   /**
-   * Display AI response in chat with context mode support
-   */
-  showProcessingIndicator() {
-    // Remove existing indicator
-    const existing = document.querySelector('.gold-box-processing');
-    if (existing) {
-      existing.remove();
-    }
-    
-    // Create and show new indicator
-    const indicator = document.createElement('div');
-    indicator.className = 'gold-box-processing';
-    indicator.style.cssText = `
-      position: fixed;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      background: rgba(0, 0, 0, 0.8);
-      color: white;
-      padding: 20px;
-      border-radius: 8px;
-      z-index: 1000;
-      font-weight: bold;
-      box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
-    `;
-    indicator.innerHTML = 'AI Processing...';
-    
-    document.body.appendChild(indicator);
-  }
-
-  /**
-   * Hide processing indicator
-   */
-  hideProcessingIndicator() {
-    const indicator = document.querySelector('.gold-box-processing');
-    if (indicator) {
-      indicator.remove();
-    }
-  }
-
-  /**
    * Sync settings to backend admin endpoint
    */
   async syncSettings(settings, adminPassword) {
@@ -460,6 +372,8 @@ class GoldBoxModule {
     this.api = new GoldBoxAPI();
     // Initialize Settings Manager
     this.settingsManager = new SettingsManager();
+    // Initialize UI Manager
+    this.uiManager = new GoldBoxUIManager(this.settingsManager, this);
   }
 
   /**
@@ -467,6 +381,9 @@ class GoldBoxModule {
    */
   async init() {
     console.log('The Gold Box module initialized');
+    
+    // Initialize UI Manager
+    this.uiManager.init();
     
     // Register hooks
     this.registerHooks();
@@ -742,26 +659,24 @@ class GoldBoxModule {
       });
     });
 
-    // Note: Game ready hook is now consolidated above with API bridge initialization
-
     // Hook to add chat button when sidebar tab is rendered
     Hooks.on('renderSidebarTab', (app, html, data) => {
       console.log('The Gold Box: renderSidebarTab hook fired for', app.options.id);
       if (app.options.id === 'chat') {
-        this.addChatButton(html);
+        this.uiManager.addChatButton(html);
       }
     });
 
     // Also try hooking to chat log render as backup
     Hooks.on('renderChatLog', (app, html, data) => {
       console.log('The Gold Box: renderChatLog hook fired');
-      this.addChatButton(html);
+      this.uiManager.addChatButton(html);
     });
 
     // Hook to update button when settings change
     Hooks.on('updateSettings', (settings) => {
       console.log('The Gold Box: Settings updated, updating chat button');
-      this.updateChatButtonText();
+      this.uiManager.updateChatButtonText();
     });
   }
 
@@ -833,158 +748,6 @@ class GoldBoxModule {
   }
 
   /**
-   * Add "Take AI Turn" button to chat interface
-   */
-  addChatButton(html) {
-    console.log('The Gold Box: Adding chat button...');
-    
-    // Handle both jQuery and plain DOM objects
-    const $html = $(html);
-    
-    // Remove existing button to prevent duplicates
-    $html.find('#gold-box-ai-turn-btn').remove();
-    
-    // Try multiple selectors for Foundry's chat form structure
-    let chatForm = $html.find('#chat-form');
-    let messageInput = $html.find('textarea[name="message"]');
-    
-    // Fallback selectors if primary ones don't work
-    if (chatForm.length === 0) {
-      chatForm = $html.find('form.chat-form');
-    }
-    if (messageInput.length === 0) {
-      messageInput = $html.find('textarea');
-      if (messageInput.length > 1) {
-        messageInput = $html.find('textarea').first(); // Get first textarea
-      }
-    }
-    
-    // Last resort: try to find any suitable container
-    if (chatForm.length === 0) {
-      const container = $html.find('.chat-messages, .chat-log, .chat-container');
-      if (container.length > 0) {
-        // Create a simple button and append to container
-        this.addSimpleButton(container);
-        return;
-      }
-      
-      console.warn('The Gold Box: Chat form not found, waiting for DOM to be ready...');
-      // Only retry a few times, not infinitely
-      if (!this.buttonRetryCount) this.buttonRetryCount = 0;
-      if (this.buttonRetryCount < 3) {
-        this.buttonRetryCount++;
-        setTimeout(() => this.addChatButton(html), 2000);
-      } else {
-        console.error('The Gold Box: Failed to find chat form after multiple attempts');
-      }
-      return;
-    }
-    
-    // Get current processing mode for button text
-    const processingMode = this.settingsManager.getProcessingMode();
-    const buttonText = this.settingsManager.getButtonText();
-    
-    // Create button with enhanced styling and accessibility
-    const button = $(`
-      <button id="gold-box-ai-turn-btn" 
-              class="gold-box-ai-turn-btn" 
-              type="button" 
-              title="Trigger AI response based on current processing mode"
-              aria-label="Take AI Turn"
-              style="
-                background: linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FF8C00 100%);
-                color: #1a1a1a;
-                border: none;
-                padding: 8px 12px;
-                margin-left: 5px;
-                border-radius: 4px;
-                cursor: pointer;
-                font-weight: 600;
-                font-size: 12px;
-                transition: all 0.2s ease;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 2px 6px rgba(0,0,0,0.2);
-                flex-shrink: 0;
-              ">
-        ${buttonText}
-      </button>
-    `);
-    
-    // Add button after message input
-    if (messageInput.length > 0) {
-      messageInput.after(button);
-    } else {
-      // Fallback: add to form
-      chatForm.append(button);
-    }
-    
-    // Add click handler
-    button.on('click', (e) => {
-      e.preventDefault();
-      this.onTakeAITurn();
-    });
-    
-    console.log('The Gold Box: Chat button added successfully');
-  }
-
-  /**
-   * Add simple button when chat form structure is not available
-   */
-  addSimpleButton(container) {
-    console.log('The Gold Box: Adding simple button to container...');
-    
-    // Get current processing mode for button text
-    const processingMode = this.settingsManager.getProcessingMode();
-    const buttonText = this.settingsManager.getButtonText();
-    
-    // Create button with enhanced styling
-    const button = $(`
-      <button id="gold-box-ai-turn-btn" 
-              class="gold-box-ai-turn-btn" 
-              type="button" 
-              title="Trigger AI response based on current processing mode"
-              style="
-                background: linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FF8C00 100%);
-                color: #1a1a1a;
-                border: none;
-                padding: 8px 12px;
-                margin: 5px;
-                border-radius: 4px;
-                cursor: pointer;
-                font-weight: 600;
-                font-size: 12px;
-                transition: all 0.2s ease;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.3), 0 2px 6px rgba(0,0,0,0.2);
-              ">
-        ${buttonText}
-      </button>
-    `);
-    
-    // Add button to container
-    container.append(button);
-    
-    // Add click handler
-    button.on('click', (e) => {
-      e.preventDefault();
-      this.onTakeAITurn();
-    });
-    
-    console.log('The Gold Box: Simple button added successfully');
-  }
-
-  /**
-   * Update button text when processing mode changes
-   */
-  updateChatButtonText() {
-    const button = $('#gold-box-ai-turn-btn');
-    if (button.length > 0) {
-      const processingMode = this.settingsManager.getProcessingMode();
-      const buttonText = this.settingsManager.getButtonText();
-      button.text(buttonText);
-      console.log('The Gold Box: Updated button text to:', buttonText);
-    }
-  }
-
-  /**
    * Handle "Take AI Turn" button click
    */
   async onTakeAITurn() {
@@ -1008,7 +771,7 @@ class GoldBoxModule {
       
     } catch (error) {
       console.error('The Gold Box: Error in AI turn:', error);
-      this.displayErrorResponse(error.message);
+      this.uiManager.displayErrorResponse(error.message);
     } finally {
       // Reset button state
       this.api.setButtonProcessingState(button, false);
@@ -1032,36 +795,36 @@ class GoldBoxModule {
             switch (msgData.type) {
               case 'chat-message':
                 // Display chat message in Foundry chat
-                this.displayChatMessage(msgData);
+                this.uiManager.displayChatMessage(msgData);
                 break;
                 
               case 'dice-roll':
                 // Display dice roll in Foundry chat
-                this.displayDiceRoll(msgData);
+                this.uiManager.displayDiceRoll(msgData);
                 break;
                 
               case 'chat-card':
                 // Display chat card in Foundry chat
-                this.displayChatCard(msgData);
+                this.uiManager.displayChatCard(msgData);
                 break;
                 
               default:
                 console.log('The Gold Box: Unknown message type in chat_response:', msgData.type);
                 // Fallback: try to display as simple response
                 if (typeof msgData.content === 'string') {
-                  this.displayAIResponse(msgData.content, message.data);
+                  this.uiManager.displayAIResponse(msgData.content, message.data);
                 }
             }
           } else if (message.data && message.data.response) {
             // Fallback for legacy format (simple string response)
-            this.displayAIResponse(message.data.response, message.data);
+            this.uiManager.displayAIResponse(message.data.response, message.data);
           }
           break;
           
         case 'error':
           // Handle error from WebSocket
           if (message.data && message.data.error) {
-            this.displayErrorResponse(message.data.error);
+            this.uiManager.displayErrorResponse(message.data.error);
           }
           break;
           
@@ -1078,298 +841,13 @@ class GoldBoxModule {
   }
 
   /**
-   * Display individual chat message from WebSocket response
-   */
-  displayChatMessage(msgData) {
-    try {
-      console.log('The Gold Box: Displaying chat message:', msgData);
-      
-      // Always use "The Gold Box" as the speaker to clearly label AI-generated content
-      const content = msgData.content || '';
-      
-      // Create chat message in Foundry (using current API)
-      ChatMessage.create({
-        user: game.user.id,
-        content: content,
-        speaker: {
-          alias: 'The Gold Box' // Always show as The Gold Box to avoid confusion
-        },
-        style: CONST.CHAT_MESSAGE_STYLES.IC // In-character message (current API)
-      });
-      
-    } catch (error) {
-      console.error('The Gold Box: Error displaying chat message:', error);
-    }
-  }
-
-  /**
-   * Display individual dice roll from WebSocket response
-   */
-  async displayDiceRoll(msgData) {
-    try {
-      console.log('The Gold Box: Displaying dice roll:', msgData);
-      
-      const rollData = msgData.roll || {};
-      const formula = rollData.formula || '';
-      const result = rollData.result || [];
-      const total = rollData.total || 0;
-      
-      // Create roll object for Foundry and evaluate it asynchronously
-      const roll = new Roll(formula);
-      await roll.evaluate(); // Async evaluation for complex formulas
-      
-      // Override the total with the AI-provided result
-      roll._total = total;
-      
-      // Create flavor text for the roll
-      let flavor = 'The Gold Box Roll';
-      if (msgData.author?.name) {
-        flavor = `${msgData.author.name} Roll`;
-      }
-      
-      // Create chat message with roll (using current API - no deprecated style)
-      await ChatMessage.create({
-        user: game.user.id,
-        speaker: {
-          alias: 'The Gold Box' // Always show as The Gold Box to avoid confusion
-        },
-        content: roll.formula,
-        rolls: [roll], // Current API: define rolls directly (roll is already evaluated)
-        sound: CONFIG.sounds.dice
-        // Removed deprecated style: CONST.CHAT_MESSAGE_STYLES.ROLL
-      });
-      
-    } catch (error) {
-      console.error('The Gold Box: Error displaying dice roll:', error);
-    }
-  }
-
-  /**
-   * Display individual chat card from WebSocket response
-   */
-  displayChatCard(msgData) {
-    try {
-      console.log('The Gold Box: Displaying chat card:', msgData);
-      
-      const title = msgData.title || 'The Gold Box';
-      const description = msgData.description || '';
-      const actions = msgData.actions || [];
-      
-      // Create HTML for the card
-      let cardContent = `
-        <div class="gold-box-chat-card">
-          <div class="card-header">
-            <h3>${title}</h3>
-          </div>
-          <div class="card-content">
-            ${description ? `<p>${description}</p>` : ''}
-          </div>
-          ${actions.length > 0 ? `
-            <div class="card-actions">
-              ${actions.map(action => {
-                if (typeof action === 'string') {
-                  return `<button class="gold-box-card-action" data-action="${action}">${action}</button>`;
-                } else if (action.name && action.action) {
-                  return `<button class="gold-box-card-action" data-action="${action.action}" data-name="${action.name}">${action.name}</button>`;
-                }
-                return `<button class="gold-box-card-action">${action.toString()}</button>`;
-              }).join('')}
-            </div>
-          ` : ''}
-        </div>
-      `;
-      
-      // Create chat message with card (using current API)
-      ChatMessage.create({
-        user: game.user.id,
-        speaker: {
-          alias: 'The Gold Box'
-        },
-        content: cardContent,
-        style: CONST.CHAT_MESSAGE_STYLES.OTHER // Current API: use style instead of type
-      });
-      
-    } catch (error) {
-      console.error('The Gold Box: Error displaying chat card:', error);
-    }
-  }
-
-  /**
    * Handle WebSocket error
    */
   handleWebSocketError(error) {
     console.error('The Gold Box: WebSocket error:', error);
     
     // Show error notification to user
-    if (typeof ui !== 'undefined' && ui.notifications) {
-      ui.notifications.error('WebSocket connection error: ' + (error.message || error));
-    }
-  }
-
-  /**
-   * Display AI response in chat with context mode support
-   */
-  displayAIResponse(response, metadata) {
-    // Use hardcoded name since we removed moduleElementsName setting
-    const customName = 'The Gold Box';
-    const role = this.settingsManager.getSetting('aiRole', 'dm');
-    const processingMode = this.settingsManager.getProcessingMode();
-    
-    const roleDisplay = {
-      'dm': 'Dungeon Master',
-      'dm_assistant': 'DM Assistant',
-      'player': 'Player'
-    };
-    
-    // Check if messages were sent via relay server successfully
-    const isRelaySuccess = metadata && metadata.metadata && metadata.metadata.messages_sent > 0 && !metadata.metadata.relay_error;
-    
-    // When relay transmission works, don't show a separate message - the AI response was already sent to chat
-    if (isRelaySuccess) {
-      console.log('The Gold Box: Relay transmission successful, skipping duplicate message creation');
-      return; // Skip creating duplicate message since relay already sent the AI response
-    }
-    
-    let messageContent;
-    let contextInfo = '';
-    
-    // Add context mode indicators
-    if (processingMode === 'context') {
-      contextInfo = `
-        <div class="gold-box-context-info">
-          <p><strong>Context Mode Active</strong> - AI considered complete board state</p>
-          ${metadata && metadata.metadata ? `
-            <p><em>Context Elements:</em> ${metadata.metadata.board_elements ? Object.keys(metadata.metadata.board_elements).filter(k => metadata.metadata.board_elements[k]).join(', ') : 'scene data'}</p>
-            <p><em>Attributes Mapped:</em> ${metadata.metadata.attributes_mapped || 0} attributes</p>
-            <p><em>Compression:</em> ${metadata.metadata.compression_ratio ? (metadata.metadata.compression_ratio * 100).toFixed(1) + '%' : 'N/A'}</p>
-          ` : ''}
-        </div>
-      `;
-    }
-    
-    if (metadata && metadata.relay_error) {
-      // Error case when relay server transmission failed - show actual AI response
-      messageContent = `
-        <div class="gold-box-error">
-          <div class="gold-box-header">
-            <strong>${customName} - Relay Transmission Error</strong>
-            <div class="gold-box-timestamp">${new Date().toLocaleTimeString()}</div>
-          </div>
-          <div class="gold-box-content">
-            ${contextInfo}
-            <p><strong>AI Response:</strong></p>
-            <div class="ai-response-content">${response}</div>
-            <p><strong>Relay Error:</strong> ${metadata.relay_error}</p>
-            <p><em>Messages were processed but could not be sent to Foundry chat via relay server.</em></p>
-            <p><em>Please check relay server connection and client ID configuration.</em></p>
-          </div>
-        </div>
-      `;
-    } else {
-      // Display actual AI response content - not debug information
-      // This handles the case where relay is not used or messages_sent is 0
-      messageContent = `
-        <div class="gold-box-response">
-          <div class="gold-box-header">
-            <strong>${customName} - ${roleDisplay[role] || 'AI Response'}${processingMode === 'context' ? ' (Context-Aware)' : ''}</strong>
-            <div class="gold-box-timestamp">${new Date().toLocaleTimeString()}</div>
-          </div>
-          <div class="gold-box-content">
-            ${contextInfo}
-            <div class="ai-response-content">${response}</div>
-            ${metadata && metadata.provider_used ? `
-              <div class="ai-metadata">
-                <p><em>Processed using ${metadata.provider_used} - ${metadata.model_used} (${metadata.tokens_used} tokens)</em></p>
-                ${processingMode === 'context' && metadata.metadata ? `
-                  <p><em>Context: ${metadata.metadata.attribute_count || 0} attributes, ${metadata.metadata.scene_id ? 'scene ' + metadata.metadata.scene_id : 'default scene'}</em></p>
-                ` : ''}
-              </div>
-            ` : ''}
-          </div>
-        </div>
-      `;
-    }
-    
-    // Send message to chat
-    ChatMessage.create({
-      user: game.user.id,
-      content: messageContent,
-      speaker: {
-        alias: customName
-      }
-    });
-  }
-
-  /**
-   * Display error response in chat
-   */
-  displayErrorResponse(error) {
-    // Use hardcoded name since we removed moduleElementsName setting
-    const customName = 'The Gold Box';
-    
-    const messageContent = `
-      <div class="gold-box-error">
-        <div class="gold-box-header">
-          <strong>${customName} - Error</strong>
-        </div>
-        <div class="gold-box-content">
-          <p><strong>Error:</strong> ${error}</p>
-          <p>Please check your backend connection and settings.</p>
-        </div>
-      </div>
-    `;
-    
-    // Send error message to chat
-    ChatMessage.create({
-      user: game.user.id,
-      content: messageContent,
-      speaker: {
-        alias: customName
-      }
-    });
-  }
-
-  /**
-   * Display startup instructions prominently in chat
-   */
-  displayStartupInstructions() {
-    // Use hardcoded name since we removed moduleElementsName setting
-    const customName = 'The Gold Box';
-    
-    // Startup instructions without rocket emoji
-    const messageContent = `
-      <div class="gold-box-startup">
-        <div class="gold-box-header">
-          <strong>${customName} - Backend Startup Required</strong>
-          <div class="gold-box-timestamp">${new Date().toLocaleTimeString()}</div>
-        </div>
-        <div class="gold-box-content">
-          <p><strong>Backend Server Not Running or Not Reachable</strong></p>
-          <p><strong>Option 1: Run</strong> automation script</p>
-          <p>Run <code>./start-backend.py</code> from The Gold Box module directory to automatically set up and start the backend server.</p>
-          <p>See README.md file for manual setup instructions.</p>
-          <p>Go to The Gold Box settings and click "Discover Backend" to automatically find and connect to a running backend server.</p>
-          <p><em>Configure your desired provider in The Gold Box settings.</em></p>
-          <p><strong>Option 2: Manual setup</strong></p>
-          <p>See the README.md file for manual setup instructions.</p>
-          <p><strong>Option 3: Auto-discover port</strong></p>
-          <p>Go to Gold Box settings and click "Discover Backend" to automatically find and connect to a running backend server.</p>
-          <p><em><strong>Note:</strong> The frontend automatically discovers the backend port. Use the "Discover Backend" button if needed.</em></p>
-        </div>
-      </div>
-    `;
-    
-    // Send startup instructions to chat
-    ChatMessage.create({
-      user: game.user.id,
-      content: messageContent,
-      speaker: {
-        alias: customName
-      },
-      whisper: {
-        users: [game.user.id]
-      }
-    });
+    this.uiManager.showErrorNotification('WebSocket connection error: ' + (error.message || error));
   }
 
   /**
@@ -1391,12 +869,12 @@ class GoldBoxModule {
         // Show instructions if connection failed
         await game.settings.set('the-gold-box', 'backendStatus', 'disconnected');
         console.log('The Gold Box: Connection failed, ConnectionManager state:', connectionInfo.state);
-        this.displayStartupInstructions();
+        this.uiManager.displayStartupInstructions();
       }
     } catch (error) {
       await game.settings.set('the-gold-box', 'backendStatus', 'error');
       console.error('The Gold Box: Error checking backend:', error);
-      this.displayStartupInstructions();
+      this.uiManager.displayStartupInstructions();
     }
   }
 
@@ -1415,91 +893,40 @@ class GoldBoxModule {
       const healthResult = await this.api.connectionManager.testConnection();
       
       if (healthResult.success && healthResult.data && healthResult.data.configured_providers) {
-        this.displayAvailableProviders(healthResult.data.configured_providers);
+        this.uiManager.displayAvailableProviders(healthResult.data.configured_providers);
       }
       
-      if (typeof ui !== 'undefined' && ui.notifications) {
-        ui.notifications.info('Backend connection verified!');
-      }
+      this.uiManager.showSuccessNotification('Backend connection verified!');
       return true;
     } else {
       // No backend found
-      if (typeof ui !== 'undefined' && ui.notifications) {
-        ui.notifications.error('No backend server found. Please start the backend server.');
-      }
+      this.uiManager.showErrorNotification('No backend server found. Please start the backend server.');
       return false;
     }
   }
 
   /**
-   * Display available providers as chat message after discovery
+   * Clean up when module is disabled
    */
-  displayAvailableProviders(configuredProviders) {
-    try {
-      console.log('The Gold Box: Displaying available providers:', configuredProviders);
-      
-      if (configuredProviders.length === 0) {
-        // No providers configured
-        const messageContent = `
-          <div class="gold-box-info">
-            <div class="gold-box-header">
-              <strong>The Gold Box - Provider Status</strong>
-              <div class="gold-box-timestamp">${new Date().toLocaleTimeString()}</div>
-            </div>
-            <div class="gold-box-content">
-              <p><strong>No LLM providers configured</strong></p>
-              <p>Please configure API keys in the backend to use AI features.</p>
-              <p>Use the key manager to add providers like OpenAI, Anthropic, or others.</p>
-            </div>
-          </div>
-        `;
-        
-        ChatMessage.create({
-          user: game.user.id,
-          content: messageContent,
-          speaker: {
-            alias: 'The Gold Box'
-          }
-        });
-      } else {
-        // Display configured providers
-        const providerList = configuredProviders.map(provider => 
-          `<li><strong>${provider.provider_name}</strong> (${provider.provider_id})</li>`
-        ).join('');
-        
-        const messageContent = `
-          <div class="gold-box-info">
-            <div class="gold-box-header">
-              <strong>The Gold Box - Available Providers</strong>
-              <div class="gold-box-timestamp">${new Date().toLocaleTimeString()}</div>
-            </div>
-            <div class="gold-box-content">
-              <p><strong>Found ${configuredProviders.length} configured LLM provider(s):</strong></p>
-              <ul>${providerList}</ul>
-              <p><em>Configure your desired provider in Gold Box settings.</em></p>
-            </div>
-          </div>
-        `;
-        
-        ChatMessage.create({
-          user: game.user.id,
-          content: messageContent,
-          speaker: {
-            alias: 'The Gold Box'
-          }
-        });
-      }
-      
-    } catch (error) {
-      console.error('The Gold Box: Error displaying providers:', error);
+  tearDown() {
+    // Clean up UI Manager
+    this.uiManager.tearDown();
+    
+    // Clean up WebSocket connection
+    if (this.webSocketClient) {
+      this.webSocketClient.disconnect();
+      this.webSocketClient = null;
     }
+    
+    // Clean up message collector
+    if (this.messageCollector) {
+      this.messageCollector.stop();
+      this.messageCollector = null;
+    }
+    
+    console.log('The Gold Box module disabled');
   }
 }
-
-// GoldBoxModule class extension for tearDown method
-GoldBoxModule.prototype.tearDown = function() {
-  console.log('The Gold Box module disabled');
-};
 
 // Create and register the module
 const goldBox = new GoldBoxModule();
