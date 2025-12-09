@@ -51,11 +51,8 @@ class GoldBoxAPI {
     const timeout = this.settingsManager.getSetting('aiResponseTimeout', 60);
     
     try {
-      // Send request with timeout and retry logic
-      const response = await Promise.race([
-        this.sendMessageContextWithRetry(messages),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('AI response timeout')), timeout * 1000))
-      ]);
+      // Delegate to BackendCommunicator with timeout and retry logic
+      const response = await this.communicator.sendMessageContext(messages, timeout, 1);
       
       if (response.success) {
         // Display success response
@@ -68,161 +65,6 @@ class GoldBoxAPI {
     } catch (error) {
       console.error('The Gold Box: Error processing AI turn:', error);
       moduleInstance.uiManager.displayErrorResponse(error.message);
-    }
-  }
-
-  /**
-   * Send message context to backend with retry logic (delegated to communicator)
-   */
-  async sendMessageContextWithRetry(messages, maxRetries = 1) {
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        const response = await this.sendMessageContext(messages);
-        return response;
-      } catch (error) {
-        // For non-CSRF errors, implement basic retry logic
-        if (attempt === maxRetries) {
-          throw error;
-        }
-        
-        // Wait a moment before retrying
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-    }
-  }
-
-  /**
-   * Send message context to backend with processing mode support and client ID relay (delegated to communicator)
-   */
-  async sendMessageContext(messages) {
-    try {
-      const processingMode = this.settingsManager.getProcessingMode();
-      
-      let endpoint;
-      let requestData;
-      
-      // STEP 1: Sync settings to admin endpoint FIRST (Phase 2 fix)
-      console.log('The Gold Box: Syncing settings to admin endpoint before chat request...');
-      const settings = this.getUnifiedFrontendSettings();
-      const adminPassword = settings['backend password'];
-      
-      if (adminPassword && adminPassword.trim()) {
-        const syncResult = await this.syncSettings(settings, adminPassword);
-        if (syncResult.success) {
-          console.log('The Gold Box: Settings synced successfully to admin endpoint');
-        } else {
-          console.warn('The Gold Box: Settings sync failed:', syncResult.error);
-        }
-      } else {
-        console.warn('The Gold Box: No backend password configured, skipping settings sync');
-      }
-      
-      // STEP 2: Check if WebSocket is available and use it
-      if (processingMode === 'api' && this.webSocketClient) {
-        // Check if WebSocket is connected (more robust check)
-        const wsConnected = this.webSocketClient.isConnected || this.webSocketClient.connectionState === 'connected';
-        if (wsConnected) {
-          console.log('The Gold Box: Using WebSocket for API mode');
-          return await this.sendViaWebSocket(messages);
-        } else {
-          console.log('The Gold Box: WebSocket client exists but not connected, falling back to HTTP API');
-          console.log('The Gold Box: WebSocket client exists:', !!this.webSocketClient);
-          console.log('The Gold Box: WebSocket connection state:', this.webSocketClient.connectionState || 'unknown');
-          console.log('The Gold Box: WebSocket isConnected property:', this.webSocketClient.isConnected);
-        }
-      } else if (processingMode === 'api') {
-        console.log('The Gold Box: WebSocket not available, falling back to HTTP API');
-        console.log('The Gold Box: WebSocket client exists:', !!this.webSocketClient);
-        console.log('The Gold Box: WebSocket connected:', this.webSocketClient ? this.webSocketClient.isConnected : 'N/A');
-      }
-      
-      // STEP 3: Fallback to HTTP API
-      if (processingMode === 'context') {
-        // NEW: Context mode with full board state integration
-        endpoint = '/api/context_chat';
-        
-        // Get scene ID from current scene
-        const sceneId = canvas?.scene?.id || game.scenes?.active?.id;
-        const clientId = this.webSocketClient ? this.webSocketClient.clientId : null;
-        
-        requestData = {
-          client_id: clientId || 'default-client',
-          scene_id: sceneId || 'default-scene',
-          message: messages.length > 0 ? messages[messages.length - 1].content : 'No message provided',
-          context_options: {
-            include_chat_history: true,
-            message_count: this.settingsManager.getSetting('maxMessageContext', 15),
-            include_scene_data: true,
-            include_tokens: true,
-            include_walls: true,
-            include_lighting: true,
-            include_map_notes: true,
-            include_templates: true
-          },
-          ai_options: {
-            model: this.settingsManager.getSetting('generalLlmModel') || 'gpt-4',
-            temperature: 0.7,
-            max_tokens: 2000
-          }
-        };
-        console.log('The Gold Box: Using CONTEXT mode with endpoint:', endpoint, '- full board state integration');
-        console.log('The Gold Box: Scene ID:', sceneId, 'Client ID:', clientId);
-      } else if (processingMode === 'api') {
-        endpoint = '/api/api_chat';
-        // Include client ID in request data if available
-        const clientId = this.webSocketClient ? this.webSocketClient.clientId : null;
-        console.log("The Gold Box: WebSocket client available:", !!this.webSocketClient);
-        console.log("The Gold Box: WebSocket connected:", this.webSocketClient ? this.webSocketClient.isConnected : "N/A");
-        requestData = {
-          // NO settings here - backend will use stored settings
-          context_count: this.settingsManager.getSetting('maxMessageContext', 15),
-          settings: clientId ? { 'relay client id': clientId } : null // Include client ID, allow null if not connected
-        };
-        console.log('The Gold Box: Using API mode with client ID:', clientId || 'not connected', '- settings from backend storage');
-      } else {
-        // Should never reach here with only 'api' and 'context' modes
-        throw new Error(`Unsupported processing mode: ${processingMode}. Supported modes: 'api', 'context'`);
-      }
-      
-      // Use BackendCommunicator for request instead of ConnectionManager
-      const response = await this.communicator.sendRequest(endpoint, requestData);
-      
-      return response;
-      
-    } catch (error) {
-      console.error('Gold Box API Error:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Send chat request via WebSocket (delegated to communicator)
-   */
-  async sendViaWebSocket(messages) {
-    if (!this.webSocketClient || !this.webSocketClient.isConnected) {
-      throw new Error('WebSocket not connected');
-    }
-
-    try {
-      const response = await this.webSocketClient.sendChatRequest(messages, {
-        contextCount: this.settingsManager.getSetting('maxMessageContext', 15),
-        sceneId: canvas?.scene?.id || game.scenes?.active?.id
-      });
-
-      if (response.success) {
-        return {
-          success: true,
-          data: {
-            response: response.data.response,
-            metadata: response.data
-          }
-        };
-      } else {
-        throw new Error(response.error || 'WebSocket request failed');
-      }
-    } catch (error) {
-      console.error('The Gold Box: WebSocket chat request error:', error);
-      throw error;
     }
   }
 
@@ -416,16 +258,13 @@ class GoldBoxModule {
       return;
     }
     
-    // Set up message handlers for real-time sync
-    this.webSocketClient.onMessageType('data_sync', (message) => {
-      this.handleRealTimeSync(message);
-    });
+    // Delegate to BackendCommunicator for real-time sync setup
+    this.api.communicator.setupRealTimeSync(
+      (message) => this.handleRealTimeSync(message),
+      (message) => this.handleBatchSync(message)
+    );
     
-    this.webSocketClient.onMessageType('batch_sync', (message) => {
-      this.handleBatchSync(message);
-    });
-    
-    console.log('The Gold Box: Real-time synchronization set up');
+    console.log('The Gold Box: Real-time synchronization set up via BackendCommunicator');
   }
 
   /**

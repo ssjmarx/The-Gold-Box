@@ -219,11 +219,12 @@ def initialize_websocket_manager():
                                 from endpoints.api_chat import _send_messages_to_websocket
                                 success_count, total_messages = await _send_messages_to_websocket(api_formatted, client_id_for_ws)
                                 logger.info(f"WebSocket transmission: {success_count}/{total_messages} messages sent successfully")
+                                logger.info(f"✅ Successfully sent {success_count} message(s) to Foundry chat")  # Log success message here only
                                 
-                                # Create success result
+                                # Create success result (no response content - only metadata)
                                 result = {
                                     'success': True,
-                                    'response': f"✅ Successfully sent {success_count} message(s) to Foundry chat",
+                                    'response': "",  # Empty response - success message only in logs
                                     'metadata': {
                                         'context_count': len(compact_messages),
                                         'tokens_used': tokens_used,
@@ -257,44 +258,47 @@ def initialize_websocket_manager():
                                 'error': "Failed to process AI response for WebSocket transmission"
                             }
                         
-                        # Send response back via WebSocket
+                        # Send response back via WebSocket (only if there's actual response content)
                         if result['success']:
                             response_content = result.get('response', '')
                             metadata = result.get('metadata', {})
                             
-                            try:
-                                # Extract request ID from original message
-                                original_request_id = MessageProtocol.extract_request_id(message)
-                                logger.info(f"DEBUG: Original request ID: {original_request_id}")
-                                
-                                # Create chat response message with same request ID
-                                chat_response_message = MessageProtocol.create_chat_response(
-                                    response_content,
-                                    metadata,
-                                    original_request_id
-                                )
-                                
-                                logger.info(f"DEBUG: Created response message with request_id: {chat_response_message.get('request_id')}")
-                                
-                                # Send response via WebSocket
-                                send_success = await self.send_to_client(client_id, chat_response_message)
-                                
-                                if send_success:
-                                    logger.info(f"✅ WebSocket chat response sent successfully to {client_id}")
-                                    logger.info(f"✅ Response content: {response_content[:100]}...")  # Log first 100 chars
-                                else:
-                                    logger.error(f"❌ Failed to send WebSocket chat response to {client_id}")
+                            # Only send response if there's actual content (not empty)
+                            if response_content.strip():  # Only send if response has content
+                                try:
+                                    # Extract request ID from original message
+                                    original_request_id = MessageProtocol.extract_request_id(message)
+                                    logger.info(f"DEBUG: Original request ID: {original_request_id}")
                                     
-                            except Exception as e:
-                                logger.error(f"❌ Exception creating/sending WebSocket response: {e}")
-                                # Try to send a simple error message as fallback
-                                await self.send_to_client(client_id, {
-                                    "type": "error",
-                                    "data": {
-                                        "error": f"Response creation failed: {e}",
-                                        "timestamp": time.time()
-                                    }
-                                })
+                                    # Create chat response message with same request ID
+                                    chat_response_message = MessageProtocol.create_chat_response(
+                                        response_content,
+                                        metadata,
+                                        original_request_id
+                                    )
+                                    
+                                    logger.info(f"DEBUG: Created response message with request_id: {chat_response_message.get('request_id')}")
+                                    
+                                    # Send response via WebSocket
+                                    send_success = await self.send_to_client(client_id, chat_response_message)
+                                    
+                                    if send_success:
+                                        logger.info(f"✅ WebSocket chat response sent successfully to {client_id}")
+                                    else:
+                                        logger.error(f"❌ Failed to send WebSocket chat response to {client_id}")
+                                except Exception as e:
+                                    logger.error(f"❌ Exception creating/sending WebSocket response: {e}")
+                                    # Try to send a simple error message as fallback
+                                    await self.send_to_client(client_id, {
+                                        "type": "error",
+                                        "data": {
+                                            "error": f"Response creation failed: {e}",
+                                            "timestamp": time.time()
+                                        }
+                                    })
+                            else:
+                                # No response content - AI messages already sent individually, no need for wrapper response
+                                logger.info(f"✅ Multi-message response sent individually to {client_id}, no wrapper response needed")
                         else:
                             error_msg = result.get('error', 'Unknown error')
                             logger.error(f"❌ WebSocket chat error for {client_id}: {error_msg}")

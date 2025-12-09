@@ -478,6 +478,216 @@ class BackendCommunicator {
   }
 
   /**
+   * Send message context to backend with timeout and retry logic
+   * @param {Array} messages - Chat messages
+   * @param {number} timeout - Request timeout in seconds
+   * @param {number} maxRetries - Maximum retry attempts
+   * @returns {Promise<Object>} - Response data
+   */
+  async sendMessageContext(messages, timeout = 60, maxRetries = 1) {
+    try {
+      // Send request with timeout and retry logic
+      const response = await Promise.race([
+        this.sendMessageContextWithRetry(messages, maxRetries),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('AI response timeout')), timeout * 1000))
+      ]);
+      
+      return response;
+      
+    } catch (error) {
+      console.error('BackendCommunicator: Error processing message context:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send message context with retry logic
+   * @param {Array} messages - Chat messages
+   * @param {number} maxRetries - Maximum retry attempts
+   * @returns {Promise<Object>} - Response data
+   */
+  async sendMessageContextWithRetry(messages, maxRetries = 1) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await this.sendMessageContextInternal(messages);
+        return response;
+      } catch (error) {
+        // For non-CSRF errors, implement basic retry logic
+        if (attempt === maxRetries) {
+          throw error;
+        }
+        
+        // Wait a moment before retrying
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+    }
+  }
+
+  /**
+   * Internal message context processing
+   * @param {Array} messages - Chat messages
+   * @returns {Promise<Object>} - Response data
+   */
+  async sendMessageContextInternal(messages) {
+    try {
+      const processingMode = this.settingsManager ? this.settingsManager.getProcessingMode() : 'api';
+      
+      let endpoint;
+      let requestData;
+      
+      // STEP 1: Sync settings to admin endpoint FIRST
+      console.log('BackendCommunicator: Syncing settings to admin endpoint before chat request...');
+      const settings = this.getUnifiedFrontendSettings();
+      const adminPassword = settings['backend password'];
+      
+      if (adminPassword && adminPassword.trim()) {
+        const syncResult = await this.syncSettings(settings, adminPassword);
+        if (syncResult.success) {
+          console.log('BackendCommunicator: Settings synced successfully to admin endpoint');
+        } else {
+          console.warn('BackendCommunicator: Settings sync failed:', syncResult.error);
+        }
+      } else {
+        console.warn('BackendCommunicator: No backend password configured, skipping settings sync');
+      }
+      
+      // STEP 2: Check if WebSocket is available and use it
+      if (processingMode === 'api' && this.webSocketClient) {
+        // Check if WebSocket is connected (more robust check)
+        const wsConnected = this.webSocketClient.isConnected || this.webSocketClient.connectionState === 'connected';
+        if (wsConnected) {
+          console.log('BackendCommunicator: Using WebSocket for API mode');
+          return await this.sendViaWebSocket(messages);
+        } else {
+          console.log('BackendCommunicator: WebSocket client exists but not connected, falling back to HTTP API');
+          console.log('BackendCommunicator: WebSocket client exists:', !!this.webSocketClient);
+          console.log('BackendCommunicator: WebSocket connection state:', this.webSocketClient.connectionState || 'unknown');
+          console.log('BackendCommunicator: WebSocket isConnected property:', this.webSocketClient.isConnected);
+        }
+      } else if (processingMode === 'api') {
+        console.log('BackendCommunicator: WebSocket not available, falling back to HTTP API');
+        console.log('BackendCommunicator: WebSocket client exists:', !!this.webSocketClient);
+        console.log('BackendCommunicator: WebSocket connected:', this.webSocketClient ? this.webSocketClient.isConnected : 'N/A');
+      }
+      
+      // STEP 3: Fallback to HTTP API
+      if (processingMode === 'context') {
+        // NEW: Context mode with full board state integration
+        endpoint = '/api/context_chat';
+        
+        // Get scene ID from current scene
+        const sceneId = typeof canvas !== 'undefined' && canvas.scene ? canvas.scene.id : 
+                       (typeof game !== 'undefined' && game.scenes && game.scenes.active ? game.scenes.active.id : null);
+        const clientId = this.webSocketClient ? this.webSocketClient.clientId : null;
+        
+        requestData = {
+          client_id: clientId || 'default-client',
+          scene_id: sceneId || 'default-scene',
+          message: messages.length > 0 ? messages[messages.length - 1].content : 'No message provided',
+          context_options: {
+            include_chat_history: true,
+            message_count: this.settingsManager ? this.settingsManager.getSetting('maxMessageContext', 15) : 15,
+            include_scene_data: true,
+            include_tokens: true,
+            include_walls: true,
+            include_lighting: true,
+            include_map_notes: true,
+            include_templates: true
+          },
+          ai_options: {
+            model: this.settingsManager ? this.settingsManager.getSetting('generalLlmModel') || 'gpt-4' : 'gpt-4',
+            temperature: 0.7,
+            max_tokens: 2000
+          }
+        };
+        console.log('BackendCommunicator: Using CONTEXT mode with endpoint:', endpoint, '- full board state integration');
+        console.log('BackendCommunicator: Scene ID:', sceneId, 'Client ID:', clientId);
+      } else if (processingMode === 'api') {
+        endpoint = '/api/api_chat';
+        // Include client ID in request data if available
+        const clientId = this.webSocketClient ? this.webSocketClient.clientId : null;
+        console.log("BackendCommunicator: WebSocket client available:", !!this.webSocketClient);
+        console.log("BackendCommunicator: WebSocket connected:", this.webSocketClient ? this.webSocketClient.isConnected : "N/A");
+        requestData = {
+          // NO settings here - backend will use stored settings
+          context_count: this.settingsManager ? this.settingsManager.getSetting('maxMessageContext', 15) : 15,
+          settings: clientId ? { 'relay client id': clientId } : null // Include client ID, allow null if not connected
+        };
+        console.log('BackendCommunicator: Using API mode with client ID:', clientId || 'not connected', '- settings from backend storage');
+      } else {
+        // Should never reach here with only 'api' and 'context' modes
+        throw new Error(`Unsupported processing mode: ${processingMode}. Supported modes: 'api', 'context'`);
+      }
+      
+      // Use this class's sendRequest method
+      const response = await this.sendRequest(endpoint, requestData);
+      
+      return response;
+      
+    } catch (error) {
+      console.error('BackendCommunicator: Message context processing error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Send chat request via WebSocket
+   * @param {Array} messages - Chat messages
+   * @returns {Promise<Object>} - Response data
+   */
+  async sendViaWebSocket(messages) {
+    if (!this.webSocketClient || !this.webSocketClient.isConnected) {
+      throw new Error('WebSocket not connected');
+    }
+
+    try {
+      const response = await this.webSocketClient.sendChatRequest(messages, {
+        contextCount: this.settingsManager ? this.settingsManager.getSetting('maxMessageContext', 15) : 15,
+        sceneId: typeof canvas !== 'undefined' && canvas.scene ? canvas.scene.id : 
+                  (typeof game !== 'undefined' && game.scenes && game.scenes.active ? game.scenes.active.id : null)
+      });
+
+      if (response.success) {
+        return {
+          success: true,
+          data: {
+            response: response.data.response,
+            metadata: response.data
+          }
+        };
+      } else {
+        throw new Error(response.error || 'WebSocket request failed');
+      }
+    } catch (error) {
+      console.error('BackendCommunicator: WebSocket chat request error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Set up real-time data synchronization
+   * @param {Function} onRealTimeSync - Callback for real-time sync
+   * @param {Function} onBatchSync - Callback for batch sync
+   */
+  setupRealTimeSync(onRealTimeSync, onBatchSync) {
+    if (!this.webSocketClient) {
+      console.warn('BackendCommunicator: Cannot set up real-time sync - WebSocket client not available');
+      return;
+    }
+    
+    // Set up message handlers for real-time sync
+    this.webSocketClient.onMessageType('data_sync', (message) => {
+      onRealTimeSync(message);
+    });
+    
+    this.webSocketClient.onMessageType('batch_sync', (message) => {
+      onBatchSync(message);
+    });
+    
+    console.log('BackendCommunicator: Real-time synchronization set up');
+  }
+
+  /**
    * Disconnect and cleanup
    */
   disconnect() {

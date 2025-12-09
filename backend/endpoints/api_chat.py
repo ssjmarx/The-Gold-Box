@@ -501,10 +501,11 @@ async def api_chat(http_request: Request, request: APIChatRequest):
                 success_count, total_messages = await _send_messages_to_websocket(api_formatted, client_id)
                 logger.info(f"WebSocket transmission: {success_count}/{total_messages} messages sent successfully")
                 
-                # Step 8: Return confirmation response
+                # Step 8: Return confirmation response (only log success, don't send to frontend)
+                logger.info(f"✅ Successfully sent {success_count} message(s) to Foundry chat")
                 return APIChatResponse(
                     success=True,
-                    response=f"✅ Successfully sent {success_count} message(s) to Foundry chat",
+                    response="",  # Empty response - success message should only be in logs
                     metadata={
                         "context_count": len(compact_messages),
                         "tokens_used": tokens_used,
