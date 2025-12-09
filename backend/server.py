@@ -78,7 +78,6 @@ def get_absolute_path(relative_path: str) -> Path:
 # Import remaining modules that depend on startup components
 from server.key_manager import MultiKeyManager
 from endpoints.api_chat import router as api_chat_router, APIChatProcessor
-from endpoints.context_chat import ContextChatEndpoint
 from endpoints.health import create_health_router
 from endpoints.system import create_system_router
 from endpoints.session import create_session_router
@@ -148,68 +147,6 @@ app.include_router(system_router, prefix="/api")
 app.include_router(session_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 
-# Initialize context chat endpoint
-context_chat_endpoint = None
-
-def get_context_chat_endpoint():
-    """Get or create context chat endpoint instance"""
-    global context_chat_endpoint
-    if context_chat_endpoint is None:
-        # Initialize with real services
-        from server.ai_service import get_ai_service
-        from endpoints.context_chat import RealFoundryClient, RealAIService
-        
-        ai_service = get_ai_service()
-        real_ai_service = RealAIService(ai_service)
-        foundry_client = RealFoundryClient()
-        context_chat_endpoint = ContextChatEndpoint(
-            ai_service=real_ai_service,
-            foundry_client=foundry_client
-        )
-    return context_chat_endpoint
-
-@app.post("/api/context_chat")
-async def context_chat_endpoint_handler(request: Request):
-    """
-    Enhanced context chat endpoint with full board state integration
-    New endpoint: /api/context_chat
-    Security is handled by UniversalSecurityMiddleware
-    """
-    try:
-        # Get validated data from middleware if available
-        if hasattr(request.state, 'validated_body') and request.state.validated_body:
-            request_data = request.state.validated_body
-            logger.info("Processing context chat request with middleware-validated data")
-        else:
-            try:
-                request_data = await request.json()
-            except Exception as e:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Invalid JSON in request body"
-                )
-            logger.info("Processing context chat request with original request data")
-        
-        # Get context chat endpoint instance
-        endpoint = get_context_chat_endpoint()
-        
-        # Process the context chat request
-        response = await endpoint.handle_context_chat(request_data)
-        
-        client_host = request.client.host if request.client else "unknown"
-        logger.info(f"Context chat response sent to {client_host}: success")
-        
-        return response
-        
-    except HTTPException:
-        # Re-raise HTTP exceptions (security failures already logged by middleware)
-        raise
-    except Exception as e:
-        logger.error(f"Context chat endpoint error: {str(e)}")
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
 
 def get_websocket_connection_manager():
     """Get the global WebSocket connection manager instance"""
@@ -466,7 +403,7 @@ async def not_found(request: Request, exc):
         content={
             'error': 'Endpoint not found',
             'status': 'error',
-            'available_endpoints': ['/api/context_chat', '/api/health', '/api/session/init', '/api/start', '/api/admin'],
+            'available_endpoints': ['/api/health', '/api/session/init', '/api/start', '/api/admin'],
             'security': 'Protected by Universal Security Middleware'
         }
     )

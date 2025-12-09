@@ -463,30 +463,6 @@ def get_default_security_config() -> Dict:
             "audit_logging": True
         },
         "endpoints": {
-            "/api/process_chat": {
-                "rate_limiting": {"requests": 10, "window": 60},
-                "input_validation": "basic",
-                "session_required": True,
-                "security_headers": True
-            },
-            "/api/process_chat/validate": {
-                "rate_limiting": {"requests": 20, "window": 60},
-                "input_validation": "strict",
-                "session_required": True,
-                "security_headers": True
-            },
-            "/api/process_chat/status": {
-                "rate_limiting": {"requests": 30, "window": 60},
-                "input_validation": "basic",
-                "session_required": True,
-                "security_headers": True
-            },
-            "/api/process_chat/schemas": {
-                "rate_limiting": {"requests": 50, "window": 60},
-                "input_validation": "none",
-                "session_required": False,
-                "security_headers": True
-            },
             "/api/simple_chat": {
                 "rate_limiting": {"requests": 10, "window": 60},
                 "input_validation": "basic",

@@ -411,22 +411,6 @@ def setup_settings_manager():
         logger.error(f"Failed to initialize settings manager: {e}")
         return None
 
-def initialize_context_chat_endpoint():
-    """
-    Initialize the context chat endpoint.
-    
-    Returns:
-        Context chat endpoint instance or None if failed
-    """
-    try:
-        # This will be initialized lazily when needed
-        # The actual initialization is handled in the get_context_chat_endpoint function
-        logger.info("Context chat endpoint initialization prepared")
-        return None  # Will be initialized lazily
-        
-    except Exception as e:
-        logger.error(f"Failed to prepare context chat endpoint initialization: {e}")
-        return None
 
 async def start_websocket_chat_handler():
     """
@@ -480,9 +464,6 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register client manager")
         else:
             services['client_manager'] = client_manager
-    
-    # Initialize context chat endpoint
-    services['context_chat_endpoint'] = initialize_context_chat_endpoint()
     
     # Start WebSocket chat handler
     services['websocket_started'] = asyncio.run(start_websocket_chat_handler())
