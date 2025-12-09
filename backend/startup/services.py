@@ -159,8 +159,10 @@ def initialize_websocket_manager():
                         # Process AI directly via WebSocket
                         logger.info("WebSocket: Processing AI directly via WebSocket (bypassing HTTP endpoints)")
                         
-                        # Import AI service directly
+                        # Import AI service directly - this will use the singleton get_ai_service() 
+                        # which has been fixed to use the key manager's provider manager
                         ai_service = get_ai_service()
+                        logger.info("WebSocket: Using singleton AI service (should reuse provider manager)")
                         processor = ChatContextProcessor()
                         
                         # Convert stored messages to compact JSON for AI
