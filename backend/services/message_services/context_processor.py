@@ -8,10 +8,10 @@ Compression: Optimize data for token efficiency
 import json
 import logging
 from typing import Dict, Any, List, Optional, Tuple
-from server.simple_attribute_mapper import SimpleAttributeMapper
-from server.board_collector import BoardStateCollector
-from server.json_optimizer import JSONOptimizer
-from server.dice_collector import DiceMessageCollector
+from shared.core.simple_attribute_mapper import SimpleAttributeMapper
+from shared.core.board_collector import BoardStateCollector
+from shared.core.json_optimizer import JSONOptimizer
+from shared.core.dice_collector import DiceMessageCollector
 
 
 class ContextProcessor:
@@ -100,7 +100,7 @@ class ContextProcessor:
     
     def _extract_all_token_attributes(self, board_state: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Extract all unique attributes from all tokens in the board state
+        Extract all unique attributes from all tokens in board state
         
         Args:
             board_state: Complete board state data
@@ -126,7 +126,7 @@ class ContextProcessor:
     
     async def _collect_chat_history(self, client_id: str, count: int) -> List[Dict[str, Any]]:
         """
-        Collect recent chat messages and dice rolls from the relay server
+        Collect recent chat messages and dice rolls from relay server
         
         Args:
             client_id: Foundry client ID
@@ -218,7 +218,7 @@ This system works with D&D 5e, Pathfinder 1e/2e, Call of Cthulhu, Savage Worlds,
     
     def _generate_structure_explanation(self, board_state: Dict[str, Any]) -> str:
         """
-        Generate explanation of the optimized data structure
+        Generate explanation of optimized data structure
         
         Args:
             board_state: Optimized board state
@@ -360,10 +360,10 @@ class MockFoundryClientWithChat:
         ]
 
 
-# Test the implementation
+# Test implementation
 if __name__ == "__main__":
     import asyncio
-    from server.board_collector import MockFoundryClient
+    from shared.core.board_collector import MockFoundryClient
     
     async def test_context_processor():
         # Create a combined mock client
