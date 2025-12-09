@@ -94,15 +94,15 @@ def validate_server_requirements(manager) -> bool:
         logger.info("The Gold Box - Validating Server Requirements")
         logger.info("=" * 50)
         
-        # Check for valid API keys
+        # Check for valid API keys (but allow server to start without them)
         if not validate_api_keys(manager):
-            return False
+            logger.warning("No valid API keys found - server will start but AI functionality will be limited")
         
-        # Check for admin password
+        # Check for admin password (but allow server to start without it)
         if not validate_admin_password(manager):
-            return False
+            logger.warning("No admin password set - server will start but security will be limited")
         
-        logger.info("All server requirements validated")
+        logger.info("Server requirements validation completed")
         return True
         
     except Exception as e:
@@ -140,12 +140,15 @@ def manage_keys(manager, keychange: bool = False) -> bool:
                 logger.error("Failed to load keys")
                 return False
         
-        # Load keys into environment variables
-        if not manager.set_environment_variables():
-            logger.error("Failed to load API keys")
-            return False
+        # Load keys into environment variables (only if keys exist)
+        if hasattr(manager, 'keys_data') and manager.keys_data:
+            if not manager.set_environment_variables():
+                logger.error("Failed to load API keys")
+                return False
+            logger.info("API keys loaded successfully")
+        else:
+            logger.info("No API keys to load - continuing without keys")
         
-        logger.info("API keys loaded successfully")
         return True
         
     except Exception as e:
