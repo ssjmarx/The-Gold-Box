@@ -145,6 +145,19 @@ class ServerStartup:
             # Initialize key manager
             self.manager = MultiKeyManager()
             
+            # Register key manager and provider manager with universal service registry
+            from server.registry import ServiceRegistry
+            if not ServiceRegistry.register('key_manager', self.manager):
+                logger.error("Failed to register key manager with service registry")
+                return False
+            
+            # Register provider manager (nested inside key manager)
+            if not ServiceRegistry.register('provider_manager', self.manager.provider_manager):
+                logger.error("Failed to register provider manager with service registry")
+                return False
+            
+            logger.info("✅ Key manager and provider manager registered with service registry")
+            
             # Handle key management
             if not manage_keys(self.manager, self.config['GOLD_BOX_KEYCHANGE']):
                 return False

@@ -365,41 +365,44 @@ class AIService:
 _ai_service = None
 
 def get_ai_service() -> 'AIService':
-    """Get or create global AI service instance"""
+    """Get or create global AI service instance using ServiceRegistry"""
     global _ai_service
     if _ai_service is None:
-        # Get provider manager from the main server's key manager instead of creating new instance
+        # Use ServiceRegistry to get provider manager
         try:
-            # Import the main server module where manager is properly initialized
-            import server
+            from .registry import ServiceRegistry
             
-            # The manager should be available as server.manager from startup sequence
-            if hasattr(server, 'manager') and server.manager is not None:
-                if hasattr(server.manager, 'provider_manager') and server.manager.provider_manager is not None:
-                    provider_manager = server.manager.provider_manager
-                    logger.info("AI Service: Using existing provider manager from main server")
-                else:
-                    # Manager exists but no provider_manager - this shouldn't happen but handle it
-                    logger.warning("AI Service: Server manager exists but no provider_manager found")
-                    from .provider_manager import ProviderManager
-                    provider_manager = ProviderManager()
-                    server.manager.provider_manager = provider_manager  # Attach it for future use
-                    logger.info("AI Service: Created and attached new ProviderManager to server.manager")
+            # Try to get provider manager from registry
+            if ServiceRegistry.is_ready() and ServiceRegistry.is_registered('provider_manager'):
+                provider_manager = ServiceRegistry.get('provider_manager')
+                logger.info("✅ AI Service: Using provider manager from ServiceRegistry")
             else:
-                # Server manager not available - this is the fallback case
-                logger.warning("AI Service: Server manager not available, using fallback")
+                # Fallback - create new instance
                 from .provider_manager import ProviderManager
                 provider_manager = ProviderManager()
-                logger.info("AI Service: Created new ProviderManager (server manager unavailable)")
+                if ServiceRegistry.is_ready():
+                    logger.warning("⚠️ AI Service: Provider manager not in registry, created new instance")
+                else:
+                    logger.warning("⚠️ AI Service: ServiceRegistry not ready, created new ProviderManager")
                 
         except Exception as e:
             # Ultimate fallback - create new instance
-            logger.error(f"AI Service: Failed to get existing provider manager: {e}")
+            logger.error(f"❌ AI Service: Failed to access ServiceRegistry: {e}")
             from .provider_manager import ProviderManager
             provider_manager = ProviderManager()
-            logger.info("AI Service: Created new ProviderManager (exception fallback)")
+            logger.info("🔄 AI Service: Created new ProviderManager (exception fallback)")
             
         _ai_service = AIService(provider_manager)
+        
+        # Register AI service with registry if available
+        try:
+            from .registry import ServiceRegistry
+            if ServiceRegistry.is_ready():
+                ServiceRegistry.register('ai_service', _ai_service)
+                logger.info("✅ AI Service: Registered with ServiceRegistry")
+        except Exception as e:
+            logger.warning(f"⚠️ AI Service: Failed to register with ServiceRegistry: {e}")
+    
     return _ai_service
 
 async def process_ai_request(request_data: Dict[str, Any]) -> Dict[str, Any]:

@@ -42,19 +42,30 @@ class APIChatResponse(BaseModel):
 # Global instances
 api_chat_processor = APIChatProcessor()
 ai_chat_processor = AIChatProcessor()
-from server.provider_manager import ProviderManager
-# Get provider manager from key manager to avoid duplication
+# Use ServiceRegistry to get provider manager and avoid duplication
 try:
-    from server.key_manager import MultiKeyManager
-    key_manager = MultiKeyManager()
-    if hasattr(key_manager, 'provider_manager'):
+    from server.registry import ServiceRegistry
+    
+    # Try to get key manager from registry
+    if ServiceRegistry.is_ready() and ServiceRegistry.is_registered('key_manager'):
+        key_manager = ServiceRegistry.get('key_manager')
         provider_manager = key_manager.provider_manager
+        logger.info("✅ API Chat: Using provider manager from ServiceRegistry")
     else:
-        # Fallback to creating new instance
+        # Fallback - create new instance
+        from server.provider_manager import ProviderManager
         provider_manager = ProviderManager()
-except Exception:
-    # Fallback to creating new instance
+        if ServiceRegistry.is_ready():
+            logger.warning("⚠️ API Chat: Provider manager not in registry, created new instance")
+        else:
+            logger.warning("⚠️ API Chat: ServiceRegistry not ready, created new ProviderManager")
+            
+except Exception as e:
+    # Ultimate fallback - create new instance
+    logger.error(f"❌ API Chat: Failed to access ServiceRegistry: {e}")
+    from server.provider_manager import ProviderManager
     provider_manager = ProviderManager()
+    logger.info("🔄 API Chat: Created new ProviderManager (exception fallback)")
 
 ai_service = AIService(provider_manager)  # Properly initialized with provider manager
 
