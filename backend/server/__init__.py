@@ -17,19 +17,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # This will be set by server.py when it starts
 settings_manager = None
-
-def get_settings_manager():
-    """Get the global settings manager instance"""
-    global settings_manager
-    return settings_manager
-
-# Import settings_manager from server.py (it's defined there)
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-# This will be set by server.py when it starts
-settings_manager = None
 websocket_manager = None
 
 def get_settings_manager():

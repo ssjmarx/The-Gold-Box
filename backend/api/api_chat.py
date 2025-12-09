@@ -364,8 +364,12 @@ async def api_chat(http_request: Request, request: APIChatRequest):
             if 'relay client id' in settings:
                 # Client ID provided - merge with stored settings for complete configuration
                 try:
-                    from server import settings_manager
-                    stored_settings = settings_manager.get_settings()
+                    from services.system_services.registry import ServiceRegistry
+                    if ServiceRegistry.is_ready() and ServiceRegistry.is_registered('settings_manager'):
+                        settings_manager = ServiceRegistry.get('settings_manager')
+                        stored_settings = settings_manager.get_settings()
+                    else:
+                        stored_settings = {}
                     if stored_settings:
                         # Merge request settings with stored settings (request takes priority for client ID)
                         merged_settings = {**stored_settings}  # Start with all stored settings
@@ -393,8 +397,12 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         else:
             # Use stored settings from settings manager (fallback)
             try:
-                from server import settings_manager
-                stored_settings = settings_manager.get_settings()
+                from services.system_services.registry import ServiceRegistry
+                if ServiceRegistry.is_ready() and ServiceRegistry.is_registered('settings_manager'):
+                    settings_manager = ServiceRegistry.get('settings_manager')
+                    stored_settings = settings_manager.get_settings()
+                else:
+                    stored_settings = {}
             except ImportError as e:
                 logger.error(f"Failed to import settings_manager: {e}")
                 stored_settings = {}
@@ -698,25 +706,6 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
             else:
                 # Priority 2: Try to get from stored settings as fallback
                 try:
-                    from server import settings_manager
-                    stored_settings = settings_manager.get_settings()
-                    if stored_settings:
-                        client_id = stored_settings.get('relay client id')
-                        if client_id:
-                            logger.info(f"Client ID found in stored settings (fallback): {client_id}")
-                            pass
-                except ImportError:
-                    pass
-                
-                if not client_id:
-                    # Priority 3: Fallback to separate parameter (backward compatibility)
-                    client_id = request_data.get('relayClientId')
-                    if client_id:
-                        logger.info(f"Client ID found in separate parameter (backward compatibility): {client_id}")
-                        pass
-        else:
-            # Try to get from stored settings when no request data
-                try:
                     from services.system_services.registry import ServiceRegistry
                     if ServiceRegistry.is_ready() and ServiceRegistry.is_registered('settings_manager'):
                         settings_manager = ServiceRegistry.get('settings_manager')
@@ -724,12 +713,33 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
                         if stored_settings:
                             client_id = stored_settings.get('relay client id')
                             if client_id:
-                                logger.info(f"Client ID found in stored settings (no request data): {client_id}")
+                                logger.info(f"Client ID found in stored settings (fallback): {client_id}")
                                 pass
-                    else:
-                        logger.warning("Settings manager not available in registry")
                 except ImportError:
                     pass
+            
+            if not client_id:
+                # Priority 3: Fallback to separate parameter (backward compatibility)
+                client_id = request_data.get('relayClientId')
+                if client_id:
+                    logger.info(f"Client ID found in separate parameter (backward compatibility): {client_id}")
+                    pass
+        else:
+            # Try to get from stored settings when no request data
+            try:
+                from services.system_services.registry import ServiceRegistry
+                if ServiceRegistry.is_ready() and ServiceRegistry.is_registered('settings_manager'):
+                    settings_manager = ServiceRegistry.get('settings_manager')
+                    stored_settings = settings_manager.get_settings()
+                    if stored_settings:
+                        client_id = stored_settings.get('relay client id')
+                        if client_id:
+                            logger.info(f"Client ID found in stored settings (no request data): {client_id}")
+                            pass
+                    else:
+                        logger.warning("Settings manager not available in registry")
+            except ImportError:
+                pass
         
         # If no client ID, return empty list
         if not client_id:
