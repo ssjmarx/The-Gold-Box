@@ -28,7 +28,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 
 # Import startup module
-from startup import run_server_startup
+from shared.startup import run_server_startup
 
 # Get startup components
 startup = run_server_startup()
@@ -76,21 +76,21 @@ def get_absolute_path(relative_path: str) -> Path:
     return (BACKEND_DIR / relative_path).resolve()
 
 # Import remaining modules that depend on startup components
-from server.key_manager import MultiKeyManager
-from endpoints.api_chat import router as api_chat_router, APIChatProcessor
-from endpoints.health import create_health_router
-from endpoints.system import create_system_router
-from endpoints.session import create_session_router
-from endpoints.admin import create_admin_router
-from server.client_manager import get_client_manager
-from server.message_protocol import MessageProtocol
-from server.websocket_handler import WebSocketHandler, get_websocket_connection_manager
-from security.security import (
+from services.system_services.key_manager import MultiKeyManager
+from api.api_chat import router as api_chat_router, APIChatProcessor
+from api.health import create_health_router
+from api.system import create_system_router
+from api.session import create_session_router
+from api.admin import create_admin_router
+from services.system_services.client_manager import get_client_manager
+from shared.core.message_protocol import MessageProtocol
+from services.system_services.websocket_handler import WebSocketHandler, get_websocket_connection_manager
+from shared.security.security import (
     verify_virtual_environment, verify_file_integrity, verify_file_permissions, 
     verify_dependency_integrity, validate_prompt, get_session_id_from_request
 )
-from server.universal_settings import extract_universal_settings, get_provider_config, UniversalSettings
-from server.message_collector import get_message_collector, add_client_message, add_client_roll
+from services.system_services.universal_settings import extract_universal_settings, get_provider_config, UniversalSettings
+from services.message_services.message_collector import get_message_collector, add_client_message, add_client_roll
 
 # Pydantic models for FastAPI request/response validation
 class PromptRequest(BaseModel):

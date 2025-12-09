@@ -7,7 +7,7 @@ import json
 import os
 from pathlib import Path
 from datetime import datetime
-from security.key_crypto import KeyCrypto
+from ..security.key_crypto import KeyCrypto
 
 # Get absolute path to backend directory
 BACKEND_DIR = Path(__file__).parent.parent.absolute()

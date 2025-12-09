@@ -90,13 +90,13 @@ def initialize_websocket_manager():
                     
                     # Handle chat requests using existing logic
                     if message_type == "chat_request":
-                        # Import the full message processing logic from original server
-                        from server.message_protocol import MessageProtocol
-                        from server.message_collector import get_message_collector, add_client_message, add_client_roll
-                        from server.universal_settings import extract_universal_settings, get_provider_config
-                        from server.ai_service import get_ai_service
-                        from server.processor import ChatContextProcessor
-                        from endpoints.api_chat import APIChatProcessor
+                        # Import:: full message processing logic from original server
+                        from shared.core.message_protocol import MessageProtocol
+                        from services.message_services.message_collector import get_message_collector, add_client_message, add_client_roll, get_combined_client_messages
+                        from services.system_services.universal_settings import extract_universal_settings, get_provider_config
+                        from services.ai_services.ai_service import get_ai_service
+                        from shared.core.processor import ChatContextProcessor
+                        from api.api_chat import APIChatProcessor
                         
                         message_data = MessageProtocol.extract_message_data(message)
                         if not message_data:
@@ -129,14 +129,13 @@ def initialize_websocket_manager():
                         logger.info(f"Collected {len(messages)} messages from WebSocket client {client_id}")
                         
                         # Get stored messages from message collector for processing
-                        from server.message_collector import get_combined_client_messages
                         stored_messages = get_combined_client_messages(client_id, context_count)
                         logger.info(f"Retrieved {len(stored_messages)} stored messages for processing")
                         
                         logger.info(f"Processing WebSocket chat request from {client_id}: {len(stored_messages)} messages")
                     
                         # Get stored settings for processing from ServiceRegistry
-                        from server.registry import ServiceRegistry
+                        from services.system_services.registry import ServiceRegistry
                         try:
                             settings_manager = ServiceRegistry.get('settings_manager')
                             stored_settings = settings_manager.get_settings()
@@ -178,7 +177,7 @@ def initialize_websocket_manager():
                         ai_role = universal_settings.get('ai role', 'gm')
                         
                         # Generate enhanced system prompt based on AI role
-                        from endpoints.api_chat import _generate_enhanced_system_prompt
+                        from api.api_chat import _generate_enhanced_system_prompt
                         import json
                         system_prompt = _generate_enhanced_system_prompt(ai_role, compact_messages)
                         compact_json_context = json.dumps(compact_messages, indent=2)
@@ -206,7 +205,7 @@ def initialize_websocket_manager():
                         logger.info(f"Tokens used: {tokens_used}")
                         
                         # Use AIChatProcessor to properly process AI responses
-                        from server.ai_chat_processor import AIChatProcessor
+                        from services.ai_services.ai_chat_processor import AIChatProcessor
                         ai_chat_processor = AIChatProcessor()
                         api_formatted = ai_chat_processor.process_ai_response(ai_response, compact_messages)
                         
@@ -216,7 +215,7 @@ def initialize_websocket_manager():
                         if api_formatted and api_formatted.get("success", False):
                             client_id_for_ws = universal_settings.get('relay client id')
                             if client_id_for_ws:
-                                from endpoints.api_chat import _send_messages_to_websocket
+                                from api.api_chat import _send_messages_to_websocket
                                 success_count, total_messages = await _send_messages_to_websocket(api_formatted, client_id_for_ws)
                                 logger.info(f"WebSocket transmission: {success_count}/{total_messages} messages sent successfully")
                                 logger.info(f"✅ Successfully sent {success_count} message(s) to Foundry chat")  # Log success message here only
@@ -442,7 +441,7 @@ def get_global_services() -> Dict[str, Any]:
     services = {}
     
     # Import service registry
-    from server.registry import ServiceRegistry
+    from services.system_services.registry import ServiceRegistry
     
     # Initialize WebSocket connection manager
     websocket_manager = initialize_websocket_manager()
@@ -461,7 +460,7 @@ def get_global_services() -> Dict[str, Any]:
             services['settings_manager'] = settings_manager
     
     # Initialize client manager
-    from server.client_manager import ClientManager
+    from services.system_services.client_manager import ClientManager
     client_manager = ClientManager()
     if client_manager:
         if not ServiceRegistry.register('client_manager', client_manager):
@@ -502,7 +501,7 @@ def setup_application_routers(app: FastAPI) -> bool:
     """
     try:
         # Include API chat router
-        from endpoints.api_chat import router as api_chat_router
+        from api.api_chat import router as api_chat_router
         app.include_router(api_chat_router)
         logger.info("API chat router included")
         

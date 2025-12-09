@@ -38,7 +38,7 @@ def initialize_security_middleware(app: FastAPI, cors_origins: list, security_co
         )
         
         # Add Universal Security Middleware AFTER CORS (so it runs after CORS handles OPTIONS)
-        from security.security import UniversalSecurityMiddleware
+        from ..security.security import UniversalSecurityMiddleware
         app.add_middleware(UniversalSecurityMiddleware, security_config=security_config)
         
         logger.info(f"CORS configured for {len(cors_origins)} origins")
@@ -62,7 +62,7 @@ def setup_rate_limiting(max_requests: int, window_seconds: int):
         RateLimiter instance or None if failed
     """
     try:
-        from security.security import RateLimiter
+        from ..security.security import RateLimiter
         rate_limiter = RateLimiter(max_requests=max_requests, window_seconds=window_seconds)
         logger.info(f"Rate limiting configured: {max_requests} requests per {window_seconds} seconds")
         return rate_limiter
@@ -78,7 +78,7 @@ def initialize_session_manager():
         SessionManager instance or None if failed
     """
     try:
-        from security.sessionvalidator import session_validator
+        from ..security.sessionvalidator import session_validator
         logger.info("Session manager initialized")
         return session_validator
     except Exception as e:
@@ -93,7 +93,7 @@ def initialize_global_validator():
         UniversalInputValidator instance or None if failed
     """
     try:
-        from security.security import UniversalInputValidator
+        from ..security.security import UniversalInputValidator
         validator = UniversalInputValidator()
         logger.info("Global input validator initialized")
         return validator

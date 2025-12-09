@@ -12,7 +12,7 @@ from typing import Dict, List, Optional, Any
 import hashlib
 
 # Get absolute path to backend directory (where server.py is located)
-BACKEND_DIR = Path(__file__).parent.parent.absolute()
+BACKEND_DIR = Path(__file__).parent.parent.parent.absolute()
 
 def get_absolute_path(relative_path: str) -> Path:
     """
@@ -41,7 +41,7 @@ class ProviderManager:
         
         try:
             # Load comprehensive provider list from file as single source of truth
-            with open(get_absolute_path('server_files/litellm_providers.json'), 'r') as f:
+            with open(get_absolute_path('shared/server_files/litellm_providers.json'), 'r') as f:
                 provider_data = json.load(f)
                 providers_list = provider_data['providers']
                 provider_details = provider_data['provider_details']

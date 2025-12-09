@@ -7,10 +7,10 @@ import os
 import re
 from pathlib import Path
 from .provider_manager import ProviderManager
-from security.key_crypto import KeyCrypto
+from shared.security.key_crypto import KeyCrypto
 from ui.cli_manager import CLIManager
-from core.key_storage import KeyStorage
-from providers.custom_provider_wizard import CustomProviderWizard
+from shared.core.key_storage import KeyStorage
+from shared.providers.custom_provider_wizard import CustomProviderWizard
 
 # Get absolute path to backend directory (where server.py is located)
 BACKEND_DIR = Path(__file__).parent.parent.absolute()
