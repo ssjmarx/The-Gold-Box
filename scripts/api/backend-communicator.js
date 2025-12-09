@@ -556,8 +556,20 @@ class BackendCommunicator {
         // Check if WebSocket is connected (more robust check)
         const wsConnected = this.webSocketClient.isConnected || this.webSocketClient.connectionState === 'connected';
         if (wsConnected) {
-          console.log('BackendCommunicator: Using WebSocket for API mode');
-          return await this.sendViaWebSocket(messages);
+          console.log('BackendCommunicator: Using WebSocket for API mode - response will be handled asynchronously');
+          // For WebSocket, we send the request and return immediately - response comes via WebSocket message handler
+          this.sendViaWebSocket(messages).catch(error => {
+            console.error('BackendCommunicator: WebSocket send error:', error);
+            // Error will be handled by the WebSocket client's error handler
+          });
+          // Return a special response indicating async processing
+          return {
+            success: true,
+            data: {
+              response: 'WebSocket request sent - response will be handled asynchronously',
+              metadata: { websocket_mode: true }
+            }
+          };
         } else {
           console.log('BackendCommunicator: WebSocket client exists but not connected, falling back to HTTP API');
           console.log('BackendCommunicator: WebSocket client exists:', !!this.webSocketClient);

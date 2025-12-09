@@ -47,16 +47,32 @@ class GoldBoxAPI {
   /**
    * Send message context to backend with timeout handling (delegated to communicator)
    */
-  async sendMessageContext(messages, moduleInstance) {
+  async sendMessageContext(messages, moduleInstance, buttonElement) {
     const timeout = this.settingsManager.getSetting('aiResponseTimeout', 60);
+    let response = null; // Define response outside try block so it's accessible in finally
     
     try {
       // Delegate to BackendCommunicator with timeout and retry logic
-      const response = await this.communicator.sendMessageContext(messages, timeout, 1);
+      response = await this.communicator.sendMessageContext(messages, timeout, 1);
       
       if (response.success) {
-        // Display success response
-        moduleInstance.uiManager.displayAIResponse(response.data.response, response.data);
+        // Check if this is WebSocket mode (async response)
+        if (response.data.metadata && response.data.metadata.websocket_mode) {
+          console.log('The Gold Box: WebSocket request sent, waiting for async response via WebSocket handler');
+          // For WebSocket mode, button state will be reset when the WebSocket response is received
+          // Set up a timeout to reset button if no response comes
+          setTimeout(() => {
+            if (buttonElement && buttonElement.disabled) {
+              console.warn('The Gold Box: WebSocket response timeout, resetting button state');
+              this.setButtonProcessingState(buttonElement, false);
+              moduleInstance.uiManager.displayErrorResponse('AI response timeout - no response received via WebSocket');
+            }
+          }, timeout * 1000);
+          return; // Don't reset button yet - wait for WebSocket response
+        } else {
+          // HTTP mode - direct response received
+          moduleInstance.uiManager.displayAIResponse(response.data.response, response.data);
+        }
       } else {
         // Display error response
         moduleInstance.uiManager.displayErrorResponse(response.error || 'Unknown error occurred');
@@ -65,6 +81,15 @@ class GoldBoxAPI {
     } catch (error) {
       console.error('The Gold Box: Error processing AI turn:', error);
       moduleInstance.uiManager.displayErrorResponse(error.message);
+    } finally {
+      // Only reset button state for HTTP mode or errors
+      // WebSocket mode button reset is handled in WebSocket message handler
+      // Note: response is now defined outside try block so it's accessible here
+      if (response && (!response.success || !(response.data.metadata && response.data.metadata.websocket_mode))) {
+        if (buttonElement) {
+          this.setButtonProcessingState(buttonElement, false);
+        }
+      }
     }
   }
 
@@ -488,16 +513,15 @@ class GoldBoxModule {
       // Collect chat messages for context
       const messages = this.collectChatMessages();
       
-      // Send to backend for processing
-      await this.api.sendMessageContext(messages, this);
+      // Send to backend for processing (pass button element for proper state management)
+      await this.api.sendMessageContext(messages, this, button);
       
     } catch (error) {
       console.error('The Gold Box: Error in AI turn:', error);
       this.uiManager.displayErrorResponse(error.message);
-    } finally {
-      // Reset button state
-      this.api.setButtonProcessingState(button, false);
+      // Note: button state is reset in sendMessageContext finally block
     }
+    // Note: Removed finally block here since button state is now handled in sendMessageContext
   }
 
   /**
@@ -509,6 +533,13 @@ class GoldBoxModule {
       
       switch (message.type) {
         case 'chat_response':
+          // Reset button state when response is received via WebSocket
+          const button = document.getElementById('gold-box-ai-turn-btn');
+          if (button && button.disabled) {
+            this.api.setButtonProcessingState(button, false);
+            console.log('The Gold Box: Reset button state after WebSocket response received');
+          }
+          
           // Handle AI response from WebSocket - NEW: support structured message data
           if (message.data && message.data.message) {
             const msgData = message.data.message;
@@ -544,6 +575,13 @@ class GoldBoxModule {
           break;
           
         case 'error':
+          // Reset button state on error as well
+          const errorButton = document.getElementById('gold-box-ai-turn-btn');
+          if (errorButton && errorButton.disabled) {
+            this.api.setButtonProcessingState(errorButton, false);
+            console.log('The Gold Box: Reset button state after WebSocket error received');
+          }
+          
           // Handle error from WebSocket
           if (message.data && message.data.error) {
             this.uiManager.displayErrorResponse(message.data.error);
@@ -559,6 +597,12 @@ class GoldBoxModule {
       }
     } catch (error) {
       console.error('The Gold Box: Error handling WebSocket message:', error);
+      // Reset button state on error in message handling as well
+      const errorButton = document.getElementById('gold-box-ai-turn-btn');
+      if (errorButton && errorButton.disabled) {
+        this.api.setButtonProcessingState(errorButton, false);
+        console.log('The Gold Box: Reset button state after message handling error');
+      }
     }
   }
 
