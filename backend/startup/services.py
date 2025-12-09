@@ -135,9 +135,14 @@ def initialize_websocket_manager():
                         
                         logger.info(f"Processing WebSocket chat request from {client_id}: {len(stored_messages)} messages")
                     
-                        # Get stored settings for processing
-                        from server import settings_manager
-                        stored_settings = settings_manager.get_settings()
+                        # Get stored settings for processing from ServiceRegistry
+                        from server.registry import ServiceRegistry
+                        try:
+                            settings_manager = ServiceRegistry.get('settings_manager')
+                            stored_settings = settings_manager.get_settings()
+                        except ValueError:
+                            logger.error("❌ WebSocket: Settings manager not available in registry")
+                            return
                         
                         # Extract universal settings with proper request data structure
                         request_data_for_settings = {
@@ -441,18 +446,40 @@ async def start_websocket_chat_handler():
 
 def get_global_services() -> Dict[str, Any]:
     """
-    Get and initialize all global services.
+    Get and initialize all global services and register with ServiceRegistry.
     
     Returns:
         Dictionary containing all initialized global services
     """
     services = {}
     
+    # Import service registry
+    from server.registry import ServiceRegistry
+    
     # Initialize WebSocket connection manager
-    services['websocket_manager'] = initialize_websocket_manager()
+    websocket_manager = initialize_websocket_manager()
+    if websocket_manager:
+        if not ServiceRegistry.register('websocket_manager', websocket_manager):
+            logger.error("Failed to register websocket manager")
+        else:
+            services['websocket_manager'] = websocket_manager
     
     # Initialize settings manager
-    services['settings_manager'] = setup_settings_manager()
+    settings_manager = setup_settings_manager()
+    if settings_manager:
+        if not ServiceRegistry.register('settings_manager', settings_manager):
+            logger.error("Failed to register settings manager")
+        else:
+            services['settings_manager'] = settings_manager
+    
+    # Initialize client manager
+    from server.client_manager import ClientManager
+    client_manager = ClientManager()
+    if client_manager:
+        if not ServiceRegistry.register('client_manager', client_manager):
+            logger.error("Failed to register client manager")
+        else:
+            services['client_manager'] = client_manager
     
     # Initialize context chat endpoint
     services['context_chat_endpoint'] = initialize_context_chat_endpoint()
@@ -462,16 +489,19 @@ def get_global_services() -> Dict[str, Any]:
     
     # Validate service initialization
     services_valid = (
-        services['websocket_manager'] is not None and
-        services['settings_manager'] is not None
+        services.get('websocket_manager') is not None and
+        services.get('settings_manager') is not None and
+        services.get('client_manager') is not None
     )
     
     services['services_valid'] = services_valid
     
     if services_valid:
-        logger.info("All global services initialized successfully")
+        logger.info("✅ All global services initialized and registered")
+        # Mark registry as fully initialized
+        ServiceRegistry.initialize_complete()
     else:
-        logger.warning("Some global services failed to initialize")
+        logger.warning("⚠️ Some global services failed to initialize")
     
     return services
 
