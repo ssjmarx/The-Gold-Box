@@ -14,6 +14,7 @@
   "esmodules": [
     "scripts/connection-manager.js",
     "scripts/websocket-client.js",
+    "scripts/settings-manager.js",
     "scripts/gold-box.js"
   ],
   "styles": [
