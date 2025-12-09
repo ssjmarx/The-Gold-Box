@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from pathlib import Path
 from pydantic import BaseModel, Field
 
-# Import startup module
+# Import the new startup module
 from startup import run_server_startup
 
 # Get startup components
@@ -75,7 +75,7 @@ def get_absolute_path(relative_path: str) -> Path:
     """
     return (BACKEND_DIR / relative_path).resolve()
 
-# Import remaining modules that depend on startup components
+# Import remaining modules that depend on the startup components
 from server.key_manager import MultiKeyManager
 from endpoints.api_chat import router as api_chat_router, APIChatProcessor
 from endpoints.context_chat import ContextChatEndpoint
@@ -88,6 +88,7 @@ from security.security import (
 )
 from server.universal_settings import extract_universal_settings, get_provider_config, UniversalSettings
 from server.message_collector import get_message_collector, add_client_message, add_client_roll
+  +++++++ REPLACE
 
 # Pydantic models for FastAPI request/response validation
 class PromptRequest(BaseModel):
@@ -204,14 +205,88 @@ async def websocket_endpoint(websocket: WebSocket):
     """
     FastAPI WebSocket endpoint for The Gold Box
     Handles real-time communication with Foundry VTT frontend
-    Now uses WebSocketHandler module
     """
-    # Create WebSocket handler instance
-    ws_handler = WebSocketHandler(websocket_manager)
+    client_id = None
     
-    # Delegate to WebSocket handler
-    await ws_handler.handle_websocket_connection(websocket)
-  +++++++ REPLACE
+    try:
+        # Accept the WebSocket connection first
+        await websocket.accept()
+        logger.info("WebSocket connection accepted")
+        
+        # Wait for initial connection message
+        connect_message = await websocket.receive_json()
+        logger.info(f"Received connection message: {connect_message}")
+        
+        # Validate connection message
+        if connect_message.get("type") != "connect":
+            await websocket.close(code=1008, reason="Expected connection message")
+            logger.warning("WebSocket: Expected connect message")
+            return
+        
+        client_id = connect_message.get("client_id")
+        token = connect_message.get("token")
+        
+        if not client_id or not token:
+            await websocket.close(code=1008, reason="Missing client_id or token")
+            logger.warning("WebSocket: Missing client_id or token")
+            return
+        
+        # Check for duplicate connections
+        if client_id in websocket_manager.connection_info:
+            await websocket.close(code=1008, reason="Client ID already connected")
+            logger.warning(f"WebSocket: Duplicate client ID {client_id}")
+            return
+        
+        # Connect the client
+        connection_info = {
+            "token": token,
+            "world_info": connect_message.get("world_info", {}),
+            "user_info": connect_message.get("user_info", {})
+        }
+        
+        # Manually add to connection manager since we already accepted
+        websocket_manager.active_connections.append(websocket)
+        websocket_manager.connection_info[client_id] = {
+            "websocket": websocket,
+            "connected_at": datetime.now().isoformat(),
+            **connection_info
+        }
+        logger.info(f"WebSocket client connected: {client_id}")
+        
+        # Send connection confirmation
+        await websocket_manager.send_to_client(client_id, {
+            "type": "connected",
+            "data": {
+                "client_id": client_id,
+                "server_time": datetime.now().isoformat(),
+                "message": "Successfully connected to The Gold Box WebSocket server"
+            }
+        })
+        
+        # Handle messages from this client
+        try:
+            while True:
+                message = await websocket.receive_json()
+                await websocket_manager.handle_message(client_id, message)
+                
+        except WebSocketDisconnect:
+            logger.info(f"WebSocket client {client_id} disconnected normally")
+        except Exception as e:
+            logger.error(f"WebSocket error for {client_id}: {e}")
+        finally:
+            # Clean up connection
+            await websocket_manager.disconnect(client_id)
+            
+    except Exception as e:
+        logger.error(f"WebSocket connection error: {e}")
+        if client_id:
+            await websocket_manager.disconnect(client_id)
+        else:
+            # Try to close the connection if it was opened
+            try:
+                await websocket.close(code=1011, reason="Internal server error")
+            except:
+                pass
 
 async def start_websocket_chat_handler():
     """Initialize WebSocket chat handler (now using FastAPI built-in WebSocket)"""
@@ -546,7 +621,7 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
         # Sort by timestamp (newest first, then we'll reverse for chronological)
         all_messages.sort(key=lambda x: x.get('_timestamp', 0), reverse=True)
         
-        # Take most recent 'count' messages and reverse to chronological order
+        # Take the most recent 'count' messages and reverse to chronological order
         merged_messages = list(reversed(all_messages[:count]))
         
         return merged_messages
@@ -1129,7 +1204,7 @@ async def debug_provider_endpoint(request: Request):
         )
         
     except Exception as e:
-        logger.error(f"Debug provider error: {str(e)}")
+        logger.error(f"Debug provider endpoint error: {str(e)}")
         raise HTTPException(
             status_code=500,
             detail=f"Debug provider error: {str(e)}"
