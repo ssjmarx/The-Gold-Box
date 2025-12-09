@@ -43,7 +43,19 @@ class APIChatResponse(BaseModel):
 api_chat_processor = APIChatProcessor()
 ai_chat_processor = AIChatProcessor()
 from server.provider_manager import ProviderManager
-provider_manager = ProviderManager()
+# Get provider manager from key manager to avoid duplication
+try:
+    from server.key_manager import MultiKeyManager
+    key_manager = MultiKeyManager()
+    if hasattr(key_manager, 'provider_manager'):
+        provider_manager = key_manager.provider_manager
+    else:
+        # Fallback to creating new instance
+        provider_manager = ProviderManager()
+except Exception:
+    # Fallback to creating new instance
+    provider_manager = ProviderManager()
+
 ai_service = AIService(provider_manager)  # Properly initialized with provider manager
 
 async def _send_messages_to_foundry(api_formatted_data, client_id):

@@ -8,10 +8,13 @@ Provides unified interface for both simple_chat and process_chat endpoints
 
 import os
 import asyncio
+import logging
 import litellm
 from typing import Dict, Any, Optional, List
 from .provider_manager import ProviderManager
 from .universal_settings import get_provider_config
+
+logger = logging.getLogger(__name__)
 
 class AIService:
     """
@@ -365,8 +368,37 @@ def get_ai_service() -> 'AIService':
     """Get or create global AI service instance"""
     global _ai_service
     if _ai_service is None:
-        from .provider_manager import ProviderManager
-        provider_manager = ProviderManager()
+        # Get provider manager from the main server's key manager instead of creating new instance
+        try:
+            # Import the main server module where manager is properly initialized
+            import server
+            
+            # The manager should be available as server.manager from startup sequence
+            if hasattr(server, 'manager') and server.manager is not None:
+                if hasattr(server.manager, 'provider_manager') and server.manager.provider_manager is not None:
+                    provider_manager = server.manager.provider_manager
+                    logger.info("AI Service: Using existing provider manager from main server")
+                else:
+                    # Manager exists but no provider_manager - this shouldn't happen but handle it
+                    logger.warning("AI Service: Server manager exists but no provider_manager found")
+                    from .provider_manager import ProviderManager
+                    provider_manager = ProviderManager()
+                    server.manager.provider_manager = provider_manager  # Attach it for future use
+                    logger.info("AI Service: Created and attached new ProviderManager to server.manager")
+            else:
+                # Server manager not available - this is the fallback case
+                logger.warning("AI Service: Server manager not available, using fallback")
+                from .provider_manager import ProviderManager
+                provider_manager = ProviderManager()
+                logger.info("AI Service: Created new ProviderManager (server manager unavailable)")
+                
+        except Exception as e:
+            # Ultimate fallback - create new instance
+            logger.error(f"AI Service: Failed to get existing provider manager: {e}")
+            from .provider_manager import ProviderManager
+            provider_manager = ProviderManager()
+            logger.info("AI Service: Created new ProviderManager (exception fallback)")
+            
         _ai_service = AIService(provider_manager)
     return _ai_service
 
