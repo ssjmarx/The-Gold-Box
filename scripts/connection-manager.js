@@ -2,6 +2,7 @@
  * Connection Manager for Gold Box Backend
  * WebSocket-first implementation with HTTP fallback
  * Phase 4: Removed Relay Server dependency
+ * Refactored: Session management extracted to SessionManager
  */
 
 /**
@@ -43,20 +44,8 @@ class ConnectionManager {
     // WebSocket client reference
     this.webSocketClient = null;
     
-    // Session management
-    this.sessionId = null;
-    this.sessionExpiry = null;
-    this.sessionRefreshInterval = null;
-    this.sessionHealthInterval = null;
-    
-    // Retry and refresh state
-    this.refreshState = {
-      isRefreshing: false,
-      consecutiveFailures: 0,
-      lastRefreshAttempt: null,
-      circuitBreakerOpen: false,
-      circuitBreakerResetTime: null
-    };
+    // Session Manager (extracted concern)
+    this.sessionManager = new window.SessionManager();
     
     // Initialization control
     this.initPromise = null;
@@ -66,18 +55,6 @@ class ConnectionManager {
     this.defaultPort = 5000;
     this.maxPortAttempts = 20;
     this.portTimeout = 2000;
-    
-    // Enhanced refresh configuration
-    this.refreshConfig = {
-      maxRetries: 3,
-      baseDelay: 1000,        // 1 second base delay
-      maxDelay: 30000,        // 30 second max delay
-      criticalThreshold: 60000, // 1 minute critical threshold
-      warningThreshold: 300000, // 5 minute warning threshold
-      minRefreshBuffer: 300000,  // 5 minute minimum buffer
-      healthCheckInterval: 30000, // 30 second health check
-      circuitBreakerResetDelay: 300000 // 5 minute circuit breaker reset
-    };
     
     console.log('ConnectionManager: Initialized singleton instance');
   }
@@ -104,7 +81,7 @@ class ConnectionManager {
     }
     
     // If already connected, return success
-    if (this.state === ConnectionState.CONNECTED && this.isSessionValid()) {
+    if (this.state === ConnectionState.CONNECTED && this.sessionManager.isSessionValid()) {
       console.log('ConnectionManager: Already connected with valid session');
       return true;
     }
@@ -121,7 +98,7 @@ class ConnectionManager {
   }
   
   /**
-   * Perform the actual initialization
+   * Perform actual initialization
    * @private
    */
   async _performInitialization() {
@@ -141,13 +118,20 @@ class ConnectionManager {
       this.baseUrl = `http://localhost:${port}`;
       console.log(`ConnectionManager: Found backend on port ${port}`);
       
-      // Step 2: Initialize session
-      const sessionInitialized = await this.initializeSession();
+      // Step 2: Initialize session using SessionManager
+      const sessionInitialized = await this.sessionManager.initializeSession(this.baseUrl);
       if (!sessionInitialized) {
         console.log('ConnectionManager: Failed to initialize session');
         this.setState(ConnectionState.ERROR);
         return false;
       }
+      
+      // Setup session manager callbacks
+      this.setupSessionManagerCallbacks();
+      
+      // Start session monitoring
+      this.sessionManager.startHealthMonitoring(this.baseUrl);
+      this.sessionManager.setupVisibilityChangeHandler();
       
       this.setState(ConnectionState.CONNECTED);
       console.log('ConnectionManager: Successfully connected to backend');
@@ -160,7 +144,7 @@ class ConnectionManager {
       return false;
     }
   }
-  
+
   /**
    * Discover backend port by testing multiple ports
    * @param {number} startPort - Starting port (default: 5000)
@@ -203,452 +187,41 @@ class ConnectionManager {
     }
     return null;
   }
-  
-  /**
-   * Initialize session with backend
-   * @returns {Promise<boolean>} - True if successful
-   */
-  async initializeSession() {
-    try {
-      console.log('ConnectionManager: Initializing session...');
-      
-      const response = await fetch(`${this.baseUrl}/api/session/init`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        this.sessionId = data.session_id;
-        this.sessionExpiry = new Date(data.expires_at);
-        
-        console.log('ConnectionManager: Session initialized successfully');
-        console.log('ConnectionManager: Session ID:', this.sessionId);
-        console.log('ConnectionManager: Session expires:', this.sessionExpiry);
-        
-        // Reset refresh state on successful initialization
-        this.refreshState = {
-          isRefreshing: false,
-          consecutiveFailures: 0,
-          lastRefreshAttempt: null,
-          circuitBreakerOpen: false,
-          circuitBreakerResetTime: null
-        };
-        
-        // Start enhanced refresh system
-        this.scheduleNextRefresh();
-        this.startHealthMonitoring();
-        this.setupVisibilityChangeHandler();
-        
-        return true;
-      } else {
-        console.error('ConnectionManager: Failed to initialize session:', response.status, response.statusText);
-        return false;
-      }
-    } catch (error) {
-      console.error('ConnectionManager: Error initializing session:', error);
-      return false;
-    }
-  }
 
   /**
-   * Setup visibility change handler to handle tab background/foreground
+   * Setup callbacks for SessionManager events
+   * @private
    */
-  setupVisibilityChangeHandler() {
-    // Remove existing listener if any
-    if (this.visibilityChangeHandler) {
-      document.removeEventListener('visibilitychange', this.visibilityChangeHandler);
-    }
-
-    this.visibilityChangeHandler = () => {
-      if (document.hidden) {
-        console.log('ConnectionManager: Tab became hidden, adjusting refresh behavior');
-        // When tab is hidden, be more conservative with refreshes
-        this.adjustRefreshForBackground();
-      } else {
-        console.log('ConnectionManager: Tab became visible, checking session health');
-        // When tab becomes visible, immediately check session health
-        this.performImmediateHealthCheck();
+  setupSessionManagerCallbacks() {
+    this.sessionManager.setCallbacks({
+      onSessionExpired: () => {
+        console.log('ConnectionManager: Session expired, attempting refresh');
+        this.sessionManager.refreshSession(this.baseUrl);
+      },
+      onCriticalState: (sessionInfo) => {
+        console.log('ConnectionManager: Session in critical state');
+        // ConnectionManager can add additional handling here if needed
+      },
+      onSessionCreated: (sessionData) => {
+        console.log('ConnectionManager: New session created');
+      },
+      onSessionExtended: (sessionData) => {
+        console.log('ConnectionManager: Session extended');
+      },
+      onSessionRefreshed: (sessionData) => {
+        console.log('ConnectionManager: Session refreshed');
       }
-    };
-
-    document.addEventListener('visibilitychange', this.visibilityChangeHandler);
-    console.log('ConnectionManager: Visibility change handler setup complete');
-  }
-
-  /**
-   * Perform immediate health check when tab becomes visible
-   */
-  async performImmediateHealthCheck() {
-    if (!this.sessionId || !this.sessionExpiry) return;
-
-    const now = Date.now();
-    const timeToExpiry = this.sessionExpiry.getTime() - now;
-
-    // If session is expired, refresh immediately
-    if (timeToExpiry <= 0) {
-      console.log('ConnectionManager: Tab visible with expired session, refreshing immediately');
-      await this.refreshSession();
-      return;
-    }
-
-    // If session is in warning zone, test connection
-    if (timeToExpiry < this.refreshConfig.warningThreshold) {
-      try {
-        const testResult = await this.testConnection();
-        if (!testResult.success) {
-          console.warn('ConnectionManager: Connection test failed on tab visibility, refreshing session');
-          await this.refreshSession();
-        } else {
-          console.log('ConnectionManager: Connection test passed on tab visibility');
-        }
-      } catch (error) {
-        console.error('ConnectionManager: Error testing connection on tab visibility:', error);
-        await this.refreshSession();
-      }
-    }
+    });
   }
   
-  /**
-   * Refresh session token with retry logic and exponential backoff
-   * @returns {Promise<boolean>} - True if successful
-   */
-  async refreshSession() {
-    // Check if already refreshing to prevent concurrent refreshes
-    if (this.refreshState.isRefreshing) {
-      console.log('ConnectionManager: Refresh already in progress, skipping...');
-      return false;
-    }
 
-    // Check circuit breaker
-    if (this.refreshState.circuitBreakerOpen) {
-      const now = Date.now();
-      if (now < this.refreshState.circuitBreakerResetTime) {
-        console.log('ConnectionManager: Circuit breaker is open, skipping refresh');
-        return false;
-      } else {
-        console.log('ConnectionManager: Circuit breaker reset, allowing refresh');
-        this.refreshState.circuitBreakerOpen = false;
-        this.refreshState.consecutiveFailures = 0;
-      }
-    }
-
-    this.refreshState.isRefreshing = true;
-    this.refreshState.lastRefreshAttempt = Date.now();
-
-    try {
-      // Try to extend existing session first
-      const wasExtended = await this.extendExistingSession();
-      
-      if (wasExtended) {
-        console.log('ConnectionManager: Session extended successfully');
-        this.refreshState.consecutiveFailures = 0;
-        this.scheduleNextRefresh();
-        return true;
-      }
-
-      // If extension failed, try refresh with retry logic
-      const refreshed = await this.refreshSessionWithRetry();
-      
-      if (refreshed) {
-        this.refreshState.consecutiveFailures = 0;
-        this.scheduleNextRefresh();
-        return true;
-      }
-
-      // All refresh attempts failed
-      this.refreshState.consecutiveFailures++;
-      console.error(`ConnectionManager: Session refresh failed after ${this.refreshState.consecutiveFailures} consecutive failures`);
-
-      // Check for critical situation
-      if (this.isSessionInCriticalState()) {
-        this.handleCriticalSessionState();
-      }
-
-      // Open circuit breaker if too many failures
-      if (this.refreshState.consecutiveFailures >= this.refreshConfig.maxRetries) {
-        this.refreshState.circuitBreakerOpen = true;
-        this.refreshState.circuitBreakerResetTime = Date.now() + this.refreshConfig.circuitBreakerResetDelay;
-        console.warn('ConnectionManager: Circuit breaker opened due to repeated failures');
-      }
-
-      return false;
-
-    } finally {
-      this.refreshState.isRefreshing = false;
-    }
-  }
-
-  /**
-   * Try to extend existing session instead of creating new one
-   * @returns {Promise<boolean>} - True if successful
-   */
-  async extendExistingSession() {
-    if (!this.sessionId || !this.isSessionValid()) {
-      return false;
-    }
-
-    try {
-      console.log('ConnectionManager: Attempting to extend existing session...');
-      
-      const response = await fetch(`${this.baseUrl}/api/session/init`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          extend_existing: true,
-          session_id: this.sessionId
-        })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        
-        if (data.was_extended) {
-          this.sessionExpiry = new Date(data.expires_at);
-          console.log('ConnectionManager: Session extended successfully');
-          console.log('ConnectionManager: New expiry:', this.sessionExpiry);
-          return true;
-        } else {
-          console.log('ConnectionManager: Server created new session instead of extending');
-          this.sessionId = data.session_id;
-          this.sessionExpiry = new Date(data.expires_at);
-          return true;
-        }
-      } else {
-        console.log('ConnectionManager: Session extension failed, will try refresh');
-        return false;
-      }
-    } catch (error) {
-      console.error('ConnectionManager: Error extending session:', error);
-      return false;
-    }
-  }
-
-  /**
-   * Refresh session with exponential backoff retry logic
-   * @returns {Promise<boolean>} - True if successful
-   */
-  async refreshSessionWithRetry() {
-    for (let attempt = 0; attempt < this.refreshConfig.maxRetries; attempt++) {
-      try {
-        console.log(`ConnectionManager: Refresh attempt ${attempt + 1}/${this.refreshConfig.maxRetries}`);
-        
-        const response = await fetch(`${this.baseUrl}/api/session/init`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          this.sessionId = data.session_id;
-          this.sessionExpiry = new Date(data.expires_at);
-          
-          console.log('ConnectionManager: Session refreshed successfully');
-          console.log('ConnectionManager: New Session ID:', this.sessionId);
-          console.log('ConnectionManager: New expiry:', this.sessionExpiry);
-          
-          return true;
-        } else {
-          console.error(`ConnectionManager: Refresh attempt ${attempt + 1} failed:`, response.status, response.statusText);
-        }
-      } catch (error) {
-        console.error(`ConnectionManager: Refresh attempt ${attempt + 1} error:`, error);
-      }
-
-      // If not the last attempt, wait with exponential backoff
-      if (attempt < this.refreshConfig.maxRetries - 1) {
-        const delay = this.calculateBackoffDelay(attempt);
-        console.log(`ConnectionManager: Waiting ${delay}ms before retry...`);
-        await this.sleep(delay);
-      }
-    }
-
-    return false;
-  }
-
-  /**
-   * Calculate exponential backoff delay with jitter
-   * @param {number} attempt - Current attempt number (0-based)
-   * @returns {number} - Delay in milliseconds
-   */
-  calculateBackoffDelay(attempt) {
-    const exponentialDelay = this.refreshConfig.baseDelay * Math.pow(2, attempt);
-    const jitter = Math.random() * 0.1 * exponentialDelay; // Add 10% jitter
-    const totalDelay = exponentialDelay + jitter;
-    return Math.min(totalDelay, this.refreshConfig.maxDelay);
-  }
-
-  /**
-   * Sleep helper function
-   * @param {number} ms - Milliseconds to sleep
-   * @returns {Promise} - Promise that resolves after ms milliseconds
-   */
-  sleep(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
-  /**
-   * Check if session is in critical state (expiring soon)
-   * @returns {boolean} - True if session expires in less than critical threshold
-   */
-  isSessionInCriticalState() {
-    if (!this.sessionExpiry) return false;
-    
-    const timeToExpiry = this.sessionExpiry.getTime() - Date.now();
-    return timeToExpiry < this.refreshConfig.criticalThreshold;
-  }
-
-  /**
-   * Handle critical session state with user notification
-   */
-  handleCriticalSessionState() {
-    console.error('ConnectionManager: Session in critical state - showing user warning');
-    
-    // Try to show user notification
-    if (typeof ui !== 'undefined' && ui.notifications) {
-      ui.notifications.error('⚠️ Session expiring soon! Server connection may be unstable. Please refresh the page.', {
-        permanent: true
-      });
-    }
-
-    // Also show in chat if available
-    if (typeof ChatMessage !== 'undefined') {
-      const messageContent = `
-        <div class="gold-box-critical-warning">
-          <div class="gold-box-header">
-            <strong>The Gold Box - Critical Session Warning</strong>
-          </div>
-          <div class="gold-box-content">
-            <p><strong>⚠️ Session expiring soon!</strong></p>
-            <p>The backend connection is unstable and may fail soon. Please refresh the page to restore connection.</p>
-            <p><em>If this persists, the backend server may be down or experiencing issues.</em></p>
-          </div>
-        </div>
-      `;
-      
-      ChatMessage.create({
-        user: game?.user?.id || 'system',
-        content: messageContent,
-        speaker: {
-          alias: 'The Gold Box System'
-        }
-      });
-    }
-  }
-
-  /**
-   * Schedule next refresh using smart timing
-   */
-  scheduleNextRefresh() {
-    // Clear any existing timer
-    if (this.sessionRefreshInterval) {
-      clearTimeout(this.sessionRefreshInterval);
-      this.sessionRefreshInterval = null;
-    }
-
-    if (!this.sessionExpiry) {
-      console.log('ConnectionManager: No session expiry, cannot schedule refresh');
-      return;
-    }
-
-    const now = Date.now();
-    const timeToExpiry = this.sessionExpiry.getTime() - now;
-
-    // If already expired, refresh immediately
-    if (timeToExpiry <= 0) {
-      console.log('ConnectionManager: Session expired, refreshing immediately');
-      this.refreshSession();
-      return;
-    }
-
-    let refreshDelay;
-
-    // If less than minimum buffer, refresh immediately
-    if (timeToExpiry < this.refreshConfig.minRefreshBuffer) {
-      refreshDelay = 1000; // 1 second
-      console.log('ConnectionManager: Session expires soon, refreshing immediately');
-    }
-    // If less than warning threshold, refresh more frequently
-    else if (timeToExpiry < this.refreshConfig.warningThreshold) {
-      refreshDelay = Math.max(30000, timeToExpiry - this.refreshConfig.criticalThreshold); // Every 30 seconds or critical threshold
-      console.log('ConnectionManager: Session in warning zone, scheduling frequent refresh');
-    }
-    // Normal case: refresh 5 minutes before expiry
-    else {
-      refreshDelay = timeToExpiry - this.refreshConfig.minRefreshBuffer;
-      console.log(`ConnectionManager: Scheduling normal refresh in ${refreshDelay / 1000} seconds`);
-    }
-
-    this.sessionRefreshInterval = setTimeout(() => {
-      this.refreshSession();
-    }, refreshDelay);
-  }
-
-  /**
-   * Start health monitoring for session
-   */
-  startHealthMonitoring() {
-    // Clear existing health check
-    if (this.sessionHealthInterval) {
-      clearInterval(this.sessionHealthInterval);
-      this.sessionHealthInterval = null;
-    }
-
-    // Start periodic health checks
-    this.sessionHealthInterval = setInterval(() => {
-      this.performHealthCheck();
-    }, this.refreshConfig.healthCheckInterval);
-
-    console.log('ConnectionManager: Started session health monitoring');
-  }
-
-  /**
-   * Perform health check on session
-   */
-  async performHealthCheck() {
-    if (!this.sessionId || !this.sessionExpiry) {
-      return;
-    }
-
-    const now = Date.now();
-    const timeToExpiry = this.sessionExpiry.getTime() - now;
-
-    // If session is expired, try to refresh
-    if (timeToExpiry <= 0) {
-      console.log('ConnectionManager: Health check detected expired session, refreshing...');
-      await this.refreshSession();
-      return;
-    }
-
-    // If session is in warning zone, be more aggressive
-    if (timeToExpiry < this.refreshConfig.warningThreshold) {
-      console.log('ConnectionManager: Health check detected session in warning zone');
-      
-      // Test connection to backend
-      try {
-        const testResult = await this.testConnection();
-        if (!testResult.success) {
-          console.warn('ConnectionManager: Health check failed, attempting refresh');
-          await this.refreshSession();
-        }
-      } catch (error) {
-        console.error('ConnectionManager: Health check error:', error);
-      }
-    }
-  }
   
   /**
-   * Check if session is valid
+   * Check if session is valid (delegated to SessionManager)
    * @returns {boolean} - True if session is valid
    */
   isSessionValid() {
-    return this.sessionId && this.sessionExpiry && Date.now() < this.sessionExpiry.getTime();
+    return this.sessionManager.isSessionValid();
   }
   
   /**
@@ -885,9 +458,10 @@ class ConnectionManager {
       'Content-Type': 'application/json'
     };
     
-    // Only add session ID if we have one
-    if (this.sessionId) {
-      headers['X-Session-ID'] = this.sessionId;
+    // Get session ID from SessionManager
+    const sessionId = this.sessionManager.getSessionId();
+    if (sessionId) {
+      headers['X-Session-ID'] = sessionId;
     }
     
     return headers;
@@ -936,13 +510,16 @@ class ConnectionManager {
    * @returns {Object} - Connection info
    */
   getConnectionInfo() {
+    const sessionInfo = this.sessionManager.getSessionInfo();
     return {
       state: this.state,
       baseUrl: this.baseUrl,
       port: this.port,
       hasValidSession: this.isSessionValid(),
-      sessionId: this.sessionId,
-      sessionExpiry: this.sessionExpiry
+      sessionId: sessionInfo.sessionId,
+      sessionExpiry: sessionInfo.sessionExpiry,
+      sessionState: sessionInfo.sessionState,
+      timeToExpiry: sessionInfo.timeToExpiry
     };
   }
   
@@ -965,42 +542,17 @@ class ConnectionManager {
   disconnect() {
     console.log('ConnectionManager: Disconnecting...');
     
-    // Clear refresh timer
-    if (this.sessionRefreshInterval) {
-      clearTimeout(this.sessionRefreshInterval);
-      this.sessionRefreshInterval = null;
-    }
-    
-    // Clear health monitoring
-    if (this.sessionHealthInterval) {
-      clearInterval(this.sessionHealthInterval);
-      this.sessionHealthInterval = null;
-    }
-    
-    // Remove visibility change handler
-    if (this.visibilityChangeHandler) {
-      document.removeEventListener('visibilitychange', this.visibilityChangeHandler);
-      this.visibilityChangeHandler = null;
-    }
-    
-    // Clear session data
-    this.sessionId = null;
-    this.sessionExpiry = null;
-    
-    // Reset refresh state
-    this.refreshState = {
-      isRefreshing: false,
-      consecutiveFailures: 0,
-      lastRefreshAttempt: null,
-      circuitBreakerOpen: false,
-      circuitBreakerResetTime: null
-    };
+    // Clear session using SessionManager
+    this.sessionManager.clearSession();
     
     // Reset state
     this.setState(ConnectionState.DISCONNECTED);
     
     // Clear initialization promise
     this.initPromise = null;
+    
+    // Clear WebSocket client
+    this.webSocketClient = null;
     
     console.log('ConnectionManager: Cleanup complete');
   }
