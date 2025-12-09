@@ -12,6 +12,7 @@
     "requires": []
   },
   "esmodules": [
+    "scripts/backend-communicator.js",
     "scripts/session-manager.js",
     "scripts/connection-manager.js",
     "scripts/websocket-client.js",

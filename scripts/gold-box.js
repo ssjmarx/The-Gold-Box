@@ -5,13 +5,18 @@
 
 /**
  * API Communication Class for Backend Integration
+ * Refactored: Now delegates all operations to BackendCommunicator
  */
 class GoldBoxAPI {
   constructor() {
-    // Use ConnectionManager for all backend communication
+    // Delegate all backend communication to BackendCommunicator
+    this.communicator = new BackendCommunicator();
+    // Keep ConnectionManager for compatibility
     this.connectionManager = new ConnectionManager();
     // SettingsManager will be set from module
     this.settingsManager = null;
+    // WebSocket client reference for compatibility
+    this.webSocketClient = null;
   }
 
   /**
@@ -19,6 +24,7 @@ class GoldBoxAPI {
    */
   setSettingsManager(settingsManager) {
     this.settingsManager = settingsManager;
+    this.communicator.setSettingsManager(settingsManager);
   }
 
   /**
@@ -26,101 +32,20 @@ class GoldBoxAPI {
    */
   init() {
     if (typeof game !== 'undefined' && game.settings) {
-      // Start with default URL, will be updated by auto-discovery later
-      this.baseUrl = 'http://localhost:5000';
-      console.log('The Gold Box: API initialized with default URL:', this.baseUrl);
+      // Set up communicator with ConnectionManager
+      this.communicator.setConnectionManager(this.connectionManager);
+      this.connectionManager.setWebSocketClient = (client) => {
+        this.webSocketClient = client;
+        this.communicator.setWebSocketClient(client);
+      };
+      console.log('The Gold Box: API initialized with BackendCommunicator');
     } else {
       console.warn('The Gold Box: Game settings not available during API init');
     }
   }
 
   /**
-   * Discover available backend port by testing multiple ports
-   * @param {number} startPort - Port to start checking from (default: 5000)
-   * @param {number} maxAttempts - Maximum number of ports to check (default: 20)
-   * @returns {Promise<number|null>} - Found port number or null if none found
-   */
-  async discoverBackendPort(startPort = 5000, maxAttempts = 20) {
-    console.log(`The Gold Box: Starting port discovery from ${startPort}...`);
-    
-    for (let i = 0; i < maxAttempts; i++) {
-      const port = startPort + i;
-      const testUrl = `http://localhost:${port}`;
-      
-      try {
-        // Test connection with timeout
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2000); // 2 second timeout
-        
-        const response = await fetch(`${testUrl}/api/health`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (response.ok) {
-          const data = await response.json();
-          // Check for our backend service identifier
-          if (data.service === 'The Gold Box Backend' || data.version === '0.2.3') {
-            console.log(`The Gold Box: Found backend running on port ${port}`, data);
-            return port;
-          }
-        }
-      } catch (error) {
-        // Expected for ports that aren't running our backend
-        continue;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * Get auto-start instructions from backend
-   */
-  async getAutoStartInstructions() {
-    try {
-      const response = await fetch(`${this.baseUrl}/api/start`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        return {
-          success: true,
-          data: data
-        };
-      } else {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-    } catch (error) {
-      return {
-        success: false,
-        error: error.message
-      };
-    }
-  }
-
-  /**
-   * Auto-discover and update port
-   */
-  async autoDiscoverAndUpdatePort() {
-    const discoveredPort = await this.discoverBackendPort();
-    if (discoveredPort) {
-      this.baseUrl = `http://localhost:${discoveredPort}`;
-      return true;
-    }
-    return false;
-  }
-
-  /**
-   * Send message context to backend with timeout handling
+   * Send message context to backend with timeout handling (delegated to communicator)
    */
   async sendMessageContext(messages, moduleInstance) {
     const timeout = this.settingsManager.getSetting('aiResponseTimeout', 60);
@@ -147,7 +72,7 @@ class GoldBoxAPI {
   }
 
   /**
-   * Send message context to backend with retry logic
+   * Send message context to backend with retry logic (delegated to communicator)
    */
   async sendMessageContextWithRetry(messages, maxRetries = 1) {
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -167,11 +92,9 @@ class GoldBoxAPI {
   }
 
   /**
-   * Send message context to backend with processing mode support and client ID relay
+   * Send message context to backend with processing mode support and client ID relay (delegated to communicator)
    */
   async sendMessageContext(messages) {
-    // Note: API Bridge functionality removed - using native WebSocket client instead
-    
     try {
       const processingMode = this.settingsManager.getProcessingMode();
       
@@ -261,8 +184,8 @@ class GoldBoxAPI {
         throw new Error(`Unsupported processing mode: ${processingMode}. Supported modes: 'api', 'context'`);
       }
       
-      // Use ConnectionManager for request
-      const response = await this.connectionManager.makeRequest(endpoint, requestData);
+      // Use BackendCommunicator for request instead of ConnectionManager
+      const response = await this.communicator.sendRequest(endpoint, requestData);
       
       return response;
       
@@ -273,7 +196,7 @@ class GoldBoxAPI {
   }
 
   /**
-   * Send chat request via WebSocket
+   * Send chat request via WebSocket (delegated to communicator)
    */
   async sendViaWebSocket(messages) {
     if (!this.webSocketClient || !this.webSocketClient.isConnected) {
@@ -304,44 +227,17 @@ class GoldBoxAPI {
   }
 
   /**
-   * Sync settings to backend admin endpoint
+   * Sync settings to backend admin endpoint (delegated to communicator)
    */
   async syncSettings(settings, adminPassword) {
-    try {
-      const response = await fetch(`${this.baseUrl}/api/admin`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Admin-Password': adminPassword
-        },
-        body: JSON.stringify({
-          command: 'update_settings',
-          settings: settings
-        })
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        return {
-          success: true,
-          data: data
-        };
-      } else {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-    } catch (error) {
-      return {
-        success: false,
-        error: error.message
-      };
-    }
+    return this.communicator.syncSettings(settings, adminPassword);
   }
 
   /**
-   * Get unified frontend settings using SettingsManager
+   * Get unified frontend settings using SettingsManager (delegated to communicator)
    */
   getUnifiedFrontendSettings() {
-    return this.settingsManager.getAllSettings();
+    return this.communicator.getUnifiedFrontendSettings();
   }
 
   /**
@@ -414,8 +310,12 @@ class GoldBoxModule {
     // Check if WebSocket client is available
     if (typeof GoldBoxWebSocketClient !== 'undefined') {
       try {
+        // Use the communicator's baseUrl which is properly initialized
+        const wsUrl = this.api.communicator.baseUrl || this.api.baseUrl;
+        console.log('The Gold Box: Using WebSocket URL:', wsUrl);
+        
         this.webSocketClient = new GoldBoxWebSocketClient(
-          this.api.baseUrl,
+          wsUrl,
           (message) => this.handleWebSocketMessage(message),
           (error) => this.handleWebSocketError(error)
         );
@@ -620,23 +520,6 @@ class GoldBoxModule {
   }
 
   /**
-   * Handle user activity synchronization (Phase 4)
-   */
-  handleUserActivitySync(activityData) {
-    try {
-      console.log('The Gold Box: Processing user activity sync');
-      
-      // Could be used for collaborative features or activity tracking
-      if (activityData.user_id && activityData.activity) {
-        console.log('The Gold Box: User activity:', activityData.user_id, activityData.activity);
-      }
-      
-    } catch (error) {
-      console.error('The Gold Box: Error handling user activity sync:', error);
-    }
-  }
-
-  /**
    * Register Foundry VTT hooks
    */
   registerHooks() {
@@ -651,7 +534,7 @@ class GoldBoxModule {
     // Use SettingsManager to register all settings
     this.settingsManager.registerAllSettings();
 
-    // Add click handler for discovery button (after SettingsManager has registered the button)
+    // Add click handler for discovery button (after SettingsManager has registered button)
     Hooks.on('renderSettingsConfig', (app, html, data) => {
       const $html = $(html);
       $html.find('#gold-box-discover-port').on('click', () => {
@@ -851,24 +734,24 @@ class GoldBoxModule {
   }
 
   /**
-   * Check backend connection and show instructions if needed (using ConnectionManager)
+   * Check backend connection and show instructions if needed (using BackendCommunicator)
    */
   async checkBackendAndShowInstructions() {
     try {
-      // Initialize connection through ConnectionManager
-      await this.api.connectionManager.initialize();
+      // Initialize connection through BackendCommunicator
+      await this.api.communicator.initialize();
       
       // Get connection info for status
-      const connectionInfo = this.api.connectionManager.getConnectionInfo();
+      const connectionInfo = this.api.communicator.getConnectionInfo();
       
-      if (connectionInfo.state === ConnectionState.CONNECTED) {
+      if (connectionInfo.isConnected) {
         await game.settings.set('the-gold-box', 'backendStatus', 'connected');
-        console.log('The Gold Box: Backend connected via ConnectionManager:', connectionInfo);
+        console.log('The Gold Box: Backend connected via BackendCommunicator:', connectionInfo);
         return;
       } else {
         // Show instructions if connection failed
         await game.settings.set('the-gold-box', 'backendStatus', 'disconnected');
-        console.log('The Gold Box: Connection failed, ConnectionManager state:', connectionInfo.state);
+        console.log('The Gold Box: Connection failed, Communicator state:', connectionInfo.state);
         this.uiManager.displayStartupInstructions();
       }
     } catch (error) {
@@ -879,18 +762,18 @@ class GoldBoxModule {
   }
 
   /**
-   * Enhanced manual port discovery using ConnectionManager
+   * Enhanced manual port discovery using BackendCommunicator
    */
   async manualPortDiscovery() {
-    // Use ConnectionManager to initialize connection
-    await this.api.connectionManager.initialize();
+    // Use BackendCommunicator to initialize connection
+    await this.api.communicator.initialize();
     
     // Get connection info for status
-    const connectionInfo = this.api.connectionManager.getConnectionInfo();
+    const connectionInfo = this.api.communicator.getConnectionInfo();
     
-    if (connectionInfo.state === ConnectionState.CONNECTED) {
+    if (connectionInfo.isConnected) {
       // Test connection to get provider info
-      const healthResult = await this.api.connectionManager.testConnection();
+      const healthResult = await this.api.communicator.testConnection();
       
       if (healthResult.success && healthResult.data && healthResult.data.configured_providers) {
         this.uiManager.displayAvailableProviders(healthResult.data.configured_providers);
@@ -900,7 +783,7 @@ class GoldBoxModule {
       return true;
     } else {
       // No backend found
-      this.uiManager.showErrorNotification('No backend server found. Please start the backend server.');
+      this.uiManager.showErrorNotification('No backend server found. Please start backend server.');
       return false;
     }
   }
