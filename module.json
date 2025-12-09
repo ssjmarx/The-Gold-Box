@@ -12,12 +12,12 @@
     "requires": []
   },
   "esmodules": [
-    "scripts/backend-communicator.js",
-    "scripts/session-manager.js",
-    "scripts/connection-manager.js",
-    "scripts/websocket-client.js",
-    "scripts/settings-manager.js",
-    "scripts/ui-manager.js",
+    "scripts/api/backend-communicator.js",
+    "scripts/services/session-manager.js",
+    "scripts/api/connection-manager.js",
+    "scripts/api/websocket-client.js",
+    "scripts/services/settings-manager.js",
+    "scripts/shared/ui-manager.js",
     "scripts/gold-box.js"
   ],
   "styles": [

@@ -472,7 +472,7 @@ def get_default_security_config() -> Dict:
             "/api/admin": {
                 "rate_limiting": {"requests": 10, "window": 60},
                 "input_validation": "strict",
-                "session_required": True,
+                "session_required": False,
                 "security_headers": True
             },
             "/api/health": {

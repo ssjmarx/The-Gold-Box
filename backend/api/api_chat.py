@@ -13,11 +13,11 @@ import subprocess
 import os
 from datetime import datetime
 
-from server.api_chat_processor import APIChatProcessor
-from server.ai_chat_processor import AIChatProcessor
-from server.ai_service import AIService
-from server.processor import ChatContextProcessor
-from server.universal_settings import extract_universal_settings, get_provider_config
+from services.message_services.api_chat_processor import APIChatProcessor
+from services.ai_services.ai_chat_processor import AIChatProcessor
+from services.ai_services.ai_service import AIService
+from shared.core.processor import ChatContextProcessor
+from services.system_services.universal_settings import extract_universal_settings, get_provider_config
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -44,7 +44,7 @@ api_chat_processor = APIChatProcessor()
 ai_chat_processor = AIChatProcessor()
 # Use ServiceRegistry to get provider manager and avoid duplication
 try:
-    from server.registry import ServiceRegistry
+    from services.system_services.registry import ServiceRegistry
     
     # Try to get key manager from registry
     if ServiceRegistry.is_ready() and ServiceRegistry.is_registered('key_manager'):
@@ -53,7 +53,7 @@ try:
         logger.info("✅ API Chat: Using provider manager from ServiceRegistry")
     else:
         # Fallback - create new instance
-        from server.provider_manager import ProviderManager
+        from services.system_services.provider_manager import ProviderManager
         provider_manager = ProviderManager()
         if ServiceRegistry.is_ready():
             logger.warning("⚠️ API Chat: Provider manager not in registry, created new instance")
@@ -63,7 +63,7 @@ try:
 except Exception as e:
     # Ultimate fallback - create new instance
     logger.error(f"❌ API Chat: Failed to access ServiceRegistry: {e}")
-    from server.provider_manager import ProviderManager
+    from services.system_services.provider_manager import ProviderManager
     provider_manager = ProviderManager()
     logger.info("🔄 API Chat: Created new ProviderManager (exception fallback)")
 
@@ -271,19 +271,23 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         
         # PHASE 1 FIX: Load stored settings FIRST before validation
         try:
-            from server import settings_manager
-            stored_settings = settings_manager.get_settings()
-            if stored_settings:
-                # logger.info(f"DEBUG: Loaded {len(stored_settings)} stored settings before validation")
-                # Merge request settings with stored settings (request takes priority for client ID)
-                merged_settings = {**stored_settings}  # Start with all stored settings
-                if settings and isinstance(settings, dict):
-                    merged_settings.update(settings)  # Override with request settings (client ID)
-                settings = merged_settings  # Use merged settings for all processing
-                # logger.info(f"DEBUG: Merged settings total count: {len(settings)}")
+            from services.system_services.registry import ServiceRegistry
+            if ServiceRegistry.is_ready() and ServiceRegistry.is_registered('settings_manager'):
+                settings_manager = ServiceRegistry.get('settings_manager')
+                stored_settings = settings_manager.get_settings()
+                if stored_settings:
+                    # logger.info(f"DEBUG: Loaded {len(stored_settings)} stored settings before validation")
+                    # Merge request settings with stored settings (request takes priority for client ID)
+                    merged_settings = {**stored_settings}  # Start with all stored settings
+                    if settings and isinstance(settings, dict):
+                        merged_settings.update(settings)  # Override with request settings (client ID)
+                    settings = merged_settings  # Use merged settings for all processing
+                    # logger.info(f"DEBUG: Merged settings total count: {len(settings)}")
+                else:
+                    # logger.warning("DEBUG: No stored settings available for merging")
+                    pass
             else:
-                # logger.warning("DEBUG: No stored settings available for merging")
-                pass
+                logger.warning("Settings manager not available in registry")
         except ImportError as e:
             logger.error(f"Failed to import settings_manager for early merge: {e}")
         
@@ -633,9 +637,8 @@ Message Schemas:
 async def _send_messages_to_websocket(api_formatted_data, client_id):
     """Send processed messages to Foundry via WebSocket (new implementation)"""
     try:
-        # Use the FastAPI WebSocket connection manager from server.py
-        # This avoids the standalone WebSocket server conflict
-        from server import get_websocket_connection_manager
+        # Use ServiceRegistry to get WebSocket connection manager
+        from services.system_services.registry import ServiceRegistry
         
         # Handle both single message and multi-message formats
         if api_formatted_data.get("type") == "multi-message":
@@ -643,8 +646,12 @@ async def _send_messages_to_websocket(api_formatted_data, client_id):
         else:
             messages = [api_formatted_data]
         
-        # Get the FastAPI WebSocket connection manager
-        ws_manager = get_websocket_connection_manager()
+        # Get WebSocket connection manager from ServiceRegistry
+        if not ServiceRegistry.is_ready() or not ServiceRegistry.is_registered('websocket_manager'):
+            logger.error("WebSocket manager not available in ServiceRegistry")
+            return 0, len(messages)
+        
+        ws_manager = ServiceRegistry.get('websocket_manager')
         
         # Send each message to WebSocket client
         success_count = 0
@@ -709,16 +716,20 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
                         pass
         else:
             # Try to get from stored settings when no request data
-            try:
-                from server import settings_manager
-                stored_settings = settings_manager.get_settings()
-                if stored_settings:
-                    client_id = stored_settings.get('relay client id')
-                    if client_id:
-                        logger.info(f"Client ID found in stored settings (no request data): {client_id}")
-                        pass
-            except ImportError:
-                pass
+                try:
+                    from services.system_services.registry import ServiceRegistry
+                    if ServiceRegistry.is_ready() and ServiceRegistry.is_registered('settings_manager'):
+                        settings_manager = ServiceRegistry.get('settings_manager')
+                        stored_settings = settings_manager.get_settings()
+                        if stored_settings:
+                            client_id = stored_settings.get('relay client id')
+                            if client_id:
+                                logger.info(f"Client ID found in stored settings (no request data): {client_id}")
+                                pass
+                    else:
+                        logger.warning("Settings manager not available in registry")
+                except ImportError:
+                    pass
         
         # If no client ID, return empty list
         if not client_id:
@@ -728,7 +739,7 @@ async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = N
         logger.info(f"Collecting {count} messages for client {client_id} via WebSocket message collector")
         
         # Import message collector
-        from server.message_collector import get_combined_client_messages
+        from services.message_services.message_collector import get_combined_client_messages
         
         # Small delay to allow any recent messages to be processed
         await asyncio.sleep(0.1)

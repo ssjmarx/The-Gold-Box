@@ -97,7 +97,7 @@ class ServerStartup:
                 return False
             
             # Initialize security middleware
-            from security.security import SECURITY_CONFIG
+            from ..security.security import SECURITY_CONFIG
             if not initialize_security_middleware(
                 self.app, 
                 self.config['CORS_ORIGINS'], 
@@ -140,13 +140,13 @@ class ServerStartup:
             True if all requirements are met, False otherwise
         """
         try:
-            from server.key_manager import MultiKeyManager
+            from services.system_services.key_manager import MultiKeyManager
             
             # Initialize key manager
             self.manager = MultiKeyManager()
             
             # Register key manager and provider manager with universal service registry
-            from server.registry import ServiceRegistry
+            from services.system_services.registry import ServiceRegistry
             if not ServiceRegistry.register('key_manager', self.manager):
                 logger.error("Failed to register key manager with service registry")
                 return False

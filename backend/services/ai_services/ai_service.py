@@ -11,8 +11,8 @@ import asyncio
 import logging
 import litellm
 from typing import Dict, Any, Optional, List
-from .provider_manager import ProviderManager
-from .universal_settings import get_provider_config
+from ..system_services.provider_manager import ProviderManager
+from ..system_services.universal_settings import get_provider_config
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +80,7 @@ class AIService:
                 if not api_key:
                     # print(f"DEBUG: API key not in environment, trying key manager...")
                     try:
-                        from .key_manager import MultiKeyManager
+                        from ..system_services.key_manager import MultiKeyManager
                         key_manager = MultiKeyManager()
                         # Try to load keys without password for testing
                         if key_manager.load_keys_with_password("") is True:
@@ -370,25 +370,25 @@ def get_ai_service() -> 'AIService':
     if _ai_service is None:
         # Use ServiceRegistry to get provider manager
         try:
-            from .registry import ServiceRegistry
-            
-            # Try to get provider manager from registry
-            if ServiceRegistry.is_ready() and ServiceRegistry.is_registered('provider_manager'):
-                provider_manager = ServiceRegistry.get('provider_manager')
-                logger.info("✅ AI Service: Using provider manager from ServiceRegistry")
-            else:
-                # Fallback - create new instance
-                from .provider_manager import ProviderManager
-                provider_manager = ProviderManager()
-                if ServiceRegistry.is_ready():
-                    logger.warning("⚠️ AI Service: Provider manager not in registry, created new instance")
+                from ..system_services.registry import ServiceRegistry
+                
+                # Try to get provider manager from registry
+                if ServiceRegistry.is_ready() and ServiceRegistry.is_registered('provider_manager'):
+                    provider_manager = ServiceRegistry.get('provider_manager')
+                    logger.info("✅ AI Service: Using provider manager from ServiceRegistry")
                 else:
-                    logger.warning("⚠️ AI Service: ServiceRegistry not ready, created new ProviderManager")
+                    # Fallback - create new instance
+                    from ..system_services.provider_manager import ProviderManager
+                    provider_manager = ProviderManager()
+                    if ServiceRegistry.is_ready():
+                        logger.warning("⚠️ AI Service: Provider manager not in registry, created new instance")
+                    else:
+                        logger.warning("⚠️ AI Service: ServiceRegistry not ready, created new ProviderManager")
                 
         except Exception as e:
             # Ultimate fallback - create new instance
             logger.error(f"❌ AI Service: Failed to access ServiceRegistry: {e}")
-            from .provider_manager import ProviderManager
+            from ..system_services.provider_manager import ProviderManager
             provider_manager = ProviderManager()
             logger.info("🔄 AI Service: Created new ProviderManager (exception fallback)")
             
@@ -396,7 +396,7 @@ def get_ai_service() -> 'AIService':
         
         # Register AI service with registry if available
         try:
-            from .registry import ServiceRegistry
+            from ..system_services.registry import ServiceRegistry
             if ServiceRegistry.is_ready():
                 ServiceRegistry.register('ai_service', _ai_service)
                 logger.info("✅ AI Service: Registered with ServiceRegistry")

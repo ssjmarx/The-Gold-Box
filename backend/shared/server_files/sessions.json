@@ -1,0 +1,43 @@
+{
+  "sessions": {
+    "session_df99db4e1e8ddbbe": {
+      "created": 1764144277.3947682,
+      "last_activity": 1765284084.631551,
+      "client_ip": "::1",
+      "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) FoundryVirtualTabletop/13.351"
+    },
+    "session_19623e22261a5c4a": {
+      "created": 1764393309.7356045,
+      "last_activity": 1765186994.3622658,
+      "client_ip": "::1",
+      "user_agent": "curl/8.14.1"
+    },
+    "session_04194612ad6eee21": {
+      "created": 1765182827.312654,
+      "last_activity": 1765183289.3315737,
+      "client_ip": "127.0.0.1",
+      "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) FoundryVirtualTabletop/13.351"
+    }
+  },
+  "tokens": {
+    "session_df99db4e1e8ddbbe": {
+      "token": "GbboEQtuXJyCEDXfA8KUc2qylklv6_DZg9BdfHg3K0U",
+      "created": 1765284084.631757,
+      "expires": 1765287684.631757,
+      "last_used": 1765284084.631757
+    },
+    "session_19623e22261a5c4a": {
+      "token": "OkNA58EdyGwcVMXTbfAKGbsNsrP-47QHlkoZP3FOSZE",
+      "created": 1765186994.362428,
+      "expires": 1765190594.362428,
+      "last_used": 1765186994.362428
+    },
+    "session_04194612ad6eee21": {
+      "token": "BMkVIgHtAb4RMbV0wCdeJt56S6a4W9-ddyPDAxacarA",
+      "created": 1765183289.3318448,
+      "expires": 1765186889.3318448,
+      "last_used": 1765183289.3318448
+    }
+  },
+  "last_saved": "2025-12-09T12:41:24.631772+00:00"
+}
