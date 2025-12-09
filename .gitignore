@@ -32,6 +32,8 @@ config.ini
 *.swp
 *.swo
 *~
+rate_limits.json
+sessions.json
 
 # IDE and editor files
 .vscode/

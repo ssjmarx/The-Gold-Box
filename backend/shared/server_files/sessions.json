@@ -2,7 +2,7 @@
   "sessions": {
     "session_df99db4e1e8ddbbe": {
       "created": 1764144277.3947682,
-      "last_activity": 1765286077.5495698,
+      "last_activity": 1765320147.741099,
       "client_ip": "::1",
       "user_agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) FoundryVirtualTabletop/13.351"
     },
@@ -21,10 +21,10 @@
   },
   "tokens": {
     "session_df99db4e1e8ddbbe": {
-      "token": "2ErBPdAx7QCxeDK0ui6an9ihKzKh4smEmuOq6Nhddjk",
-      "created": 1765286077.5498219,
-      "expires": 1765289677.5498219,
-      "last_used": 1765286077.5498219
+      "token": "Pvu8gG_HqK3kj_c7GF6vvxx-qVinxi_LmMdLgS3tfGk",
+      "created": 1765320147.7413208,
+      "expires": 1765323747.7413208,
+      "last_used": 1765320147.7413208
     },
     "session_19623e22261a5c4a": {
       "token": "OkNA58EdyGwcVMXTbfAKGbsNsrP-47QHlkoZP3FOSZE",
@@ -39,5 +39,5 @@
       "last_used": 1765183289.3318448
     }
   },
-  "last_saved": "2025-12-09T13:14:37.549839+00:00"
+  "last_saved": "2025-12-09T22:42:27.741335+00:00"
 }
