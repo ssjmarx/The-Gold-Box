@@ -291,22 +291,15 @@ class ClientManager:
             logger.error(f"Error getting primary GM client for token {token[:8]}: {e}")
             return None
 
-# Global client manager instance
-client_manager = None
-
-def get_client_manager() -> ClientManager:
-    """Get or create client manager instance"""
-    global client_manager
-    if client_manager is None:
-        client_manager = ClientManager()
-    return client_manager
-
+# Convenience functions that use ServiceRegistry via service factory
 def cleanup_inactive_clients():
-    """Trigger cleanup of inactive clients"""
-    manager = get_client_manager()
-    return manager.cleanup_inactive_clients()
+    """Trigger cleanup of inactive clients using ServiceRegistry"""
+    # Avoid circular import - these functions should be called from within the class
+    # or via ServiceFactory from external modules
+    raise NotImplementedError("Use ClientManager instance via ServiceFactory instead")
 
 def get_client_stats() -> Dict[str, Any]:
-    """Get client statistics"""
-    manager = get_client_manager()
-    return manager.get_client_stats()
+    """Get client statistics using ServiceRegistry"""
+    # Avoid circular import - these functions should be called from within the class
+    # or via ServiceFactory from external modules
+    raise NotImplementedError("Use ClientManager instance via ServiceFactory instead")

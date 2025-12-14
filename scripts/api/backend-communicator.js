@@ -598,7 +598,7 @@ class BackendCommunicator {
           message: messages.length > 0 ? messages[messages.length - 1].content : 'No message provided',
           context_options: {
             include_chat_history: true,
-            message_count: this.settingsManager ? this.settingsManager.getSetting('maxMessageContext', 15) : 15,
+            message_count: this.settingsManager ? this.settingsManager.getSetting('maxMessageContext', 5) : 5,  // Changed from 15 to 5
             include_scene_data: true,
             include_tokens: true,
             include_walls: true,
@@ -622,7 +622,7 @@ class BackendCommunicator {
         console.log("BackendCommunicator: WebSocket connected:", this.webSocketClient ? this.webSocketClient.isConnected : "N/A");
         requestData = {
           // NO settings here - backend will use stored settings
-          context_count: this.settingsManager ? this.settingsManager.getSetting('maxMessageContext', 15) : 15,
+          context_count: this.settingsManager ? this.settingsManager.getSetting('maxMessageContext', 5) : 5,  // Changed from 15 to 5
           settings: clientId ? { 'relay client id': clientId } : null // Include client ID, allow null if not connected
         };
         console.log('BackendCommunicator: Using API mode with client ID:', clientId || 'not connected', '- settings from backend storage');
@@ -654,7 +654,7 @@ class BackendCommunicator {
 
     try {
       const response = await this.webSocketClient.sendChatRequest(messages, {
-        contextCount: this.settingsManager ? this.settingsManager.getSetting('maxMessageContext', 15) : 15,
+        contextCount: this.settingsManager ? this.settingsManager.getSetting('maxMessageContext', 5) : 5,  // Changed from 15 to 5
         sceneId: typeof canvas !== 'undefined' && canvas.scene ? canvas.scene.id : 
                   (typeof game !== 'undefined' && game.scenes && game.scenes.active ? game.scenes.active.id : null)
       });

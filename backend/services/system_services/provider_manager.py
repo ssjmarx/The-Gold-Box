@@ -11,6 +11,10 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 import hashlib
 
+class ProviderManagerException(Exception):
+    """Exception raised when provider manager operations fail"""
+    pass
+
 # Get absolute path to backend directory (where server.py is located)
 BACKEND_DIR = Path(__file__).parent.parent.parent.absolute()
 
@@ -37,213 +41,46 @@ class ProviderManager:
     
     def load_default_providers(self):
         """Load providers from litellm_providers.json as single source of truth"""
-        print("Loading comprehensive provider list from JSON...")
+        print("Loading providers from JSON...")
         
         try:
-            # Load comprehensive provider list from file as single source of truth
+            # Load provider list from file as single source of truth
             with open(get_absolute_path('shared/server_files/litellm_providers.json'), 'r') as f:
                 provider_data = json.load(f)
                 providers_list = provider_data['providers']
                 provider_details = provider_data['provider_details']
                 
-                # Create comprehensive provider definitions
+                # Create provider definitions from JSON data only
                 self.default_providers = {}
                 
-                # Enhanced provider definitions for major providers
-                enhanced_providers = {
-                    'openai': {
-                        'slug': 'openai',
-                        'name': 'OpenAI',
-                        'description': 'GPT models including Sora, ChatGPT, and embeddings',
-                        'models': ['gpt-4', 'gpt-4-turbo', 'gpt-4o', 'gpt-3.5-turbo'],
-                        'auth_type': 'Bearer Token',
-                        'base_url': 'https://api.openai.com/v1',
-                        'completion_endpoint': '/chat/completions',
-                        'is_custom': False
-                    },
-                    'anthropic': {
-                        'slug': 'anthropic',
-                        'name': 'Anthropic Claude',
-                        'description': 'Claude AI models including Haiku, Sonnet, and Opus',
-                        'models': ['claude-3-5-haiku-20241022', 'claude-3-5-sonnet-20241022', 'claude-3-opus-20240229'],
-                        'auth_type': 'Bearer Token',
-                        'base_url': 'https://api.anthropic.com',
-                        'completion_endpoint': '/v1/messages',
-                        'is_custom': False
-                    },
-                    'google': {
-                        'slug': 'google',
-                        'name': 'Google AI',
-                        'description': 'Gemini models by Google',
-                        'models': ['gemini-1.5-pro', 'gemini-1.5-flash', 'gemini-pro'],
-                        'auth_type': 'Bearer Token',
-                        'base_url': 'https://generativelanguage.googleapis.com',
-                        'completion_endpoint': '/v1beta/models/{model}:generateContent',
-                        'is_custom': False
-                    },
-                    'azure': {
-                        'slug': 'azure',
-                        'name': 'Azure OpenAI',
-                        'description': 'OpenAI models hosted on Microsoft Azure',
-                        'models': ['gpt-4', 'gpt-4-32k', 'gpt-35-turbo'],
-                        'auth_type': 'Bearer Token',
-                        'base_url': 'https://your-resource.openai.azure.com',
-                        'completion_endpoint': '/openai/deployments/{deployment}/chat/completions',
-                        'is_custom': False
-                    },
-                    'cohere': {
-                        'slug': 'cohere',
-                        'name': 'Cohere',
-                        'description': 'Command and embedding models by Cohere',
-                        'models': ['command-r-plus', 'command', 'embed-v4.0'],
-                        'auth_type': 'Bearer Token',
-                        'base_url': 'https://api.cohere.ai',
-                        'completion_endpoint': '/v1/chat',
-                        'is_custom': False
-                    },
-                    'groq': {
-                        'slug': 'groq',
-                        'name': 'Groq',
-                        'description': 'Ultra-fast inference for open models',
-                        'models': ['llama-3.1-405b-reasoning', 'mixtral-8x7b-32768', 'gemma-7b-it'],
-                        'auth_type': 'Bearer Token',
-                        'base_url': 'https://api.groq.com',
-                        'completion_endpoint': '/openai/v1/chat/completions',
-                        'is_custom': False
-                    },
-                    'together_ai': {
-                        'slug': 'together_ai',
-                        'name': 'Together AI',
-                        'description': 'Open source models with fast inference',
-                        'models': ['meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', 'mistralai/Mixtral-8x7B-Instruct-v0.1'],
-                        'auth_type': 'Bearer Token',
-                        'base_url': 'https://api.together.xyz',
-                        'completion_endpoint': '/v1/chat/completions',
-                        'is_custom': False
-                    },
-                    'replicate': {
-                        'slug': 'replicate',
-                        'name': 'Replicate',
-                        'description': 'Serverless open source model deployment',
-                        'models': ['meta/llama-2-70b-chat', 'meta/meta-llama-3-70b-instruct'],
-                        'auth_type': 'Bearer Token',
-                        'base_url': 'https://api.replicate.com',
-                        'completion_endpoint': '/v1/models/{model}/predictions',
-                        'is_custom': False
-                    },
-                    'aws_bedrock': {
-                        'slug': 'aws_bedrock',
-                        'name': 'AWS Bedrock',
-                        'description': 'Amazon Bedrock with Claude, Titan, and other AWS models',
-                        'models': ['anthropic.claude-3-sonnet-20240229-v1:0', 'amazon.titan-text-express-v1'],
-                        'auth_type': 'AWS SigV4',
-                        'base_url': 'https://bedrock-runtime.us-east-1.amazonaws.com',
-                        'completion_endpoint': '/model/{model}/invoke',
-                        'is_custom': False
-                    },
-                    'vertex_ai': {
-                        'slug': 'vertex_ai',
-                        'name': 'Google Vertex AI',
-                        'description': 'Google Cloud Vertex AI platform',
-                        'models': ['gemini-1.0-pro', 'gemini-1.5-pro'],
-                        'auth_type': 'Bearer Token',
-                        'base_url': 'https://us-central1-aiplatform.googleapis.com',
-                        'completion_endpoint': '/v1/projects/{project}/locations/{location}/publishers/google/models/{model}:generateContent',
-                        'is_custom': False
-                    },
-                    'mistral': {
-                        'slug': 'mistral',
-                        'name': 'Mistral AI',
-                        'description': 'Official Mistral models including Codestral and Pixtral',
-                        'models': ['mistral-large-2407', 'codestral-2405'],
-                        'auth_type': 'Bearer Token',
-                        'base_url': 'https://api.mistral.ai',
-                        'completion_endpoint': '/v1/chat/completions',
-                        'is_custom': False
-                    },
-                    'perplexity': {
-                        'slug': 'perplexity',
-                        'name': 'Perplexity AI',
-                        'description': 'Mixtral and Llama models with fast inference',
-                        'models': ['mixtral-8x7b-instruct', 'llama-3-8b-instruct'],
-                        'auth_type': 'Bearer Token',
-                        'base_url': 'https://api.perplexity.ai',
-                        'completion_endpoint': '/chat/completions',
-                        'is_custom': False
-                    },
-                    'fireworks_ai': {
-                        'slug': 'fireworks_ai',
-                        'name': 'Fireworks AI',
-                        'description': 'Fast and affordable inference for open models',
-                        'models': ['llama-v3-8b-instruct', 'llama-v3-70b-instruct'],
-                        'auth_type': 'Bearer Token',
-                        'base_url': 'https://api.fireworks.ai',
-                        'completion_endpoint': '/v1/chat/completions',
-                        'is_custom': False
-                    },
-                    'xai': {
-                        'slug': 'xai',
-                        'name': 'xAI (Grok)',
-                        'description': 'Elon Musk\'s xAI with Grok models',
-                        'models': ['grok-beta', 'grok-vision-beta'],
-                        'auth_type': 'Bearer Token',
-                        'base_url': 'https://api.x.ai',
-                        'completion_endpoint': '/v1/chat/completions',
-                        'is_custom': False
-                    },
-                    'openrouter': {
-                        'slug': 'openrouter',
-                        'name': 'OpenRouter',
-                        'description': 'AI model router with access to many providers',
-                        'models': ['openai/gpt-4o', 'anthropic/claude-3.5-sonnet', 'google/gemini-pro-1.5'],
-                        'auth_type': 'Bearer Token',
-                        'base_url': 'https://openrouter.ai',
-                        'completion_endpoint': '/api/v1/chat/completions',
+                # Process all providers from JSON file
+                for provider_slug in providers_list:
+                    provider_info = provider_details.get(provider_slug, {})
+                    model_count = provider_info.get('model_count', 0)
+                    sample_models = provider_info.get('sample_models', [])
+                    
+                    self.default_providers[provider_slug] = {
+                        'slug': provider_slug,
+                        'name': provider_info.get('name', provider_slug.replace('_', ' ').title()),
+                        'description': provider_info.get('description', f'{model_count} models available'),
+                        'models': sample_models,
+                        'auth_type': provider_info.get('auth_type', 'Bearer Token'),
+                        'base_url': provider_info.get('base_url', ''),
+                        'completion_endpoint': provider_info.get('completion_endpoint', '/v1/chat/completions'),
                         'is_custom': False
                     }
-                }
-                
-                # Add all providers from litellm_providers.json as single source of truth
-                for provider_slug in providers_list:
-                    if provider_slug in enhanced_providers:
-                        # Use enhanced definition for major providers
-                        self.default_providers[provider_slug] = enhanced_providers[provider_slug]
-                    else:
-                        # Create basic provider entry for all other providers
-                        provider_info = provider_details.get(provider_slug, {})
-                        model_count = provider_info.get('model_count', 0)
-                        sample_models = provider_info.get('sample_models', [])
-                        
-                        self.default_providers[provider_slug] = {
-                            'slug': provider_slug,
-                            'name': provider_slug.replace('_', ' ').title().replace('Ai', 'AI').replace('Ai', 'AI'),
-                            'description': f'{model_count} models available via LiteLLM',
-                            'models': sample_models[:3] if sample_models else [],
-                            'auth_type': 'Bearer Token',
-                            'base_url': 'https://api.example.com',  # User should configure this
-                            'completion_endpoint': '/v1/chat/completions',
-                            'is_custom': False
-                        }
                     
         except FileNotFoundError:
-            # If no provider list file, use minimal fallback
-            self.default_providers = {
-                'openai': {
-                    'slug': 'openai',
-                    'name': 'OpenAI',
-                    'description': 'GPT-3.5, GPT-4, and other OpenAI models',
-                    'models': ['gpt-3.5-turbo', 'gpt-4', 'gpt-4-turbo', 'gpt-4o'],
-                    'auth_type': 'Bearer Token',
-                    'base_url': 'https://api.openai.com/v1',
-                    'completion_endpoint': '/chat/completions',
-                    'is_custom': False
-                }
-            }
+            # If no provider list file, proper error - no silent fallbacks
+            raise FileNotFoundError(
+                f"Provider configuration file not found: {get_absolute_path('shared/server_files/litellm_providers.json')}. "
+                f"Please ensure the litellm_providers.json file exists in the shared/server_files directory."
+            )
         except Exception as e:
-            print(f"Error loading provider list: {e}")
-            self.default_providers = {}
+            # Proper error handling - no silent failures
+            raise RuntimeError(f"Error loading provider configuration: {e}")
                 
-        print(f"Loaded {len(self.default_providers)} comprehensive providers")
+        print(f"Loaded {len(self.default_providers)} providers from JSON")
     
     def load_custom_providers(self):
         """Load custom providers from JSON file"""
@@ -258,9 +95,14 @@ class ProviderManager:
                 self.custom_providers = {}
                 print("No custom providers file found, starting fresh")
                 
-        except Exception as e:
+        except (json.JSONDecodeError, FileNotFoundError, PermissionError) as e:
             print(f"Error loading custom providers: {e}")
             self.custom_providers = {}
+            raise ProviderManagerException(f"Failed to load custom providers: {e}")
+        except Exception as e:
+            print(f"Unexpected error loading custom providers: {e}")
+            self.custom_providers = {}
+            raise ProviderManagerException(f"Unexpected error loading custom providers: {e}")
     
     def merge_providers(self):
         """Combine default and custom providers"""
@@ -309,9 +151,12 @@ class ProviderManager:
             # Save to file
             return self.save_custom_providers()
             
+        except (ValueError, KeyError) as e:
+            print(f"Error adding custom provider: {e}")
+            raise ProviderManagerException(f"Invalid custom provider data: {e}")
         except Exception as e:
             print(f"Error adding custom provider: {e}")
-            return False
+            raise ProviderManagerException(f"Failed to add custom provider: {e}")
     
     def remove_custom_provider(self, slug: str) -> bool:
         """Remove a custom provider"""
@@ -324,9 +169,12 @@ class ProviderManager:
                 print(f"Custom provider '{slug}' not found")
                 return False
                 
+        except (KeyError, PermissionError) as e:
+            print(f"Error removing custom provider: {e}")
+            raise ProviderManagerException(f"Failed to remove custom provider '{slug}': {e}")
         except Exception as e:
             print(f"Error removing custom provider: {e}")
-            return False
+            raise ProviderManagerException(f"Unexpected error removing custom provider '{slug}': {e}")
     
     def save_custom_providers(self) -> bool:
         """Save custom providers to file"""
@@ -354,9 +202,12 @@ class ProviderManager:
             print(f"Custom providers saved to {self.custom_providers_file}")
             return True
             
+        except (PermissionError, OSError) as e:
+            print(f"Error saving custom providers: {e}")
+            raise ProviderManagerException(f"Permission error saving custom providers: {e}")
         except Exception as e:
             print(f"Error saving custom providers: {e}")
-            return False
+            raise ProviderManagerException(f"Failed to save custom providers: {e}")
     
     def validate_custom_config(self, config: Dict[str, Any]) -> tuple[bool, str]:
         """Validate custom provider configuration"""
@@ -404,6 +255,7 @@ class ProviderManager:
             True if successful, False otherwise
         """
         try:
+            # Import litellm locally to avoid global import
             import litellm
             
             # Set environment variable for provider
@@ -467,10 +319,10 @@ class ProviderManager:
             
         except ImportError:
             print(f"ERROR: litellm library not available")
-            return False
+            raise ProviderManagerException("LiteLLM library is required but not available")
         except Exception as e:
             print(f"ERROR: Failed to configure provider '{provider_id}': {e}")
-            return False
+            raise ProviderManagerException(f"Failed to configure provider '{provider_id}': {e}")
     
     def get_provider_for_model(self, model_name: str) -> Optional[Dict[str, Any]]:
         """

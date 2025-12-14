@@ -12,20 +12,14 @@ import os
 
 logger = logging.getLogger(__name__)
 
-def create_admin_router(manager, settings_manager, global_config):
+def create_admin_router(global_config):
     """
     Create and configure admin router
     
     Args:
-        manager: Key manager instance
-        settings_manager: Settings manager instance
         global_config: Global configuration dictionary
     """
     router = APIRouter()
-    
-    # Extract configuration
-    OPENAI_API_KEY = global_config['OPENAI_API_KEY']
-    NOVELAI_API_KEY = global_config['NOVELAI_API_KEY']
     
     @router.post("/admin")
     async def admin_endpoint(request: Request):
@@ -34,8 +28,6 @@ def create_admin_router(manager, settings_manager, global_config):
         Requires admin password in X-Admin-Password header
         Security is now handled by UniversalSecurityMiddleware
         """
-        # Use the key_manager from closure scope
-        
         try:
             # Get admin password from headers
             admin_password = request.headers.get('X-Admin-Password')
@@ -46,8 +38,13 @@ def create_admin_router(manager, settings_manager, global_config):
                     headers={"WWW-Authenticate": 'Basic realm="The Gold Box Admin"'}
                 )
             
-            # Verify admin password using already loaded manager
-            is_valid, error_msg = manager.verify_password(admin_password)
+            # Use service factory to get key manager
+            from services.system_services.service_factory import get_key_manager, get_settings_manager
+            
+            key_manager = get_key_manager()
+            
+            # Verify admin password using service factory
+            is_valid, error_msg = key_manager.verify_password(admin_password)
             if not is_valid:
                 logger.warning(f"Invalid admin password attempt from {request.client.host if request.client else 'unknown'}")
                 raise HTTPException(
@@ -72,7 +69,6 @@ def create_admin_router(manager, settings_manager, global_config):
             # Process admin commands
             command = request_data.get('command', '')
             client_host = request.client.host if request.client else "unknown"
-            logger.info(f"Admin command '{command}' from {client_host}")
             
             if command == 'status':
                 # Return server and key status
@@ -104,15 +100,14 @@ def create_admin_router(manager, settings_manager, global_config):
                         "health": "/api/health",
                         "process": "/api/process",
                         "admin": "/api/admin",
-                        "simple_chat": "/api/simple_chat",
                         "start": "/api/start"
                     },
                     "security": "Universal Security Middleware is active"
                 }
             
             elif command == 'reload_keys':
-                # Reload environment variables (keys already loaded in global manager)
-                if manager.set_environment_variables():
+                # Reload environment variables using service factory
+                if key_manager.set_environment_variables():
                     # Reload global variables
                     OPENAI_API_KEY = os.environ.get('GOLD_BOX_OPENAI_COMPATIBLE_API_KEY', '')
                     NOVELAI_API_KEY = os.environ.get('GOLD_BOX_NOVELAI_API_API_KEY', '')
@@ -123,7 +118,7 @@ def create_admin_router(manager, settings_manager, global_config):
                         'command': 'reload_keys',
                         'message': 'Environment variables reloaded successfully',
                         'timestamp': datetime.now().isoformat(),
-                        'keys_status': manager.get_key_status()
+                        'keys_status': key_manager.get_key_status()
                     }
                 else:
                     raise HTTPException(
@@ -132,11 +127,11 @@ def create_admin_router(manager, settings_manager, global_config):
                     )
             
             elif command == 'set_admin_password':
-                # Set new admin password
+                # Set new admin password using service factory
                 new_password = request_data.get('password', '')
-                if manager.set_password(new_password):
+                if key_manager.set_password(new_password):
                     # Save updated configuration
-                    if manager.save_keys(manager.keys_data):
+                    if key_manager.save_keys(key_manager.keys_data):
                         logger.info("Admin password updated successfully")
                         return {
                             'status': 'success',
@@ -156,18 +151,19 @@ def create_admin_router(manager, settings_manager, global_config):
                     )
             
             elif command == 'update_settings':
-                # Update frontend settings
+                # Update frontend settings using service factory
+                settings_mgr = get_settings_manager()
+                
                 frontend_settings_data = request_data.get('settings', {})
                 
-                if settings_manager.update_settings(frontend_settings_data):
-                    logger.info(f"Frontend settings updated from {client_host}")
+                if settings_mgr.update_settings(frontend_settings_data):
                     return {
                         'status': 'success',
                         'command': 'update_settings',
                         'message': f'Frontend settings updated: {len(frontend_settings_data)} settings loaded',
                         'timestamp': datetime.now().isoformat(),
                         'settings_count': len(frontend_settings_data),
-                        'current_settings': settings_manager.get_settings()
+                        'current_settings': settings_mgr.get_settings()
                     }
                 else:
                     raise HTTPException(

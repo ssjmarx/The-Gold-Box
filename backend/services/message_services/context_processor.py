@@ -8,10 +8,7 @@ Compression: Optimize data for token efficiency
 import json
 import logging
 from typing import Dict, Any, List, Optional, Tuple
-from shared.core.simple_attribute_mapper import SimpleAttributeMapper
-from shared.core.board_collector import BoardStateCollector
-from shared.core.json_optimizer import JSONOptimizer
-from shared.core.dice_collector import DiceMessageCollector
+from shared.exceptions import MessageCollectionException
 
 
 class ContextProcessor:
@@ -26,11 +23,15 @@ class ContextProcessor:
         self.foundry_client = foundry_client
         self.logger = logging.getLogger(__name__)
         
-        # Initialize components
-        self.attribute_mapper = SimpleAttributeMapper()
+        # Initialize components using ServiceFactory pattern
+        from ..system_services.service_factory import get_attribute_mapper, get_json_optimizer
+        
+        self.attribute_mapper = get_attribute_mapper()
+        self.json_optimizer = get_json_optimizer()
+        
+        # Board collector still needs direct client injection
+        from shared.core.board_collector import BoardStateCollector
         self.board_collector = BoardStateCollector(foundry_client)
-        self.json_optimizer = JSONOptimizer()
-        self.dice_collector = DiceMessageCollector()
         
         # Cache for attribute mappings across calls
         self.attribute_mapping_cache = {}
@@ -96,7 +97,7 @@ class ContextProcessor:
             
         except Exception as e:
             self.logger.error(f"Error processing context request: {e}")
-            raise
+            raise MessageCollectionException(f"Error processing context request: {e}")
     
     def _extract_all_token_attributes(self, board_state: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -126,10 +127,10 @@ class ContextProcessor:
     
     async def _collect_chat_history(self, client_id: str, count: int) -> List[Dict[str, Any]]:
         """
-        Collect recent chat messages and dice rolls from relay server
+        Collect recent chat messages and dice rolls using unified utilities
         
         Args:
-            client_id: Foundry client ID
+            client_id: Foundry client identifier
             count: Number of recent messages to collect
             
         Returns:
@@ -137,18 +138,20 @@ class ContextProcessor:
         """
         
         try:
-            # Use dice collector to get combined chat and dice context
-            combined_context = await self.dice_collector.collect_combined_context(client_id, count)
+            # Import message collector to get unified chat and dice context
+            from .message_collector import get_combined_client_messages
             
-            # Extract just the messages for compatibility with existing code
-            all_messages = combined_context.get('messages', [])
+            # Get combined messages using unified collector
+            all_messages = get_combined_client_messages(client_id, count)
             
-            self.logger.info(f"Collected {combined_context.get('chat_count', 0)} chat + {combined_context.get('dice_count', 0)} dice = {len(all_messages)} total messages")
+            # Extract only chat messages (exclude rolls for this context)
+            chat_messages = [msg for msg in all_messages if msg.get('_source') != 'roll']
             
-            return all_messages
+            self.logger.info(f"Collected {len(chat_messages)} chat messages for client {client_id}")
+            return chat_messages
             
         except Exception as e:
-            self.logger.warning(f"Could not collect combined chat history: {e}")
+            self.logger.warning(f"Could not collect chat history: {e}")
             return []
     
     def _generate_system_prompt(self, reverse_mapping: Dict[str, str], 

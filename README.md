@@ -2,18 +2,9 @@
 
 An AI-powered Foundry VTT module that provides intelligent TTRPG assistance through a sophisticated Python backend. Currently chat-only, this plugin is being developed with the eventual goal of enabling fully single-player play of any adventure module in any TTRPG system supported by Foundry.
 
-## Acknowledgments
+## Acknowledgment
 
-This project was inspired by and learned significantly from the **Foundry VTT REST API** project by **ThreeHats**. While The Gold Box ultimately follows a different architectural approach (direct WebSocket integration vs. relay server), the developer gained valuable experience in:
-
-- Foundry VTT module development patterns
-- WebSocket communication in Foundry
-- Session management and security practices
-- Real-time data synchronization techniques
-
-The Gold Box owes a debt of gratitude to ThreeHats for their module and for providing a foundation of knowledge that made this project possible.
-
-**Original Project**: [Foundry VTT REST API by ThreeHats](https://github.com/ThreeHats/foundryvtt-rest-api)
+[Foundry VTT REST API by ThreeHats](https://github.com/ThreeHats/foundryvtt-rest-api)
 
 ## Features
 
@@ -124,10 +115,17 @@ The-Gold-Box/
 ├── LICENSE                 # Creative Commons license
 ├── scripts/
 │   ├── gold-box.js           # Main frontend logic and UI
-│   ├── connection-manager.js # Backend communication manager
-│   ├── websocket-client.js   # WebSocket client implementation
-│   ├── message-collector.js # Chat message collection
-│   └── api-bridge.js       # API compatibility layer
+│   ├── api/
+│   │   ├── backend-communicator.js    # Unified WebSocket communicator
+│   │   ├── connection-manager.js       # Backend connection management
+│   │   ├── websocket-client.js        # WebSocket client implementation
+│   │   └── websocket-communicator.js  # WebSocket communication
+│   └── services/
+│       ├── message-collector.js         # Chat message collection
+│       ├── session-manager.js           # Session management
+│       ├── settings-manager.js           # Frontend settings
+│       └── shared/
+│           └── ui-manager.js              # UI management utilities
 ├── styles/
 │   └── gold-box.css        # Module styling and UI components
 ├── lang/
@@ -137,36 +135,61 @@ The-Gold-Box/
 │   ├── requirements.txt     # Python dependencies
 │   ├── security_config.ini  # Security configuration
 │   ├── TESTING.md          # Backend testing guide
-│   ├── endpoints/          # API endpoint implementations
+│   ├── api/               # API endpoint implementations
 │   │   ├── __init__.py
-│   │   ├── api_chat.py     # Primary chat processing endpoint
-│   │   └── context_chat.py # Context-aware chat endpoint
-│   ├── security/           # Security and validation framework
-│   │   ├── __init__.py
-│   │   ├── input_validator.py # Request validation
-│   │   ├── security.py     # Encryption and security utilities
-│   │   └── sessionvalidator.py # Session management
-│   ├── server/             # Core server logic and processors
-│   │   ├── __init__.py
-│   │   ├── ai_chat_processor.py # AI chat processing
-│   │   ├── ai_prompt_validator.py # Prompt validation
-│   │   ├── ai_service.py    # AI service integration
-│   │   ├── api_chat_processor.py # API chat processing
-│   │   ├── board_collector.py # Game board state collection
-│   │   ├── client_manager.py # WebSocket client management
-│   │   ├── context_processor.py # Context data processing
-│   │   ├── dice_collector.py # Dice roll collection
-│   │   ├── json_optimizer.py # JSON optimization utilities
-│   │   ├── key_manager.py   # API key management
-│   │   ├── message_collector.py # Message collection logic
-│   │   ├── message_protocol.py # WebSocket message protocol
-│   │   ├── processor.py     # General processing utilities
-│   │   ├── provider_manager.py # AI provider management
-│   │   ├── simple_attribute_mapper.py # Attribute mapping
-│   │   ├── universal_settings.py # Global settings
-│   │   └── websocket_server.py # WebSocket server implementation
-│   └── server_files/       # Runtime configuration files
-│       └── litellm_providers.json # Supported AI providers
+│   │   ├── admin.py         # Admin operations endpoint
+│   │   ├── api_chat.py      # Primary chat processing endpoint
+│   │   ├── health.py         # Health check endpoint
+│   │   ├── session.py        # Session management endpoint
+│   │   ├── system.py         # System information endpoint
+│   │   └── utils.py          # API utilities
+│   ├── services/           # Service layer with dependency injection
+│   │   ├── ai_services/      # AI service components
+│   │   │   ├── ai_service.py           # AI service interface
+│   │   │   └── ai_prompt_validator.py # Prompt validation
+│   │   ├── message_services/  # Message processing services
+│   │   │   ├── context_processor.py    # Context data processing
+│   │   │   ├── message_collector.js     # Message collection logic
+│   │   │   └── websocket_message_collector.py # WebSocket message collection
+│   │   └── system_services/ # System-level services
+│   │       ├── client_manager.py        # WebSocket client management
+│   │       ├── frontend_settings_handler.py # Frontend settings synchronization
+│   │       ├── key_manager.py           # API key management
+│   │       ├── provider_manager.py       # AI provider management
+│   │       ├── registry.py              # Service registry
+│   │       ├── service_factory.py       # Service factory pattern
+│   │       ├── universal_settings.py     # Global settings management
+│   │       └── websocket_handler.py      # WebSocket connection handling
+│   ├── shared/             # Shared components across services
+│   │   ├── core/           # Core processing utilities
+│   │   │   ├── board_collector.py     # Game board state collection
+│   │   │   ├── dice_collector.py      # Dice roll collection
+│   │   │   ├── json_optimizer.py      # JSON optimization utilities
+│   │   │   ├── key_storage.py         # API key storage
+│   │   │   ├── message_protocol.py     # WebSocket message protocol
+│   │   │   ├── simple_attribute_mapper.py # Attribute mapping
+│   │   │   └── unified_message_processor.py # Unified message processing
+│   │   ├── exceptions/      # Custom exception classes
+│   │   ├── providers/      # Provider configuration
+│   │   │   └── custom_provider_wizard.py # Custom provider setup
+│   │   ├── security/       # Security components
+│   │   │   ├── input_validator.py   # Input validation
+│   │   │   ├── key_crypto.py        # Key encryption
+│   │   │   ├── security.py         # Security utilities
+│   │   │   └── sessionvalidator.py  # Session validation
+│   │   ├── server_files/    # Runtime configuration
+│   │   │   └── litellm_providers.json # Supported AI providers
+│   │   ├── startup/        # Startup and initialization
+│   │   │   ├── config.py           # Configuration management
+│   │   │   ├── security.py         # Security initialization
+│   │   │   ├── services.py         # Service registration
+│   │   │   ├── startup.py          # Main startup logic
+│   │   │   └── validation.py       # System validation
+│   │   └── utils/          # Utility functions
+│   │       ├── message_type_detector.py # Message type detection
+│   │       └── roll_extractor.py     # Roll data extraction
+│   └── ui/               # Backend UI components
+│       └── cli_manager.py     # Command-line interface
 └── licenses/                # Dependency license documentation
     ├── README.md
     ├── BeautifulSoup4-MIT.txt
@@ -234,4 +257,4 @@ This project is licensed under **Creative Commons Attribution-NonCommercial-Shar
 - Define LLM "role" with Foundry permissions
 - Access other generative services, such as image and voice
 
-**Current Version: 0.3.3** - Deprecated endpoint cleanup, API mode refinement, and release preparation
+**Current Version: 0.3.4** - Documentation overhaul and architecture alignment

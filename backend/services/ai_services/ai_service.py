@@ -11,8 +11,9 @@ import asyncio
 import logging
 import litellm
 from typing import Dict, Any, Optional, List
-from ..system_services.provider_manager import ProviderManager
+from ..system_services.service_factory import get_provider_manager
 from ..system_services.universal_settings import get_provider_config
+from shared.exceptions import APIKeyException, ProviderException, TimeoutException, ValidationException
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ class AIService:
     Handles LiteLLM interactions, formatting, and provider management
     """
     
-    def __init__(self, provider_manager: ProviderManager):
+    def __init__(self, provider_manager):
         """
         Initialize AI service
         
@@ -41,6 +42,11 @@ class AIService:
             
         Returns:
             Dictionary with response data and metadata
+            
+        Raises:
+            ProviderException: When provider configuration fails
+            APIKeyException: When API key is missing or invalid
+            TimeoutException: When API call times out
         """
         try:
             # Extract from pre-validated universal settings config
@@ -52,56 +58,22 @@ class AIService:
             max_retries = config.get('max_retries', 3)
             headers = config.get('headers', {})
             
-            # Enhanced logging for debugging with universal settings info
-            # print(f"DEBUG: AI Service called with pre-validated config")
-            # print(f"DEBUG: Provider: {provider_id}, Model: {model}, Base URL: {base_url}")
-            # print(f"DEBUG: Timeout: {timeout}s, Max Retries: {max_retries}")
-            # print(f"DEBUG: Custom Headers: {len(headers)} headers provided")
-            # print(f"DEBUG: Available environment variables: {[k for k in os.environ.keys() if 'API_KEY' in k]}")
-            
             # Get provider configuration
             provider = self.provider_manager.get_provider(provider_id)
             if not provider:
-                error_msg = f'Provider "{provider_id}" not found'
-                print(f"ERROR: {error_msg}")
-                return {
-                    'success': False,
-                    'error': error_msg
-                }
+                raise ProviderException(f'Provider "{provider_id}" not found')
             
-            # Get API key from environment if not provided
-            if not api_key:
-                env_var_name = f'{provider_id.upper()}_API_KEY'
-                api_key = os.environ.get(env_var_name, '')
-                # print(f"DEBUG: Looking for API key in environment variable: {env_var_name}")
-                # print(f"DEBUG: API key found in environment: {'Yes' if api_key else 'No'}")
-                
-                # If not in environment, try to load from key manager
-                if not api_key:
-                    # print(f"DEBUG: API key not in environment, trying key manager...")
-                    try:
-                        from ..system_services.key_manager import MultiKeyManager
-                        key_manager = MultiKeyManager()
-                        # Try to load keys without password for testing
-                        if key_manager.load_keys_with_password("") is True:
-                            if hasattr(key_manager, 'keys_data') and key_manager.keys_data:
-                                api_key = key_manager.keys_data.get(provider_id, '')
-                                # print(f"DEBUG: API key found in key manager: {'Yes' if api_key else 'No'}")
-                                # Set environment variable for LiteLLM
-                                if api_key:
-                                    os.environ[env_var_name] = api_key
-                                    # print(f"DEBUG: Set {env_var_name} from key manager")
-                    except Exception as e:
-                        # print(f"DEBUG: Failed to load from key manager: {e}")
-                        pass
+            # Get API key from key_manager using service factory - keys should be loaded at startup
+            from ..system_services.service_factory import get_key_manager
             
+            key_manager = get_key_manager()
+            
+            if not hasattr(key_manager, 'keys_data') or not key_manager.keys_data:
+                raise APIKeyException("Key manager keys_data not available - keys not loaded at startup")
+            
+            api_key = key_manager.keys_data.get(provider_id)
             if not api_key:
-                error_msg = f'API key not configured for provider "{provider_id}" (checked {env_var_name})'
-                print(f"ERROR: {error_msg}")
-                return {
-                    'success': False,
-                    'error': error_msg
-                }
+                raise APIKeyException(f"API key not configured for provider '{provider_id}' in key manager")
             
             # Configure provider in LiteLLM if it's custom
             if provider.get('is_custom', False):
@@ -112,12 +84,7 @@ class AIService:
                 }
                 success = self.provider_manager.configure_litellm_provider(provider_id, api_key, custom_config)
                 if not success:
-                    return {
-                        'success': False,
-                        'error': f'Failed to configure custom provider "{provider_id}"'
-                    }
-            
-            print(f"Sending to {provider.get('name', provider_id)} API: {provider_id} with model: {model}")
+                    raise ProviderException(f'Failed to configure custom provider "{provider_id}"')
             
             # Prepare LiteLLM completion parameters with proper type conversion
             completion_params = {
@@ -147,11 +114,11 @@ class AIService:
             )
             
             if response and response.choices:
-                print("SUCCESS: Provider API responded!")
+                # Provider API responded!
+                choice = response.choices[0]
                 
                 # Extracts content
                 content = ""
-                choice = response.choices[0]
                 
                 # Handle both content and reasoning_content fields
                 if hasattr(choice, 'message') and choice.message:
@@ -186,22 +153,16 @@ class AIService:
                     'response_object': response
                 }
             else:
-                return {
-                    'success': False,
-                    'error': 'No response choices received from API'
-                }
+                raise ProviderException('No response choices received from API')
                 
         except asyncio.TimeoutError:
-            return {
-                'success': False,
-                'error': f'AI call timed out after {timeout} seconds'
-            }
+            raise TimeoutException(f'AI call timed out after {timeout} seconds')
+        except (ProviderException, APIKeyException, TimeoutException):
+            # Re-raise our custom exceptions directly
+            raise
         except Exception as e:
-            print(f"ERROR: Provider API failed: {str(e)}")
-            return {
-                'success': False,
-                'error': str(e)
-            }
+            # Wrap unexpected exceptions
+            raise ProviderException(f"Provider API failed: {str(e)}")
     
     async def process_message_context(self, message_context: List[Dict], settings: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -213,6 +174,10 @@ class AIService:
             
         Returns:
             Response dictionary with success/error info
+            
+        Raises:
+            ProviderException: When AI provider fails
+            ValidationException: When message context is invalid
         """
         try:
             # Use universal settings to get provider config
@@ -236,11 +201,18 @@ class AIService:
                 else:
                     model = 'default'
             
+            # Validate message context
+            if not message_context or not isinstance(message_context, list):
+                raise ValidationException("Message context must be a non-empty list")
+            
             # Process message context into chronological string
             import re
             context_parts = []
             
             for msg in message_context:
+                if not isinstance(msg, dict) or 'content' not in msg or 'sender' not in msg:
+                    raise ValidationException("Each message must be a dict with 'content' and 'sender' fields")
+                
                 content = msg['content']
                 sender = msg['sender']
                 
@@ -279,16 +251,17 @@ class AIService:
                     headers_dict = json.loads(custom_headers)
                     provider_config['headers'] = headers_dict
                 except json.JSONDecodeError as e:
-                    print(f"Invalid custom headers JSON: {e}")
+                    raise ValidationException(f"Invalid custom headers JSON: {e}")
             
             # Make AI call
             return await self.call_ai_provider(ai_messages, provider_config)
             
+        except (ProviderException, APIKeyException, TimeoutException, ValidationException):
+            # Re-raise our custom exceptions directly
+            raise
         except Exception as e:
-            return {
-                'success': False,
-                'error': f'Error processing message context: {str(e)}'
-            }
+            # Wrap unexpected exceptions
+            raise ProviderException(f"Error processing message context: {str(e)}")
     
     async def process_compact_context(self, processed_messages: List[Dict], system_prompt: str, settings: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -301,6 +274,10 @@ class AIService:
             
         Returns:
             Response dictionary with success/error info
+            
+        Raises:
+            ProviderException: When AI provider fails
+            ValidationException: When compact context is invalid
         """
         try:
             # Use universal settings to get provider config
@@ -323,6 +300,13 @@ class AIService:
                         model = models[0]
                 else:
                     model = 'default'
+            
+            # Validate inputs
+            if not processed_messages or not isinstance(processed_messages, list):
+                raise ValidationException("Processed messages must be a non-empty list")
+            
+            if not system_prompt or not isinstance(system_prompt, str):
+                raise ValidationException("System prompt must be a non-empty string")
             
             # Convert processed messages to JSON string for AI context
             import json
@@ -350,60 +334,22 @@ class AIService:
                     headers_dict = json.loads(custom_headers)
                     provider_config['headers'] = headers_dict
                 except json.JSONDecodeError as e:
-                    print(f"Invalid custom headers JSON: {e}")
+                    raise ValidationException(f"Invalid custom headers JSON: {e}")
             
             # Make AI call
             return await self.call_ai_provider(ai_messages, provider_config)
             
+        except (ProviderException, APIKeyException, TimeoutException, ValidationException):
+            # Re-raise our custom exceptions directly
+            raise
         except Exception as e:
-            return {
-                'success': False,
-                'error': f'Error processing compact context: {str(e)}'
-            }
-
-# Global AI service instance
-_ai_service = None
+            # Wrap unexpected exceptions
+            raise ProviderException(f"Error processing compact context: {str(e)}")
 
 def get_ai_service() -> 'AIService':
-    """Get or create global AI service instance using ServiceRegistry"""
-    global _ai_service
-    if _ai_service is None:
-        # Use ServiceRegistry to get provider manager
-        try:
-                from ..system_services.registry import ServiceRegistry
-                
-                # Try to get provider manager from registry
-                if ServiceRegistry.is_ready() and ServiceRegistry.is_registered('provider_manager'):
-                    provider_manager = ServiceRegistry.get('provider_manager')
-                    logger.info("✅ AI Service: Using provider manager from ServiceRegistry")
-                else:
-                    # Fallback - create new instance
-                    from ..system_services.provider_manager import ProviderManager
-                    provider_manager = ProviderManager()
-                    if ServiceRegistry.is_ready():
-                        logger.warning("⚠️ AI Service: Provider manager not in registry, created new instance")
-                    else:
-                        logger.warning("⚠️ AI Service: ServiceRegistry not ready, created new ProviderManager")
-                
-        except Exception as e:
-            # Ultimate fallback - create new instance
-            logger.error(f"❌ AI Service: Failed to access ServiceRegistry: {e}")
-            from ..system_services.provider_manager import ProviderManager
-            provider_manager = ProviderManager()
-            logger.info("🔄 AI Service: Created new ProviderManager (exception fallback)")
-            
-        _ai_service = AIService(provider_manager)
-        
-        # Register AI service with registry if available
-        try:
-            from ..system_services.registry import ServiceRegistry
-            if ServiceRegistry.is_ready():
-                ServiceRegistry.register('ai_service', _ai_service)
-                logger.info("✅ AI Service: Registered with ServiceRegistry")
-        except Exception as e:
-            logger.warning(f"⚠️ AI Service: Failed to register with ServiceRegistry: {e}")
-    
-    return _ai_service
+    """Get AI service instance from ServiceRegistry"""
+    from ..system_services.service_factory import get_ai_service as factory_get_ai_service
+    return factory_get_ai_service()
 
 async def process_ai_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
     """
@@ -423,6 +369,11 @@ async def process_ai_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
             
     Returns:
         Dictionary with response data and metadata
+        
+    Raises:
+        APIKeyException: When API key is missing
+        ValidationException: When request data is invalid
+        ProviderException: When AI provider fails
     """
     try:
         ai_service = get_ai_service()
@@ -438,7 +389,10 @@ async def process_ai_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
         max_tokens = request_data.get('max_tokens')
         timeout = request_data.get('timeout', 30)
         
-        # Prepare provider configuration with type safety
+        # Prepare provider configuration - require API key in config, no environment fallbacks
+        if not api_key:
+            raise APIKeyException('API key must be provided in request_data for external calls')
+        
         provider_config = {
             "provider": provider_id,
             "model": model,
@@ -457,16 +411,14 @@ async def process_ai_request(request_data: Dict[str, Any]) -> Dict[str, Any]:
             # Use message context
             messages = message_context
         else:
-            return {
-                'success': False,
-                'error': 'Either prompt or message_context must be provided'
-            }
+            raise ValidationException('Either prompt or message_context must be provided')
         
         # Make AI call
         return await ai_service.call_ai_provider(messages, provider_config)
         
+    except (ProviderException, APIKeyException, TimeoutException, ValidationException):
+        # Re-raise our custom exceptions directly
+        raise
     except Exception as e:
-        return {
-            'success': False,
-            'error': f'Error in process_ai_request: {str(e)}'
-        }
+        # Wrap unexpected exceptions
+        raise ProviderException(f"Error in process_ai_request: {str(e)}")

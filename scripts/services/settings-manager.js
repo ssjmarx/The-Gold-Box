@@ -1,6 +1,6 @@
 /**
  * The Gold Box - Settings Manager
- * Handles all game settings registration and management for the Gold Box module
+ * Handles all game settings registration and management for Gold Box module
  */
 
 /**
@@ -33,8 +33,8 @@ class SettingsManager {
     // Register all settings
     this.registerBackendStatus();
     this.registerBackendPassword();
-    this.registerChatProcessingMode();
     this.registerMaxMessageContext();
+    this.registerContextCount();
     this.registerAIResponseTimeout();
     this.registerAIRole();
     this.registerGeneralLLMSettings();
@@ -79,29 +79,25 @@ class SettingsManager {
   }
 
   /**
-   * Register Chat Processing Mode setting
-   */
-  registerChatProcessingMode() {
-    game.settings.register(this.moduleName, 'chatProcessingMode', {
-      name: game.i18n.localize("GOLD_BOX.SETTINGS.CHAT_PROCESSING_MODE"),
-      hint: game.i18n.localize("GOLD_BOX.SETTINGS.CHAT_PROCESSING_MODE_HINT"),
-      scope: "world",
-      config: true,
-      type: String,
-      choices: {
-        "api": "API (recommended)",
-        "context": "Context (unfinished)"
-      },
-      default: "api"
-    });
-  }
-
-  /**
    * Register maximum message context setting
    */
   registerMaxMessageContext() {
     game.settings.register(this.moduleName, 'maxMessageContext', {
       name: "Maximum Message Context",
+      hint: "Number of recent chat messages to send to AI for context (default: 15)",
+      scope: "world",
+      config: true,
+      type: Number,
+      default: 15
+    });
+  }
+
+  /**
+   * Register context count setting (alias for maxMessageContext)
+   */
+  registerContextCount() {
+    game.settings.register(this.moduleName, 'contextCount', {
+      name: "Context Count",
       hint: "Number of recent chat messages to send to AI for context (default: 15)",
       scope: "world",
       config: true,
@@ -294,7 +290,7 @@ class SettingsManager {
   }
 
   /**
-   * Register settings configuration hooks (like the discovery button)
+   * Register settings configuration hooks (like discovery button)
    */
   registerSettingsConfigHooks() {
     // Hook to add custom button to settings menu
@@ -373,7 +369,7 @@ class SettingsManager {
       console.log("SETTINGS DEBUG: Game and game.settings available");
       const settings = {
         'maximum message context': this.getSetting('maxMessageContext', 15),
-        'chat processing mode': this.getSetting('chatProcessingMode', 'simple'),
+        'chat processing mode': 'api', // Always use API mode now
         'ai role': this.getSetting('aiRole', 'dm'),
         'general llm provider': this.getSetting('generalLlmProvider', ''),
         'general llm base url': this.getSetting('generalLlmBaseUrl', ''),
@@ -407,7 +403,7 @@ class SettingsManager {
    * @returns {string} - Current processing mode
    */
   getProcessingMode() {
-    return this.getSetting('chatProcessingMode', 'simple');
+    return 'api'; // Always return 'api' mode now
   }
 
   /**
@@ -415,8 +411,7 @@ class SettingsManager {
    * @returns {string} - Button text
    */
   getButtonText() {
-    const processingMode = this.getProcessingMode();
-    return processingMode === 'context' ? 'AI Context Turn' : 'Take AI Turn';
+    return 'Take AI Turn'; // Always use API mode text now
   }
 
   /**

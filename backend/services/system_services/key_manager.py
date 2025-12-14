@@ -6,7 +6,7 @@ Refactored to use separated modules for better maintainability
 import os
 import re
 from pathlib import Path
-from .provider_manager import ProviderManager
+from ..system_services.service_factory import get_provider_manager
 from shared.security.key_crypto import KeyCrypto
 from ui.cli_manager import CLIManager
 from shared.core.key_storage import KeyStorage
@@ -23,10 +23,12 @@ def get_absolute_path(relative_path: str) -> Path:
     return (BACKEND_DIR / relative_path).resolve()
 
 class MultiKeyManager:
-    def __init__(self, key_file='server_files/keys.enc'):
-        # Initialize separated modules
+    def __init__(self, key_file='server_files/keys.enc', provider_manager=None):
+        # Initialize separated modules using ServiceFactory
         self.key_storage = KeyStorage(key_file)
-        self.provider_manager = ProviderManager()
+        # Use ServiceFactory to get provider manager
+        from ..system_services.service_factory import get_provider_manager
+        self.provider_manager = provider_manager or get_provider_manager()
         self.custom_wizard = CustomProviderWizard(self.provider_manager)
         
         # For backward compatibility

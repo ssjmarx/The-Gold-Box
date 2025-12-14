@@ -5,18 +5,18 @@
 
 /**
  * API Communication Class for Backend Integration
- * Refactored: Now delegates all operations to BackendCommunicator
+ * Refactored: Now uses unified WebSocketCommunicator
  */
 class GoldBoxAPI {
   constructor() {
-    // Delegate all backend communication to BackendCommunicator
-    this.communicator = new BackendCommunicator();
-    // Keep ConnectionManager for compatibility
-    this.connectionManager = new ConnectionManager();
+    // Use unified WebSocket communicator
+    this.communicator = new WebSocketCommunicator();
     // SettingsManager will be set from module
     this.settingsManager = null;
     // WebSocket client reference for compatibility
     this.webSocketClient = null;
+    // Session manager reference
+    this.sessionManager = null;
   }
 
   /**
@@ -32,47 +32,43 @@ class GoldBoxAPI {
    */
   init() {
     if (typeof game !== 'undefined' && game.settings) {
-      // Set up communicator with ConnectionManager
-      this.communicator.setConnectionManager(this.connectionManager);
-      this.connectionManager.setWebSocketClient = (client) => {
-        this.webSocketClient = client;
-        this.communicator.setWebSocketClient(client);
-      };
-      console.log('The Gold Box: API initialized with BackendCommunicator');
+      // Set up session manager if available
+      if (typeof SessionManager !== 'undefined') {
+        this.sessionManager = new SessionManager();
+        this.communicator.setSessionManager(this.sessionManager);
+      }
+      
+      console.log('The Gold Box: API initialized with WebSocketCommunicator');
     } else {
       console.warn('The Gold Box: Game settings not available during API init');
     }
   }
 
   /**
-   * Send message context to backend with timeout handling (delegated to communicator)
+   * Send message context to backend with timeout handling (WebSocket-only)
    */
   async sendMessageContext(messages, moduleInstance, buttonElement) {
     const timeout = this.settingsManager.getSetting('aiResponseTimeout', 60);
     let response = null; // Define response outside try block so it's accessible in finally
     
     try {
-      // Delegate to BackendCommunicator with timeout and retry logic
-      response = await this.communicator.sendMessageContext(messages, timeout, 1);
+      // Use WebSocket-only communication
+      response = await this.communicator.sendChatRequest(messages, {
+        timeout: timeout
+      });
       
       if (response.success) {
-        // Check if this is WebSocket mode (async response)
-        if (response.data.metadata && response.data.metadata.websocket_mode) {
-          console.log('The Gold Box: WebSocket request sent, waiting for async response via WebSocket handler');
-          // For WebSocket mode, button state will be reset when the WebSocket response is received
-          // Set up a timeout to reset button if no response comes
-          setTimeout(() => {
-            if (buttonElement && buttonElement.disabled) {
-              console.warn('The Gold Box: WebSocket response timeout, resetting button state');
-              this.setButtonProcessingState(buttonElement, false);
-              moduleInstance.uiManager.displayErrorResponse('AI response timeout - no response received via WebSocket');
-            }
-          }, timeout * 1000);
-          return; // Don't reset button yet - wait for WebSocket response
-        } else {
-          // HTTP mode - direct response received
-          moduleInstance.uiManager.displayAIResponse(response.data.response, response.data);
-        }
+        // WebSocket mode - response comes via WebSocket message handler
+        console.log('The Gold Box: WebSocket request sent, waiting for async response via WebSocket handler');
+        // Set up a timeout to reset button if no response comes
+        setTimeout(() => {
+          if (buttonElement && buttonElement.disabled) {
+            console.warn('The Gold Box: WebSocket response timeout, resetting button state');
+            this.setButtonProcessingState(buttonElement, false);
+            moduleInstance.uiManager.displayErrorResponse('AI response timeout - no response received via WebSocket');
+          }
+        }, timeout * 1000);
+        return; // Don't reset button yet - wait for WebSocket response
       } else {
         // Display error response
         moduleInstance.uiManager.displayErrorResponse(response.error || 'Unknown error occurred');
@@ -81,30 +77,18 @@ class GoldBoxAPI {
     } catch (error) {
       console.error('The Gold Box: Error processing AI turn:', error);
       moduleInstance.uiManager.displayErrorResponse(error.message);
-    } finally {
-      // Only reset button state for HTTP mode or errors
-      // WebSocket mode button reset is handled in WebSocket message handler
-      // Note: response is now defined outside try block so it's accessible here
-      if (response && (!response.success || !(response.data.metadata && response.data.metadata.websocket_mode))) {
-        if (buttonElement) {
-          this.setButtonProcessingState(buttonElement, false);
-        }
+      // Reset button on error
+      if (buttonElement) {
+        this.setButtonProcessingState(buttonElement, false);
       }
     }
   }
 
   /**
-   * Sync settings to backend admin endpoint (delegated to communicator)
-   */
-  async syncSettings(settings, adminPassword) {
-    return this.communicator.syncSettings(settings, adminPassword);
-  }
-
-  /**
-   * Get unified frontend settings using SettingsManager (delegated to communicator)
+   * Get unified frontend settings using SettingsManager
    */
   getUnifiedFrontendSettings() {
-    return this.communicator.getUnifiedFrontendSettings();
+    return this.settingsManager ? this.settingsManager.getAllSettings() : {};
   }
 
   /**
@@ -115,14 +99,12 @@ class GoldBoxAPI {
     
     if (isProcessing) {
       button.disabled = true;
-      const processingMode = this.settingsManager.getProcessingMode();
-      button.innerHTML = processingMode === 'context' ? 'Context Processing...' : 'AI Thinking...';
+      button.innerHTML = 'AI Thinking...';
       button.style.opacity = '0.6';
       button.style.cursor = 'not-allowed';
     } else {
       button.disabled = false;
-      const processingMode = this.settingsManager.getProcessingMode();
-      button.innerHTML = this.settingsManager.getButtonText();
+      button.innerHTML = this.settingsManager ? this.settingsManager.getButtonText() : 'Take AI Turn';
       button.style.opacity = '1';
       button.style.cursor = 'pointer';
     }
@@ -178,7 +160,8 @@ class GoldBoxModule {
     if (typeof GoldBoxWebSocketClient !== 'undefined') {
       try {
         // Use the communicator's baseUrl which is properly initialized
-        const wsUrl = this.api.communicator.baseUrl || this.api.baseUrl;
+        const baseUrl = this.api.communicator.baseUrl || this.api.baseUrl;
+        const wsUrl = baseUrl.replace('http://', 'ws://').replace('https://', 'wss://');
         console.log('The Gold Box: Using WebSocket URL:', wsUrl);
         
         this.webSocketClient = new GoldBoxWebSocketClient(
@@ -190,8 +173,11 @@ class GoldBoxModule {
         // Initialize message collector
         if (typeof MessageCollector !== 'undefined') {
           this.messageCollector = new MessageCollector();
-          this.messageCollector.start();
-          console.log('The Gold Box: Message collector started');
+          // Set WebSocket client reference in message collector
+          if (this.webSocketClient) {
+            this.messageCollector.webSocketClient = this.webSocketClient;
+          }
+          console.log('The Gold Box: Message collector initialized');
         }
 
         // Connect to WebSocket server
@@ -234,15 +220,15 @@ class GoldBoxModule {
   }
 
   /**
-   * Initialize with enhanced Connection Manager (Phase 4)
+   * Initialize with WebSocket Communicator
    */
   async initializeWithConnectionManager() {
-    console.log('The Gold Box: Phase 4 initialization with enhanced Connection Manager...');
+    console.log('The Gold Box: Initializing with WebSocket Communicator...');
     
     try {
-      // Step 1: Initialize Connection Manager
-      await this.api.connectionManager.initialize();
-      console.log('The Gold Box: Connection Manager initialized');
+      // Step 1: Initialize WebSocket Communicator
+      await this.api.communicator.initialize();
+      console.log('The Gold Box: WebSocket Communicator initialized');
       
       // Step 2: Try WebSocket connection first
       const wsConnected = await this.initializeWebSocketConnection();
@@ -250,46 +236,46 @@ class GoldBoxModule {
       if (wsConnected) {
         console.log('The Gold Box: WebSocket connection established');
         
-        // Step 3: Set WebSocket client in Connection Manager
-        this.api.connectionManager.setWebSocketClient(this.webSocketClient);
+        // Step 3: Set WebSocket client in communicator
+        this.api.communicator.setWebSocketClient(this.webSocketClient);
         
-        // Step 4: Flush any batch sync data
-        await this.api.connectionManager.flushBatchSyncData();
-        
-        // Step 5: Set up real-time data synchronization
+        // Step 4: Set up real-time data synchronization
         this.setupRealTimeSync();
         
-        console.log('The Gold Box: Phase 4 initialization complete - WebSocket first');
+        console.log('The Gold Box: Initialization complete - WebSocket connected');
         return true;
       } else {
-        console.log('The Gold Box: WebSocket failed, falling back to HTTP-only mode');
-        console.log('The Gold Box: Phase 4 initialization complete - HTTP fallback');
+        console.log('The Gold Box: WebSocket connection failed');
+        console.log('The Gold Box: Initialization complete - no WebSocket connection');
         return false;
       }
       
     } catch (error) {
-      console.error('The Gold Box: Phase 4 initialization failed:', error);
-      console.log('The Gold Box: Phase 4 initialization complete - HTTP fallback');
+      console.error('The Gold Box: Initialization failed:', error);
+      console.log('The Gold Box: Initialization complete - error state');
       return false;
     }
   }
 
   /**
-   * Set up real-time data synchronization (Phase 4)
+   * Set up real-time data synchronization
    */
   setupRealTimeSync() {
-    if (!this.webSocketClient || !this.api.connectionManager) {
+    if (!this.webSocketClient || !this.api.communicator) {
       console.warn('The Gold Box: Cannot set up real-time sync - missing components');
       return;
     }
     
-    // Delegate to BackendCommunicator for real-time sync setup
-    this.api.communicator.setupRealTimeSync(
-      (message) => this.handleRealTimeSync(message),
-      (message) => this.handleBatchSync(message)
-    );
+    // Set up real-time sync handlers
+    this.webSocketClient.onMessageType('data_sync', (message) => {
+      this.handleRealTimeSync(message);
+    });
     
-    console.log('The Gold Box: Real-time synchronization set up via BackendCommunicator');
+    this.webSocketClient.onMessageType('batch_sync', (message) => {
+      this.handleBatchSync(message);
+    });
+    
+    console.log('The Gold Box: Real-time synchronization set up');
   }
 
   /**
@@ -427,13 +413,58 @@ class GoldBoxModule {
     });
   }
 
+
   /**
-   * Collect recent chat messages from DOM in chronological order
-   * Enhanced for patch 0.2.6 with complete HTML preservation
-   * @param {number} maxMessages - Maximum number of messages to collect
-   * @returns {Array} - Array of message objects in chronological order
+   * Handle "Take AI Turn" button click
    */
-  collectChatMessages(maxMessages = 15) {
+  async onTakeAITurn() {
+    console.log('The Gold Box: Take AI Turn button clicked');
+    
+    const button = document.getElementById('gold-box-ai-turn-btn');
+    if (!button) {
+      console.error('The Gold Box: Button not found');
+      return;
+    }
+    
+    // Set processing state
+    this.api.setButtonProcessingState(button, true);
+    
+    try {
+      // WebSocket-only: collect messages from Foundry chat and send via WebSocket
+      const messages = this.collectFoundryChatMessages();
+      console.log('The Gold Box: Collected messages from Foundry chat:', messages.length);
+      
+      // Send to backend for processing (pass button element for proper state management)
+      await this.api.sendMessageContext(messages, this, button);
+      
+    } catch (error) {
+      console.error('The Gold Box: Error in AI turn:', error);
+      this.uiManager.displayErrorResponse(error.message);
+      // Reset button on error
+      if (button) {
+        this.api.setButtonProcessingState(button, false);
+      }
+    }
+  }
+
+  /**
+   * Collect recent chat messages from Foundry chat DOM (fallback method)
+   * This is now only used for testing/demo purposes
+   * Real message collection happens via WebSocket
+   */
+  collectFoundryChatMessages(maxMessages = null) {
+    // Use maxMessageContext setting if no explicit maxMessages provided
+    if (maxMessages === null && this.settingsManager) {
+      maxMessages = this.settingsManager.getSetting('maxMessageContext', 15);
+      console.log('The Gold Box: Using maxMessageContext setting:', maxMessages);
+    } else if (maxMessages === null) {
+      maxMessages = 15; // Fallback if no settings manager
+      console.log('The Gold Box: Using fallback maxMessages:', maxMessages);
+    } else {
+      console.log('The Gold Box: Using provided maxMessages:', maxMessages);
+    }
+    
+    console.log('The Gold Box: Final maxMessages value:', maxMessages);
     const messages = [];
     const chatElements = document.querySelectorAll('.chat-message');
     
@@ -445,9 +476,25 @@ class GoldBoxModule {
       // This preserves Foundry's rich HTML structure for backend processing
       const fullHtml = element.outerHTML.trim();
       
-      // Enhanced metadata extraction for patch 0.2.6
-      const timestampElement = element.querySelector('.message-timestamp');
-      const timestamp = timestampElement ? timestampElement.textContent : new Date().toISOString();
+      // Enhanced metadata extraction - get actual message ID first
+      const messageId = element.dataset.messageId || element.getAttribute('data-message-id');
+      let timestamp;
+      
+      // Try to get actual Foundry message object for proper timestamp
+      if (messageId && game.messages) {
+        const foundryMessage = game.messages.get(messageId);
+        if (foundryMessage && foundryMessage.timestamp) {
+          timestamp = foundryMessage.timestamp;
+        } else {
+          // Fallback to timestamp element if message object not found
+          const timestampElement = element.querySelector('.message-timestamp');
+          timestamp = timestampElement ? this._parseFoundryTimestamp(timestampElement.textContent) : Date.now();
+        }
+      } else {
+        // Fallback to timestamp element
+        const timestampElement = element.querySelector('.message-timestamp');
+        timestamp = timestampElement ? this._parseFoundryTimestamp(timestampElement.textContent) : Date.now();
+      }
       
       // Extract sender information for better context preservation
       const senderElement = element.querySelector('.message-sender, .sender, h4');
@@ -474,8 +521,6 @@ class GoldBoxModule {
   /**
    * Detect message type from DOM element for enhanced backend processing
    * Helps backend processor with classification hints
-   * @param {Element} element - Chat message DOM element
-   * @returns {string} - Detected message type
    */
   detectMessageType(element) {
     const classList = element.className;
@@ -492,36 +537,6 @@ class GoldBoxModule {
     
     // Default to player chat if no specific type detected
     return 'player-chat';
-  }
-
-  /**
-   * Handle "Take AI Turn" button click
-   */
-  async onTakeAITurn() {
-    console.log('The Gold Box: Take AI Turn button clicked');
-    
-    const button = document.getElementById('gold-box-ai-turn-btn');
-    if (!button) {
-      console.error('The Gold Box: Button not found');
-      return;
-    }
-    
-    // Set processing state
-    this.api.setButtonProcessingState(button, true);
-    
-    try {
-      // Collect chat messages for context
-      const messages = this.collectChatMessages();
-      
-      // Send to backend for processing (pass button element for proper state management)
-      await this.api.sendMessageContext(messages, this, button);
-      
-    } catch (error) {
-      console.error('The Gold Box: Error in AI turn:', error);
-      this.uiManager.displayErrorResponse(error.message);
-      // Note: button state is reset in sendMessageContext finally block
-    }
-    // Note: Removed finally block here since button state is now handled in sendMessageContext
   }
 
   /**
@@ -669,6 +684,65 @@ class GoldBoxModule {
       this.uiManager.showErrorNotification('No backend server found. Please start backend server.');
       return false;
     }
+  }
+
+  /**
+   * Parse Foundry's human-readable timestamps to milliseconds
+   * Handles formats like "now", "1s ago", "2m ago", "1h ago", "20d 4h ago"
+   */
+  _parseFoundryTimestamp(timeString) {
+    if (!timeString || typeof timeString !== 'string') {
+      return Date.now();
+    }
+    
+    const now = Date.now();
+    
+    // Handle "now"
+    if (timeString === 'now') {
+      return now;
+    }
+    
+    // Parse relative time formats
+    const timePattern = /(?:^(\d+)([smhd])\s+ago)?(?:\s+(\d+)([smhd])\s+ago)?/i;
+    const matches = timeString.match(timePattern);
+    
+    if (!matches) {
+      // Fallback: try to parse as ISO date or other format
+      const parsed = new Date(timeString);
+      return isNaN(parsed.getTime()) ? now : parsed.getTime();
+    }
+    
+    let totalMs = 0;
+    
+    // Parse first time unit (e.g., "20d" in "20d 4h ago")
+    if (matches[1] && matches[2]) {
+      const value1 = parseInt(matches[1]);
+      const unit1 = matches[2].toLowerCase();
+      totalMs += this._timeUnitToMs(value1, unit1);
+    }
+    
+    // Parse second time unit (e.g., "4h" in "20d 4h ago")
+    if (matches[3] && matches[4]) {
+      const value2 = parseInt(matches[3]);
+      const unit2 = matches[4].toLowerCase();
+      totalMs += this._timeUnitToMs(value2, unit2);
+    }
+    
+    return now - totalMs;
+  }
+
+  /**
+   * Convert time unit to milliseconds
+   */
+  _timeUnitToMs(value, unit) {
+    const multipliers = {
+      's': 1000,           // seconds
+      'm': 60 * 1000,      // minutes
+      'h': 60 * 60 * 1000, // hours
+      'd': 24 * 60 * 60 * 1000 // days
+    };
+    
+    return value * (multipliers[unit] || 0);
   }
 
   /**

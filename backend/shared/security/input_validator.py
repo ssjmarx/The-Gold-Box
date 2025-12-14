@@ -214,8 +214,8 @@ class UniversalInputValidator:
                 return self._validate_structured_data(input_data, input_type, field_name, validation_level)
             else:
                 input_str = str(input_data).strip()
-        except Exception as e:
-            return False, f"{field_name}: Invalid data format", None
+        except (ValueError, TypeError) as e:
+            return False, f"{field_name}: Invalid data format - {str(e)}", None
         
         # Length validation
         if max_length is None:
@@ -285,7 +285,7 @@ class UniversalInputValidator:
         try:
             parser.feed(input_str)
             parser.close()
-        except Exception as e:
+        except (html.HTMLParseError, ValueError) as e:
             return False, f"{field_name}: Invalid HTML structure - {str(e)}", None
         
         # Check for parsing errors
