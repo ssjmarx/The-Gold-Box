@@ -72,13 +72,21 @@ def setup_rate_limiting(max_requests: int, window_seconds: int):
 
 def initialize_session_manager():
     """
-    Initialize the session manager for the application.
+    Initialize the session manager for application.
     
     Returns:
         SessionManager instance or None if failed
     """
     try:
         from ..security.sessionvalidator import session_validator
+        
+        # Register session manager with ServiceRegistry
+        from services.system_services.registry import ServiceRegistry
+        if not ServiceRegistry.register('session_manager', session_validator):
+            logger.error("Failed to register session manager with ServiceRegistry")
+        else:
+            logger.info("✅ Session manager registered with ServiceRegistry")
+        
         logger.info("Session manager initialized")
         return session_validator
     except Exception as e:
@@ -87,13 +95,13 @@ def initialize_session_manager():
 
 def initialize_global_validator():
     """
-    Initialize the global input validator.
+    Initialize global input validator.
     
     Returns:
         UniversalInputValidator instance or None if failed
     """
     try:
-        from ..security.security import UniversalInputValidator
+        from ..security.input_validator import UniversalInputValidator
         validator = UniversalInputValidator()
         logger.info("Global input validator initialized")
         return validator

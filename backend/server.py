@@ -41,29 +41,14 @@ global_services = components['global_services']
 app = components['app']
 manager = components['manager']
 
-# Set up global variables for backward compatibility
-OPENAI_API_KEY = config['OPENAI_API_KEY']
-NOVELAI_API_KEY = config['NOVELAI_API_KEY']
-GOLD_BOX_PORT = config['GOLD_BOX_PORT']
-FLASK_DEBUG = config['FLASK_DEBUG']
-FLASK_ENV = config['FLASK_ENV']
-LOG_LEVEL = config['LOG_LEVEL']
-LOG_FILE = config['LOG_FILE']
-RATE_LIMIT_MAX_REQUESTS = config['RATE_LIMIT_MAX_REQUESTS']
-RATE_LIMIT_WINDOW_SECONDS = config['RATE_LIMIT_WINDOW_SECONDS']
-SESSION_TIMEOUT_MINUTES = config['SESSION_TIMEOUT_MINUTES']
-SESSION_WARNING_MINUTES = config['SESSION_WARNING_MINUTES']
-CORS_ORIGINS = config['CORS_ORIGINS']
+# Use config directly - no redundant global variables
 logger = logging.getLogger(__name__)
 
-# Extract security components for backward compatibility
-rate_limiter = security_components['rate_limiter']
-session_manager = security_components['session_manager']
-validator = security_components['validator']
-
-# Extract global services for backward compatibility
-websocket_manager = global_services['websocket_manager']
-settings_manager = global_services['settings_manager']
+# Import service factory functions for consistent access patterns
+from services.system_services.service_factory import (
+    get_session_manager, get_websocket_manager, get_settings_manager,
+    get_rate_limiter, get_validator
+)
 
 # Get absolute path to backend directory (where server.py is located)
 BACKEND_DIR = Path(__file__).parent.absolute()
@@ -76,21 +61,20 @@ def get_absolute_path(relative_path: str) -> Path:
     return (BACKEND_DIR / relative_path).resolve()
 
 # Import remaining modules that depend on startup components
-from services.system_services.key_manager import MultiKeyManager
-from api.api_chat import router as api_chat_router, APIChatProcessor
+from api.api_chat import router as api_chat_router
 from api.health import create_health_router
 from api.system import create_system_router
 from api.session import create_session_router
 from api.admin import create_admin_router
-from services.system_services.client_manager import get_client_manager
+from services.system_services.service_factory import get_client_manager
 from shared.core.message_protocol import MessageProtocol
-from services.system_services.websocket_handler import WebSocketHandler, get_websocket_connection_manager
+from services.system_services.websocket_handler import WebSocketHandler
 from shared.security.security import (
     verify_virtual_environment, verify_file_integrity, verify_file_permissions, 
     verify_dependency_integrity, validate_prompt, get_session_id_from_request
 )
 from services.system_services.universal_settings import extract_universal_settings, get_provider_config, UniversalSettings
-from services.message_services.message_collector import get_message_collector, add_client_message, add_client_roll
+from services.message_services.message_collector import add_client_message, add_client_roll
 
 # Pydantic models for FastAPI request/response validation
 class PromptRequest(BaseModel):
@@ -136,10 +120,10 @@ class ErrorResponse(BaseModel):
     received_fields: Optional[List[str]] = None
 
 # Register endpoint routers
-health_router = create_health_router(config, manager)
+health_router = create_health_router(config)
 system_router = create_system_router(config)
-session_router = create_session_router(session_manager, config)
-admin_router = create_admin_router(manager, settings_manager, config)
+session_router = create_session_router(config)
+admin_router = create_admin_router(config)
 
 # Include routers in app
 app.include_router(health_router, prefix="/api")
@@ -148,10 +132,6 @@ app.include_router(session_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 
 
-def get_websocket_connection_manager():
-    """Get the global WebSocket connection manager instance"""
-    return websocket_manager
-
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """
@@ -159,8 +139,11 @@ async def websocket_endpoint(websocket: WebSocket):
     Handles real-time communication with Foundry VTT frontend
     Now uses WebSocketHandler module
     """
+    # Get websocket manager from service factory
+    ws_manager = get_websocket_manager()
+    
     # Create WebSocket handler instance
-    ws_handler = WebSocketHandler(websocket_manager)
+    ws_handler = WebSocketHandler(ws_manager)
     
     # Delegate to WebSocket handler
     await ws_handler.handle_websocket_connection(websocket)
@@ -176,222 +159,16 @@ async def start_websocket_chat_handler():
         logger.error(f"Failed to start WebSocket chat handler: {e}")
         return False
 
-async def start_relay_server():
-    """Start relay server as a subprocess (deprecated, using WebSocket instead)"""
-    logger.info("Relay server is deprecated, using native WebSocket server instead")
-    return True
+# Relay server functionality removed - using native WebSocket server instead
+# All relay server dependencies have been eliminated in favor of direct WebSocket communication
 
-def stop_relay_server():
-    """Stop relay server process"""
-    global relay_server_process
-    relay_server_process = None  # Simplified for new implementation
-    logger.info("Relay server stopped")
+# API key verification moved to api/utils.py to eliminate duplication
 
-def verify_api_key(request):
-    """
-    Enhanced API key verification for multiple services
-    Returns (is_valid: bool, error_message: str)
-    """
-    # Get API key from headers
-    provided_key = request.headers.get('X-API-Key')
-    
-    # Check if API key is provided
-    if not provided_key:
-        logger.warning(f"Missing API key from {request.client.host if request.client else 'unknown'}")
-        return False, "API key required"
-    
-    # Check against all configured keys
-    valid_keys = [key for key in [OPENAI_API_KEY, NOVELAI_API_KEY] if key]
-    
-    if not valid_keys:
-        return False, "No API keys configured on server"
-    
-    # Check if provided key matches any configured key
-    if provided_key not in valid_keys:
-        logger.warning(f"Invalid API key from {request.client.host if request.client else 'unknown'}")
-        return False, "Invalid API key"
-    
-    # Determine which service this key belongs to
-    service_name = "Unknown"
-    if provided_key == OPENAI_API_KEY:
-        service_name = "OpenAI Compatible"
-    elif provided_key == NOVELAI_API_KEY:
-        service_name = "NovelAI API"
-    
-    logger.info(f"Valid {service_name} API key from {request.client.host if request.client else 'unknown'}")
-    return True, None
-
-def get_configured_providers():
-    """Get list of configured providers with API keys from already loaded data"""
-    try:
-        # Use the global manager that's already loaded during server startup
-        # Don't load from file - just check what's already in memory
-        if hasattr(manager, 'keys_data') and manager.keys_data:
-            configured_providers = []
-            for provider_id, key_value in manager.keys_data.items():
-                if key_value and key_value.strip():  # Only include providers with non-empty keys
-                    provider_info = manager.provider_manager.get_provider(provider_id)
-                    if provider_info:
-                        provider_name = provider_info.get('name', provider_id.replace('_', ' ').title())
-                    else:
-                        provider_name = provider_id.replace('_', ' ').title()
-                    configured_providers.append({
-                        'provider_id': provider_id,
-                        'provider_name': provider_name,
-                        'has_key': True
-                    })
-            return configured_providers
-        return []
-    except Exception as e:
-        logger.error(f"Error getting configured providers: {e}")
-        return []
+# get_configured_providers moved to api/utils.py to eliminate duplication
 
 # Simple chat endpoint removed - deprecated in favor of API chat endpoint
 
-async def collect_chat_messages_api(count: int, request_data: Dict[str, Any] = None) -> List[Dict[str, Any]]:
-    """Collect recent chat messages and dice rolls via Foundry REST API"""
-    try:
-        import requests
-        
-        # Get client ID from unified settings with better fallback handling
-        client_id = None
-        if request_data:
-            settings = request_data.get('settings', {})
-            client_id = settings.get('relay client id')
-            if not client_id:
-                try:
-                    stored_settings = settings_manager.get_settings()
-                    if stored_settings:
-                        client_id = stored_settings.get('relay client id')
-                except:
-                    pass
-                
-                if not client_id:
-                    client_id = request_data.get('relayClientId')
-        else:
-            try:
-                stored_settings = settings_manager.get_settings()
-                if stored_settings:
-                    client_id = stored_settings.get('relay client id')
-            except:
-                pass
-        
-        # If no client ID provided, try to get one from relay server
-        if not client_id:
-            try:
-                clients_response = requests.get(
-                    f"http://localhost:3010/clients",
-                    timeout=5
-                )
-                if clients_response.status_code == 200:
-                    clients = clients_response.json()
-                    if clients and len(clients) > 0:
-                        client_id = clients[0].get('id')
-            except Exception:
-                pass
-        
-        # If still no client ID, try some common defaults
-        if not client_id:
-            fallback_ids = ["foundry-test", "test-client", "default-client"]
-            for fallback_id in fallback_ids:
-                try:
-                    test_response = requests.get(
-                        f"http://localhost:3010/chat/messages",
-                        params={"clientId": fallback_id, "limit": 1},
-                        timeout=3
-                    )
-                    if test_response.status_code == 200:
-                        client_id = fallback_id
-                        break
-                except:
-                    continue
-            
-            if not client_id:
-                client_id = "generated-test-client"
-        
-        # Get chat messages from relay server with proper authentication
-        headers = {}
-        headers["x-api-key"] = "local-dev"  # This works for local memory store mode
-        
-        # Enhanced delay to allow Foundry module to process changes and store them
-        await asyncio.sleep(1.0)
-        
-        # Collect both chat messages AND rolls for complete context
-        chat_messages = []
-        roll_messages = []
-        
-        # Get chat messages
-        chat_response = requests.get(
-            f"http://localhost:3010/messages",
-            params={"clientId": client_id, "limit": count, "sort": "timestamp", "order": "desc", "refresh": True},
-            headers=headers,
-            timeout=5
-        )
-        
-        if chat_response.status_code == 200:
-            try:
-                response_data = chat_response.json()
-                if isinstance(response_data, dict):
-                    if 'messages' in response_data:
-                        chat_messages = response_data['messages']
-                elif isinstance(response_data, list):
-                    chat_messages = response_data
-            except json.JSONDecodeError:
-                pass
-        else:
-            logger.error(f"Failed to collect chat messages: {chat_response.status_code}")
-        
-        # Get roll messages
-        await asyncio.sleep(0.5)
-        
-        rolls_response = requests.get(
-            f"http://localhost:3010/rolls",
-            params={"clientId": client_id, "limit": count, "sort": "timestamp", "order": "desc", "refresh": True},
-            headers=headers,
-            timeout=5
-        )
-        
-        if rolls_response.status_code == 200:
-            try:
-                rolls_data = rolls_response.json()
-                if isinstance(rolls_data, dict):
-                    if 'data' in rolls_data:
-                        roll_messages = rolls_data['data']
-                    elif 'rolls' in rolls_data:
-                        roll_messages = rolls_data['rolls']
-                elif isinstance(rolls_data, list):
-                    roll_messages = rolls_data
-            except json.JSONDecodeError:
-                pass
-        else:
-            logger.error(f"Failed to collect rolls: {rolls_response.status_code}")
-        
-        # Merge and sort all messages chronologically
-        all_messages = []
-        
-        # Add chat messages with type marker
-        for msg in chat_messages:
-            msg['_source'] = 'chat'
-            msg['_timestamp'] = msg.get('timestamp', 0)
-            all_messages.append(msg)
-        
-        # Add roll messages with type marker
-        for roll in roll_messages:
-            roll['_source'] = 'roll'
-            roll['_timestamp'] = roll.get('timestamp', 0)
-            all_messages.append(roll)
-        
-        # Sort by timestamp (newest first, then we'll reverse for chronological)
-        all_messages.sort(key=lambda x: x.get('_timestamp', 0), reverse=True)
-        
-        # Take most recent 'count' messages and reverse to chronological order
-        merged_messages = list(reversed(all_messages[:count]))
-        
-        return merged_messages
-            
-    except Exception as e:
-        logger.error(f"Error collecting messages via API: {e}")
-        return []
+# Duplicate collect_chat_messages_api function removed - now using WebSocket-only message collection
 
 # Old endpoint implementations removed - now handled by routers
 

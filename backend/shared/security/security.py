@@ -24,7 +24,6 @@ import logging
 from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
-from .input_validator import UniversalInputValidator
 
 # Get absolute path to backend directory (where server.py is located)
 BACKEND_DIR = Path(__file__).parent.parent.absolute()
@@ -37,6 +36,10 @@ def get_absolute_path(relative_path: str) -> Path:
     return (BACKEND_DIR / relative_path).resolve()
 
 logger = logging.getLogger(__name__)
+
+class SecurityException(Exception):
+    """Exception raised when security configuration operations fail"""
+    pass
 
 class RateLimiter:
     """Simple in-memory rate limiting for basic protection"""
@@ -91,8 +94,10 @@ class PersistentRateLimiter:
         try:
             with open(self.storage_file, 'w') as f:
                 json.dump(self.data, f, indent=2)
-        except IOError:
-            pass  # Log error in production
+        except IOError as e:
+            logger.error(f"Failed to save rate limits to {self.storage_file}: {e}")
+            # Consider implementing circuit breaker or fallback storage mechanism
+            # Don't silently ignore security-critical operations
     
     def is_allowed(self, client_id: str, config: Dict) -> bool:
         """Check if client is allowed based on persistent storage"""
@@ -145,9 +150,10 @@ class SecurityAuditor:
         try:
             with open(self.log_file, 'a') as f:
                 f.write(json.dumps(event) + '\n')
-        except IOError:
-            # Handle logging errors gracefully
-            pass
+        except IOError as e:
+            logger.error(f"Failed to write audit log to {self.log_file}: {e}")
+            # Security logging failures should be monitored
+            # Consider implementing fallback logging mechanism
 
 class UniversalSecurityMiddleware(BaseHTTPMiddleware):
     """Universal security middleware for all endpoints"""
@@ -157,7 +163,9 @@ class UniversalSecurityMiddleware(BaseHTTPMiddleware):
         self.security_config = security_config
         self.rate_limiter = PersistentRateLimiter()
         self.auditor = SecurityAuditor()
-        self.input_validator = UniversalInputValidator()
+        # Use ServiceFactory for input validator
+        from services.system_services.service_factory import get_input_validator
+        self.input_validator = get_input_validator()
         # Import SessionValidator here to avoid circular imports
         from .sessionvalidator import session_validator
         self.session_validator = session_validator
@@ -176,19 +184,13 @@ class UniversalSecurityMiddleware(BaseHTTPMiddleware):
         endpoint_config = self.get_endpoint_config(path)
         client_host = request.client.host if request.client else "unknown"
         
-        # REDUCED DEBUG: Only log essential info for chat endpoint
-        if path == "/api/api_chat":  # Only detailed logging for chat endpoint
-            logger.info(f"API Chat Request: {request.method} from {client_host}")
-        
         # Skip security if globally disabled
         if not self.security_config.get('global', {}).get('enabled', True):
-            logger.info("Security globally disabled, skipping all checks")
             return await call_next(request)
         
         # 1. Rate Limiting Check
         rate_limit_config = endpoint_config.get('rate_limiting')
         if rate_limit_config:
-            logger.info(f"Rate limiting config found: {rate_limit_config}")
             session_id = self.get_session_id(request)
             if not self.rate_limiter.is_allowed(session_id, rate_limit_config):
                 logger.warning(f"Rate limit exceeded for {session_id}")
@@ -203,14 +205,12 @@ class UniversalSecurityMiddleware(BaseHTTPMiddleware):
                     detail="Rate limit exceeded",
                     headers={"Retry-After": str(rate_limit_config.get('window', 60))}
                 )
-            logger.info(f"Rate limiting check passed")
         
         # 2. Session Validation Check
         if endpoint_config.get('session_required', False):
-            logger.info(f"Session validation required for {path}")
             # Skip session validation for OPTIONS requests (CORS preflight)
             if request.method.upper() == 'OPTIONS':
-                logger.info(f"Skipping session validation for OPTIONS request to {path}")
+                pass  # Skip completely - no logging
             else:
                 # Use SessionValidator for proper session validation
                 session_id = self.get_session_id(request)
@@ -223,7 +223,6 @@ class UniversalSecurityMiddleware(BaseHTTPMiddleware):
                     actual_session_id = session_id.replace("cookie:", "")
                 else:
                     # IP-based sessions are not valid for protected endpoints
-                    logger.warning(f"Session validation failed for {path} - IP-based session not allowed")
                     self.auditor.log_event('session_invalid', {
                         'client_ip': client_host,
                         'endpoint': path,
@@ -237,7 +236,6 @@ class UniversalSecurityMiddleware(BaseHTTPMiddleware):
                 # Validate session with SessionValidator
                 session_info = self.session_validator.get_session_info(actual_session_id)
                 if not session_info:
-                    logger.warning(f"Session validation failed for {path} - session not found: {actual_session_id}")
                     self.auditor.log_event('session_invalid', {
                         'client_ip': client_host,
                         'endpoint': path,
@@ -250,7 +248,6 @@ class UniversalSecurityMiddleware(BaseHTTPMiddleware):
                     )
                 
                 if not self.session_validator.is_session_valid(actual_session_id):
-                    logger.warning(f"Session validation failed for {path} - session expired: {actual_session_id}")
                     self.auditor.log_event('session_expired', {
                         'client_ip': client_host,
                         'endpoint': path,
@@ -264,7 +261,6 @@ class UniversalSecurityMiddleware(BaseHTTPMiddleware):
                 
                 # Check client IP match for security
                 if session_info['client_ip'] != client_host:
-                    logger.warning(f"Session validation failed for {path} - IP mismatch: {session_info['client_ip']} vs {client_host}")
                     self.auditor.log_event('session_ip_mismatch', {
                         'client_ip': client_host,
                         'endpoint': path,
@@ -276,27 +272,20 @@ class UniversalSecurityMiddleware(BaseHTTPMiddleware):
                         status_code=401,
                         content={"error": "Session IP mismatch", "detail": "Session IP address has changed"}
                     )
-                
-                logger.info(f"Session validation passed for {path} - session: {actual_session_id}")
-        else:
-            logger.info(f"Session validation NOT required for {path}")
         
         # 4. Input Validation Check - ONLY for requests with bodies
         validation_level = endpoint_config.get('input_validation', 'none')
-        logger.info(f"Input validation level: {validation_level}")
         
         # FIX: Skip input validation entirely for OPTIONS requests
         if request.method.upper() == 'OPTIONS':
-            logger.info(f"Skipping all security checks for OPTIONS request to {path} (CORS preflight)")
+            pass  # Skip completely - no logging
         elif validation_level != 'none' and request.method.upper() not in ['GET', 'HEAD', 'OPTIONS']:
-            logger.info(f"Input validation required for {path}")
             try:
                 request_body = await request.json()
                 is_valid, error, sanitized = self.input_validator.validate_input(
                     request_body, 'text', 'request_body', required=False, validation_level=validation_level
                 )
                 if not is_valid:
-                    logger.error(f"Input validation failed for {path}: {error}")
                     self.auditor.log_event('input_validation_failed', {
                         'client_ip': client_host,
                         'endpoint': path,
@@ -312,11 +301,9 @@ class UniversalSecurityMiddleware(BaseHTTPMiddleware):
                 
                 # Store validated data for endpoints to use
                 request.state.validated_body = sanitized
-                logger.info(f"Input validation passed for {path}")
             except Exception as e:
                 # Only log as error if it's not a JSON parsing error for GET/HEAD/OPTIONS
                 if request.method.upper() not in ['GET', 'HEAD', 'OPTIONS']:
-                    logger.error(f"Request body parsing error for {request.method} {path}: {str(e)}")
                     self.auditor.log_event('request_format_invalid', {
                         'client_ip': client_host,
                         'endpoint': path,
@@ -327,15 +314,11 @@ class UniversalSecurityMiddleware(BaseHTTPMiddleware):
                         status_code=400,
                         detail="Invalid request format"
                     )
-                else:
-                    # For GET/HEAD/OPTIONS, just continue without body validation
-                    logger.info(f"No request body to validate for {request.method} {path}")
-        else:
-            # Skip validation for GET/HEAD/OPTIONS requests without bodies, but log for debugging
-            logger.info(f"Skipping input validation for {request.method} {path} (no request body)")
         
-        # 5. Log Successful Access
-        logger.info(f"All security checks passed for {request.method} {path}")
+        # 5. Log Successful Access (REDUCED LOGGING)
+        # Security debug completely disabled to reduce log spam
+        if False:  # Never enable security debug
+            logger.info(f"All security checks passed for {request.method} {path}")
         self.auditor.log_event('access_granted', {
             'client_ip': client_host,
             'endpoint': path,
@@ -345,9 +328,7 @@ class UniversalSecurityMiddleware(BaseHTTPMiddleware):
         })
         
         # 6. Process Request
-        logger.info(f"Calling next middleware for {path}")
         response = await call_next(request)
-        logger.info(f"Next middleware returned {response.status_code} for {path}")
         
         # 7. Add Security Headers
         if endpoint_config.get('security_headers', True):
@@ -394,61 +375,133 @@ def get_session_id_from_request(request: Request) -> str:
 # Initialize global instances
 rate_limiter = RateLimiter()
 auditor = SecurityAuditor()
-validator = UniversalInputValidator()
+# Use ServiceFactory for validator
+from services.system_services.service_factory import get_input_validator
+validator = get_input_validator()
 
 def load_security_config(config_file: str = "security_config.ini") -> Dict:
     """
-    Load security configuration from INI file
+    Load security configuration from INI file with explicit validation
     
     Args:
         config_file: Path to INI configuration file
         
     Returns:
         Dict: Security configuration dictionary
+        
+    Raises:
+        SecurityException: If required configuration is missing or invalid
     """
     config = configparser.ConfigParser()
     config_path = get_absolute_path(config_file)
     
     if not config_path.exists():
-        logger.warning(f"Security config file not found: {config_path}, using defaults")
-        return get_default_security_config()
+        logger.error(f"Security config file not found: {config_path}")
+        raise SecurityException(f"Security configuration file required: {config_path}")
     
     try:
         config.read(config_path)
         logger.info(f"Loaded security configuration from {config_path}")
         
-        # Parse configuration
+        # Validate required global section exists
+        if 'global' not in config:
+            raise SecurityException("Required [global] section missing from security configuration")
+        
+        # Parse and validate global settings
+        global_section = config['global']
         security_config = {"global": {}, "endpoints": {}}
         
-        # Parse global settings
-        if 'global' in config:
-            global_section = config['global']
-            security_config["global"]["enabled"] = global_section.getboolean('enabled', True)
-            security_config["global"]["audit_logging"] = global_section.getboolean('audit_logging', True)
+        # Explicit required field validation for global section
+        required_global_fields = ['enabled', 'audit_logging']
+        missing_global_fields = []
         
-        # Parse endpoint configurations
-        for section_name in config.sections():
-            if section_name.startswith('endpoint:'):
-                endpoint_path = section_name[9:]  # Remove 'endpoint:' prefix
-                section = config[section_name]
-                
-                endpoint_config = {
-                    "rate_limiting": {
-                        "requests": section.getint('rate_limit_requests', 10),
-                        "window": section.getint('rate_limit_window', 60)
-                    },
-                    "input_validation": section.get('input_validation', 'basic'),
-                    "session_required": section.getboolean('session_required', False),
-                    "security_headers": section.getboolean('security_headers', True)
-                }
-                
-                security_config["endpoints"][endpoint_path] = endpoint_config
+        for field in required_global_fields:
+            if field not in global_section:
+                missing_global_fields.append(field)
+        
+        if missing_global_fields:
+            raise SecurityException(f"Required global configuration fields missing: {', '.join(missing_global_fields)}")
+        
+        # Explicit field access with validation
+        try:
+            security_config["global"]["enabled"] = global_section.getboolean('enabled')
+        except ValueError as e:
+            raise SecurityException(f"Invalid boolean value for 'enabled' field: {e}")
+        
+        try:
+            security_config["global"]["audit_logging"] = global_section.getboolean('audit_logging')
+        except ValueError as e:
+            raise SecurityException(f"Invalid boolean value for 'audit_logging' field: {e}")
+        
+        # Parse endpoint configurations with explicit validation
+        endpoint_sections = [s for s in config.sections() if s.startswith('endpoint:')]
+        
+        if not endpoint_sections:
+            logger.warning("No endpoint sections found in security configuration")
+            return security_config
+        
+        for section_name in endpoint_sections:
+            endpoint_path = section_name[9:]  # Remove 'endpoint:' prefix
+            section = config[section_name]
+            
+            # Validate required endpoint fields
+            required_endpoint_fields = ['rate_limit_requests', 'rate_limit_window']
+            missing_endpoint_fields = []
+            
+            for field in required_endpoint_fields:
+                if field not in section:
+                    missing_endpoint_fields.append(f"{field} in {section_name}")
+            
+            if missing_endpoint_fields:
+                raise SecurityException(f"Required endpoint configuration fields missing: {', '.join(missing_endpoint_fields)}")
+            
+            # Explicit field access with validation
+            endpoint_config = {
+                "rate_limiting": {}
+            }
+            
+            try:
+                endpoint_config["rate_limiting"]["requests"] = section.getint('rate_limit_requests')
+            except ValueError as e:
+                raise SecurityException(f"Invalid integer value for 'rate_limit_requests' in {section_name}: {e}")
+            
+            try:
+                endpoint_config["rate_limiting"]["window"] = section.getint('rate_limit_window')
+            except ValueError as e:
+                raise SecurityException(f"Invalid integer value for 'rate_limit_window' in {section_name}: {e}")
+            
+            # Optional fields with explicit presence checking
+            if 'input_validation' in section:
+                endpoint_config["input_validation"] = section['input_validation']
+            else:
+                endpoint_config["input_validation"] = 'basic'  # Explicit default
+            
+            if 'session_required' in section:
+                try:
+                    endpoint_config["session_required"] = section.getboolean('session_required')
+                except ValueError as e:
+                    raise SecurityException(f"Invalid boolean value for 'session_required' in {section_name}: {e}")
+            else:
+                endpoint_config["session_required"] = False  # Explicit default
+            
+            if 'security_headers' in section:
+                try:
+                    endpoint_config["security_headers"] = section.getboolean('security_headers')
+                except ValueError as e:
+                    raise SecurityException(f"Invalid boolean value for 'security_headers' in {section_name}: {e}")
+            else:
+                endpoint_config["security_headers"] = True  # Explicit default
+            
+            security_config["endpoints"][endpoint_path] = endpoint_config
         
         return security_config
         
+    except (configparser.Error, ValueError, TypeError) as e:
+        logger.error(f"Security configuration parsing error: {e}")
+        raise SecurityException(f"Security configuration parsing failed: {e}")
     except Exception as e:
-        logger.error(f"Error loading security config: {e}, using defaults")
-        return get_default_security_config()
+        logger.error(f"Unexpected error loading security config: {e}")
+        raise SecurityException(f"Unexpected security configuration error: {e}")
 
 def get_default_security_config() -> Dict:
     """
@@ -463,12 +516,6 @@ def get_default_security_config() -> Dict:
             "audit_logging": True
         },
         "endpoints": {
-            "/api/simple_chat": {
-                "rate_limiting": {"requests": 10, "window": 60},
-                "input_validation": "basic",
-                "session_required": False,
-                "security_headers": True
-            },
             "/api/admin": {
                 "rate_limiting": {"requests": 10, "window": 60},
                 "input_validation": "strict",
@@ -657,7 +704,8 @@ def validate_prompt(prompt, validator=None):
     Uses universal validator if provided, otherwise basic validation
     """
     if validator is None:
-        validator = UniversalInputValidator()
+        from services.system_services.service_factory import get_input_validator
+        validator = get_input_validator()
     
     is_valid, error, sanitized = validator.validate_input(
         prompt, 'prompt', 'prompt', required=True

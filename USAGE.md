@@ -12,7 +12,7 @@ cd backend
 python server.py
 
 # Or start with custom configuration
-GOLD_BOX_PORT=8080 FLASK_ENV=development python server.py
+GOLD_BOX_PORT=8080 python server.py
 ```
 
 ## Server Configuration
@@ -22,19 +22,17 @@ GOLD_BOX_PORT=8080 FLASK_ENV=development python server.py
 | Variable | Default | Description | Example |
 |-----------|----------|-------------|----------|
 | `GOLD_BOX_PORT` | `5000` | Server port number | `GOLD_BOX_PORT=8080` |
-| `FLASK_ENV` | `production` | Environment mode (`development`/`production`) | `FLASK_ENV=development` |
-| `FLASK_DEBUG` | `False` | Enable debug mode (`true`/`false`) | `FLASK_DEBUG=true` |
 | `USE_DEVELOPMENT_SERVER` | `false` | Force development mode via environment | `USE_DEVELOPMENT_SERVER=true` |
 
 ### Environment Modes
 
-**Development Mode (`FLASK_ENV=development` or `USE_DEVELOPMENT_SERVER=true`)**:
+**Development Mode (`USE_DEVELOPMENT_SERVER=true`)**:
 - CORS automatically configured for localhost Foundry VTT ports
 - Debug endpoints enabled (`/docs`, `/redoc`)
 - Verbose logging enabled
 - Auto-reload on code changes
 
-**Production Mode (`FLASK_ENV=production`)**:
+**Production Mode (default)**:
 - CORS must be explicitly configured via `CORS_ORIGINS`
 - Debug endpoints disabled
 - Optimized logging
@@ -227,7 +225,6 @@ Configure your preferred service in Foundry VTT module settings:
 
 ```bash
 # Production configuration example
-export FLASK_ENV=production
 export GOLD_BOX_PORT=8080
 export CORS_ORIGINS=https://your-foundry-domain.com
 export LOG_LEVEL=WARNING
@@ -243,8 +240,7 @@ python server.py
 
 ```bash
 # Development configuration example
-export FLASK_ENV=development
-export FLASK_DEBUG=true
+export USE_DEVELOPMENT_SERVER=true
 export GOLD_BOX_PORT=5000
 export LOG_LEVEL=DEBUG
 export GOLD_BOX_OPENAI_COMPATIBLE_API_KEY=your-dev-key
@@ -256,7 +252,7 @@ python server.py
 
 ```bash
 # Using backend.sh script with environment variables
-export FLASK_ENV=development
+export USE_DEVELOPMENT_SERVER=true
 export GOLD_BOX_PORT=5000
 export LOG_LEVEL=DEBUG
 
@@ -283,7 +279,6 @@ RUN pip install -r requirements.txt
 COPY . .
 
 # Production configuration
-ENV FLASK_ENV=production
 ENV GOLD_BOX_PORT=8080
 ENV LOG_LEVEL=INFO
 ENV CORS_ORIGINS=https://your-foundry-domain.com
@@ -301,7 +296,6 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - FLASK_ENV=production
       - GOLD_BOX_PORT=8080
       - LOG_LEVEL=INFO
       - CORS_ORIGINS=https://foundry.example.com
@@ -614,7 +608,7 @@ For configuration help:
 
 ---
 
-**Last Updated**: Version 0.3.1 - REST API integration, enhanced processing modes, and critical bug fixes
+**Last Updated**: Version 0.3.4 - Documentation overhaul and architecture alignment
 
 ---
 

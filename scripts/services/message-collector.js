@@ -22,27 +22,79 @@ class MessageCollector {
   }
 
   /**
-   * Start collecting messages
+   * Send individual chat message to backend via WebSocket
+   * Replaces DOM scraping with real-time collection
    */
-  start() {
-    if (this.isEnabled) {
-      console.warn('MessageCollector: Already started');
-      return;
+  sendChatMessage(messageData) {
+    if (this.active && this.webSocketClient && this.webSocketClient.isConnected) {
+      // Add metadata to message
+      const enrichedMessage = {
+        ...messageData,
+        type: messageData.type || 'chat',
+        timestamp: messageData.timestamp || Date.now(),
+        source: 'foundry-chat'
+      };
+      
+      // Send individual message via WebSocket
+      this.webSocketClient.sendMessage({
+        type: 'chat_message',
+        data: enrichedMessage
+      });
+      
+      console.log('MessageCollector: Sent chat message via WebSocket:', enrichedMessage.type);
+    } else {
+      console.warn('MessageCollector: WebSocket not connected - cannot send message');
     }
+  }
 
-    console.log('MessageCollector: Starting message collection...');
-    this.isEnabled = true;
-    
-    // Register Foundry hooks
-    this.registerHooks();
-    
-    // Collect existing messages
-    this.collectExistingMessages();
-    
-    // Start periodic collection
-    this.startPeriodicCollection();
-    
-    console.log('MessageCollector: Started successfully');
+  /**
+   * Send dice roll to backend via WebSocket
+   * Replaces DOM scraping with real-time collection
+   */
+  sendDiceRoll(rollData) {
+    if (this.active && this.webSocketClient && this.webSocketClient.isConnected) {
+      // Add metadata to roll
+      const enrichedRoll = {
+        ...rollData,
+        type: 'roll',
+        timestamp: rollData.timestamp || Date.now(),
+        source: 'foundry-dice'
+      };
+      
+      // Send dice roll via WebSocket
+      this.webSocketClient.sendMessage({
+        type: 'dice_roll',
+        data: enrichedRoll
+      });
+      
+      console.log('MessageCollector: Sent dice roll via WebSocket:', enrichedRoll.formula);
+    } else {
+      console.warn('MessageCollector: WebSocket not connected - cannot send roll');
+    }
+  }
+
+  /**
+   * Collect chat messages (now WebSocket-ready)
+   * DEPRECATED: Use WebSocket collection instead of DOM scraping
+   */
+  collectChatMessages() {
+    if (this.active && this.uiManager && this.webSocketClient) {
+      const messages = this.uiManager.collectChatMessages();
+      console.log('MessageCollector: Collected messages for WebSocket collection:', messages.length);
+      
+      // Send to backend via WebSocket if available
+      if (this.webSocketClient.isConnected) {
+        this.webSocketClient.sendMessage({
+          type: 'chat_collection',
+          data: {
+            messages: messages,
+            timestamp: Date.now()
+          }
+        });
+      } else {
+        console.warn('MessageCollector: WebSocket not connected - cannot send collected messages');
+      }
+    }
   }
 
   /**
@@ -213,8 +265,8 @@ class MessageCollector {
         content: message.content || '',
         timestamp: message.timestamp || Date.now(),
         speaker: {
-          id: message.speaker?.id || message.user?.id,
-          name: message.speaker?.name || message.user?.name || 'Unknown',
+          id: message.speaker?.id || message.author?.id,
+          name: message.speaker?.name || message.author?.name || 'Unknown',
           alias: message.speaker?.alias,
           avatar: message.speaker?.avatar
         },
@@ -250,8 +302,8 @@ class MessageCollector {
         flavor: message.flavor || '',
         timestamp: message.timestamp || Date.now(),
         speaker: {
-          id: message.speaker?.id || message.user?.id,
-          name: message.speaker?.name || message.user?.name || 'Unknown'
+          id: message.speaker?.id || message.author?.id,
+          name: message.speaker?.name || message.author?.name || 'Unknown'
         },
         roll: primaryRoll,
         rolls: message.rolls || []
@@ -334,7 +386,13 @@ class MessageCollector {
   /**
    * Get recent messages for backend
    */
-  getRecentMessages(count = 15) {
+  getRecentMessages(count) {
+    // Require explicit count parameter - no defaults
+    if (!count || count <= 0) {
+      console.warn('MessageCollector: getRecentMessages requires a valid count parameter');
+      return [];
+    }
+
     const recentMessages = this.messages.slice(-count);
     const recentRolls = this.rolls.slice(-count);
 
@@ -354,7 +412,13 @@ class MessageCollector {
   /**
    * Get messages in WebSocket format
    */
-  getWebSocketMessages(count = 15) {
+  getWebSocketMessages(count) {
+    // Require explicit count parameter - no defaults
+    if (!count || count <= 0) {
+      console.warn('MessageCollector: getWebSocketMessages requires a valid count parameter');
+      return [];
+    }
+
     const recentMessages = this.getRecentMessages(count);
     
     // Convert to compact WebSocket format

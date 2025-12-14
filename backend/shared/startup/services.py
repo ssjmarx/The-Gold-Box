@@ -1,6 +1,5 @@
 """
 The Gold Box - Startup Services Module
-
 Handles all global service initialization during server startup.
 
 License: CC-BY-NC-SA 4.0 (compatible with dependencies)
@@ -8,14 +7,29 @@ License: CC-BY-NC-SA 4.0 (compatible with dependencies)
 
 import logging
 import asyncio
+import re
+import json
+import time
 from typing import Dict, Any, List
 from fastapi import FastAPI
 
 logger = logging.getLogger(__name__)
 
+class StartupServicesException(Exception):
+    """Exception raised when startup services operations fail"""
+    pass
+
+class MessageProcessingException(Exception):
+    """Exception raised when message processing fails"""
+    pass
+
+class ServiceConfigurationException(Exception):
+    """Exception raised when service configuration is invalid"""
+    pass
+
 def initialize_websocket_manager():
     """
-    Initialize the WebSocket connection manager.
+    Initialize WebSocket connection manager.
     
     Returns:
         WebSocketConnectionManager instance or None if failed
@@ -38,7 +52,6 @@ def initialize_websocket_manager():
                     "connected_at": "datetime.now().isoformat()",  # Simplified for startup
                     **connection_info
                 }
-                logger.info(f"WebSocket client connected: {client_id}")
             
             async def disconnect(self, client_id: str):
                 """Remove and disconnect a WebSocket client"""
@@ -46,8 +59,8 @@ def initialize_websocket_manager():
                     websocket = self.connection_info[client_id]["websocket"]
                     try:
                         await websocket.close()
-                    except:
-                        pass
+                    except Exception as e:
+                        logger.debug(f"WebSocket close during message sending cleanup: {e}")
                     
                     # Remove from active connections
                     if websocket in self.active_connections:
@@ -74,13 +87,14 @@ def initialize_websocket_manager():
                     logger.warning(f"Attempted to send to unknown WebSocket client: {client_id}")
                     return False
             
+            
             async def handle_message(self, client_id: str, message: Dict[str, Any]):
                 """Handle incoming WebSocket message"""
                 try:
                     import time
                     message_type = message.get("type")
                     
-                    # Handle ping messages
+                    # Handle ping messages silently (don't log raw ping/pong data)
                     if message_type == "ping":
                         await self.send_to_client(client_id, {
                             "type": "pong",
@@ -88,15 +102,29 @@ def initialize_websocket_manager():
                         })
                         return
                     
-                    # Handle chat requests using existing logic
+                    # Handle settings sync from frontend (frontend is source of truth)
+                    if message_type == "settings_sync":
+                        await self._handle_settings_sync(client_id, message)
+                        return
+                    
+                    # Handle individual chat messages from frontend
+                    if message_type == "chat_message":
+                        await self._handle_chat_message(client_id, message)
+                        return
+                    
+                    # Handle individual dice rolls from frontend
+                    if message_type == "dice_roll":
+                        await self._handle_dice_roll(client_id, message)
+                        return
+                    
+                    # Handle chat requests using existing logic from original file
                     if message_type == "chat_request":
-                        # Import:: full message processing logic from original server
+                        # Import full message processing logic from original file
                         from shared.core.message_protocol import MessageProtocol
-                        from services.message_services.message_collector import get_message_collector, add_client_message, add_client_roll, get_combined_client_messages
+                        from services.message_services.message_collector import add_client_message, add_client_roll, get_combined_client_messages, clear_client_data
                         from services.system_services.universal_settings import extract_universal_settings, get_provider_config
                         from services.ai_services.ai_service import get_ai_service
-                        from shared.core.processor import ChatContextProcessor
-                        from api.api_chat import APIChatProcessor
+                        from shared.core.unified_message_processor import get_unified_processor
                         
                         message_data = MessageProtocol.extract_message_data(message)
                         if not message_data:
@@ -111,13 +139,48 @@ def initialize_websocket_manager():
                         
                         # Handle message collection from WebSocket clients
                         messages = message_data.get("messages", [])
-                        context_count = message_data.get("context_count", 15)
+                        # No fallbacks - require explicit context_count parameter
+                        if "context_count" not in message_data and "contextCount" not in message_data and "count" not in message_data:
+                            raise ValueError("context_count parameter is required - no fallback values allowed")
+                        
+                        context_count = (
+                            message_data.get("context_count") or 
+                            message_data.get("contextCount") or 
+                            message_data.get("count")
+                        )
+                        
+                        if not isinstance(context_count, int) or context_count <= 0:
+                            raise ValueError(f"Invalid context_count: {context_count}. Must be a positive integer.")
                         scene_id = message_data.get("scene_id")
                         
-                        # Add each message to the message collector for this client
+                        # Log actual context count being used for debugging
+                        logger.debug(f"Using context count: {context_count} (from message_data keys: {list(message_data.keys())})")
+                        
+                        # Use new WebSocket message collector
+                        from services.message_services.websocket_message_collector import (
+                            add_client_message, add_client_roll, get_combined_client_messages, clear_client_data
+                        )
+                        
+                        # Clear existing messages for this client to prevent duplicates
+                        clear_client_data(client_id)
+                        
+                        # Add each message to WebSocket message collector for this client
                         for msg in messages:
                             if isinstance(msg, dict):
-                                add_client_message(client_id, msg)
+                                # Simplified dice roll detection - delegate to unified processor
+                                msg_type = msg.get("type", "")
+                                content = msg.get("content", "")
+                                
+                                # Check if this is a dice roll message (basic type check only)
+                                is_dice_roll = (msg_type == "roll")
+                                
+                                if is_dice_roll:
+                                    # This is a dice roll - add to rolls collection
+                                    logger.debug(f"Detected dice roll: {content} (type: {msg_type})")
+                                    add_client_roll(client_id, msg)
+                                else:
+                                    # This is a regular chat message
+                                    add_client_message(client_id, msg)
                             elif isinstance(msg, str):
                                 # Convert string messages to dict format
                                 add_client_message(client_id, {
@@ -126,21 +189,25 @@ def initialize_websocket_manager():
                                     "timestamp": int(time.time() * 1000)
                                 })
                         
-                        logger.info(f"Collected {len(messages)} messages from WebSocket client {client_id}")
-                        
-                        # Get stored messages from message collector for processing
+                        # Get stored messages from WebSocket message collector for processing
                         stored_messages = get_combined_client_messages(client_id, context_count)
-                        logger.info(f"Retrieved {len(stored_messages)} stored messages for processing")
                         
-                        logger.info(f"Processing WebSocket chat request from {client_id}: {len(stored_messages)} messages")
+                        # Log actual message count for debugging
+                        logger.debug(f"Retrieved {len(stored_messages)} messages from WebSocket collector (requested: {context_count})")
                     
-                        # Get stored settings for processing from ServiceRegistry
-                        from services.system_services.registry import ServiceRegistry
+                        # Get frontend settings for processing (frontend is source of truth)
+                        from services.system_services.frontend_settings_handler import get_all_frontend_settings
                         try:
-                            settings_manager = ServiceRegistry.get('settings_manager')
-                            stored_settings = settings_manager.get_settings()
-                        except ValueError:
-                            logger.error("❌ WebSocket: Settings manager not available in registry")
+                            stored_settings = get_all_frontend_settings()
+                        except Exception as e:
+                            logger.error(f"Failed to get frontend settings: {e}")
+                            await self.send_to_client(client_id, {
+                                "type": "error",
+                                "data": {
+                                    "error": "Failed to retrieve frontend settings",
+                                    "timestamp": time.time()
+                                }
+                            })
                             return
                         
                         # Extract universal settings with proper request data structure
@@ -149,37 +216,26 @@ def initialize_websocket_manager():
                         }
                         universal_settings = extract_universal_settings(request_data_for_settings, "websocket_chat")
                         
-                        # Check user's chat processing mode setting
-                        chat_processing_mode = universal_settings.get('chat processing mode', 'general')
-                        logger.info(f"WebSocket: Using chat processing mode: {chat_processing_mode}")
-                        
                         # Get provider config
                         provider_config = get_provider_config(universal_settings, use_tactical=False)
                         
                         # Add client ID to universal settings for response delivery
                         universal_settings['relay client id'] = client_id
-                        logger.info(f"WebSocket: Added client ID to settings: {client_id}")
                         
-                        # Process AI directly via WebSocket
-                        logger.info("WebSocket: Processing AI directly via WebSocket (bypassing HTTP endpoints)")
-                        
-                        # Import AI service directly - this will use the singleton get_ai_service() 
-                        # which has been fixed to use the key manager's provider manager
+                        # Import AI service directly - this will use singleton get_ai_service() 
+                        # which has been fixed to use key manager's provider manager
                         ai_service = get_ai_service()
-                        logger.info("WebSocket: Using singleton AI service (should reuse provider manager)")
-                        processor = ChatContextProcessor()
+                        processor = get_unified_processor()
                         
-                        # Convert stored messages to compact JSON for AI
-                        api_chat_processor = APIChatProcessor()
-                        compact_messages = api_chat_processor.process_api_messages(stored_messages)
+                        # Convert raw HTML messages to compact JSON for AI
+                        compact_messages = self._convert_raw_html_to_compact(stored_messages)
                         
                         # Get AI role from settings for enhanced role-based prompt generation
                         ai_role = universal_settings.get('ai role', 'gm')
                         
-                        # Generate enhanced system prompt based on AI role
-                        from api.api_chat import _generate_enhanced_system_prompt
+                        # Generate enhanced system prompt based on AI role using unified processor
+                        system_prompt = processor.generate_enhanced_system_prompt(ai_role, compact_messages)
                         import json
-                        system_prompt = _generate_enhanced_system_prompt(ai_role, compact_messages)
                         compact_json_context = json.dumps(compact_messages, indent=2)
                         
                         # Prepare AI messages
@@ -188,9 +244,11 @@ def initialize_websocket_manager():
                             {"role": "user", "content": f"Chat Context (Compact JSON Format):\n{compact_json_context}\n\nPlease respond to this conversation as an AI assistant for tabletop RPGs. If you need to generate game mechanics, use compact JSON format specified in system prompt."}
                         ]
                         
-                        logger.info("=== AI SERVICE CALL DEBUG ===")
-                        logger.info(f"Calling AI service with {len(stored_messages)} compact messages")
-                        logger.info(f"Settings being passed to AI service: {universal_settings}")
+                        # Log messages with proper newlines for readability
+                        for i, msg in enumerate(ai_messages):
+                            role = msg.get('role', 'unknown')
+                            content = msg.get('content', '')
+                            logger.info(f"Message {i+1} ({role}):\n{content}")
                         
                         # Call AI service directly
                         ai_response_data = await ai_service.process_compact_context(
@@ -200,119 +258,21 @@ def initialize_websocket_manager():
                         )
                         
                         ai_response = ai_response_data.get("response", "")
-                        tokens_used = ai_response_data.get("tokens_used", 0)
-                        logger.info(f"AI service returned response of length: {len(ai_response)} characters")
-                        logger.info(f"Tokens used: {tokens_used}")
                         
-                        # Use AIChatProcessor to properly process AI responses
-                        from services.ai_services.ai_chat_processor import AIChatProcessor
-                        ai_chat_processor = AIChatProcessor()
-                        api_formatted = ai_chat_processor.process_ai_response(ai_response, compact_messages)
-                        
-                        logger.info(f"AI response processed: {api_formatted}")
+                        # Use unified processor to properly process AI responses
+                        api_formatted = processor.process_ai_response(ai_response, compact_messages)
                         
                         # Send processed messages to Foundry via WebSocket
                         if api_formatted and api_formatted.get("success", False):
                             client_id_for_ws = universal_settings.get('relay client id')
                             if client_id_for_ws:
                                 from api.api_chat import _send_messages_to_websocket
-                                success_count, total_messages = await _send_messages_to_websocket(api_formatted, client_id_for_ws)
-                                logger.info(f"WebSocket transmission: {success_count}/{total_messages} messages sent successfully")
-                                logger.info(f"✅ Successfully sent {success_count} message(s) to Foundry chat")  # Log success message here only
-                                
-                                # Create success result (no response content - only metadata)
-                                result = {
-                                    'success': True,
-                                    'response': "",  # Empty response - success message only in logs
-                                    'metadata': {
-                                        'context_count': len(compact_messages),
-                                        'tokens_used': tokens_used,
-                                        'messages_sent': success_count,
-                                        'total_messages': total_messages,
-                                        'api_formatted': api_formatted,
-                                        'provider_used': provider_config['provider'],
-                                        'model_used': provider_config['model']
-                                    }
-                                }
+                                await _send_messages_to_websocket(api_formatted, client_id_for_ws)
                             else:
-                                logger.warning("No client ID available for WebSocket transmission")
-                                # Return response with API formatted data for frontend display
-                                result = {
-                                    'success': True,
-                                    'response': ai_response,  # Return raw AI response as fallback
-                                    'metadata': {
-                                        'context_count': len(compact_messages),
-                                        'tokens_used': tokens_used,
-                                        'messages_sent': 0,
-                                        'websocket_error': "No client ID available",
-                                        'api_formatted': api_formatted,
-                                        'provider_used': provider_config['provider'],
-                                        'model_used': provider_config['model']
-                                    }
-                                }
+                                logger.warning("No client ID available - cannot send messages to Foundry")
                         else:
                             logger.error("Failed to process AI response to API format")
-                            result = {
-                                'success': False,
-                                'error': "Failed to process AI response for WebSocket transmission"
-                            }
-                        
-                        # Send response back via WebSocket (only if there's actual response content)
-                        if result['success']:
-                            response_content = result.get('response', '')
-                            metadata = result.get('metadata', {})
-                            
-                            # Only send response if there's actual content (not empty)
-                            if response_content.strip():  # Only send if response has content
-                                try:
-                                    # Extract request ID from original message
-                                    original_request_id = MessageProtocol.extract_request_id(message)
-                                    logger.info(f"DEBUG: Original request ID: {original_request_id}")
-                                    
-                                    # Create chat response message with same request ID
-                                    chat_response_message = MessageProtocol.create_chat_response(
-                                        response_content,
-                                        metadata,
-                                        original_request_id
-                                    )
-                                    
-                                    logger.info(f"DEBUG: Created response message with request_id: {chat_response_message.get('request_id')}")
-                                    
-                                    # Send response via WebSocket
-                                    send_success = await self.send_to_client(client_id, chat_response_message)
-                                    
-                                    if send_success:
-                                        logger.info(f"✅ WebSocket chat response sent successfully to {client_id}")
-                                    else:
-                                        logger.error(f"❌ Failed to send WebSocket chat response to {client_id}")
-                                except Exception as e:
-                                    logger.error(f"❌ Exception creating/sending WebSocket response: {e}")
-                                    # Try to send a simple error message as fallback
-                                    await self.send_to_client(client_id, {
-                                        "type": "error",
-                                        "data": {
-                                            "error": f"Response creation failed: {e}",
-                                            "timestamp": time.time()
-                                        }
-                                    })
-                            else:
-                                # No response content - AI messages already sent individually, no need for wrapper response
-                                logger.info(f"✅ Multi-message response sent individually to {client_id}, no wrapper response needed")
-                        else:
-                            error_msg = result.get('error', 'Unknown error')
-                            logger.error(f"❌ WebSocket chat error for {client_id}: {error_msg}")
-                            
-                            try:
-                                await self.send_to_client(client_id, {
-                                    "type": "error",
-                                    "data": {
-                                        "error": error_msg,
-                                        "timestamp": time.time()
-                                    }
-                                })
-                                logger.info(f"✅ Error message sent to {client_id}")
-                            except Exception as e:
-                                logger.error(f"❌ Failed to send error message to {client_id}: {e}")
+                    
                     else:
                         logger.warning(f"Unhandled message type {message_type} from {client_id}")
                         await self.send_to_client(client_id, {
@@ -323,36 +283,215 @@ def initialize_websocket_manager():
                             }
                         })
                         
+                except (ValueError, KeyError, TypeError) as e:
+                    logger.error(f"WebSocket message processing error for {client_id}: {e}")
+                    raise MessageProcessingException(f"Message processing failed for {client_id}: {e}")
                 except Exception as e:
-                    logger.error(f"Error handling WebSocket message from {client_id}: {e}")
+                    logger.error(f"Unexpected WebSocket error for {client_id}: {e}")
+                    raise MessageProcessingException(f"Unexpected WebSocket error for {client_id}: {e}")
+            
+            def _convert_raw_html_to_compact(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+                """Convert raw HTML messages from WebSocket to compact JSON format"""
+                compact_messages = []
+                
+                for msg in messages:
+                    try:
+                        compact_msg = self._convert_single_message_to_compact(msg)
+                        if compact_msg:
+                            compact_messages.append(compact_msg)
+                    except (ValueError, KeyError, TypeError) as e:
+                        logger.warning(f"Failed to process message {msg.get('id', 'unknown')}: {e}")
+                        continue
+                    except Exception as e:
+                        logger.error(f"Unexpected error processing message {msg.get('id', 'unknown')}: {e}")
+                        raise MessageProcessingException(f"Message processing failed: {e}")
+                
+                return compact_messages
+            
+            async def _handle_settings_sync(self, client_id: str, message: Dict[str, Any]):
+                """Handle settings sync from frontend (frontend is source of truth)"""
+                try:
+                    settings_data = message.get("data", {})
+                    settings = settings_data.get("settings", {})
+                    
+                    if not settings:
+                        await self.send_to_client(client_id, {
+                            "type": "error",
+                            "data": {
+                                "error": "No settings provided in settings_sync message",
+                                "timestamp": time.time()
+                            }
+                        })
+                        return
+                    
+                    # Import frontend settings handler
+                    from services.system_services.frontend_settings_handler import receive_frontend_settings, FrontendSettingsException
+                    
+                    # Receive settings from frontend (frontend is source of truth)
+                    try:
+                        success = receive_frontend_settings(settings, client_id)
+                        if success:
+                            await self.send_to_client(client_id, {
+                                "type": "settings_sync_response",
+                                "data": {
+                                    "success": True,
+                                    "message": "Settings received and stored successfully",
+                                    "timestamp": time.time()
+                                }
+                            })
+                            logger.info(f"Settings sync completed from client {client_id}")
+                        else:
+                            await self.send_to_client(client_id, {
+                                "type": "error",
+                                "data": {
+                                    "error": "Failed to process settings sync",
+                                    "timestamp": time.time()
+                                }
+                            })
+                    except FrontendSettingsException as e:
+                        await self.send_to_client(client_id, {
+                            "type": "error",
+                            "data": {
+                                "error": f"Settings validation error: {str(e)}",
+                                "timestamp": time.time()
+                            }
+                        })
+                        logger.error(f"Frontend settings validation error from client {client_id}: {e}")
+                    
+                except Exception as e:
+                    logger.error(f"Error handling settings sync from client {client_id}: {e}")
                     await self.send_to_client(client_id, {
                         "type": "error",
                         "data": {
-                            "error": f"Message processing error: {e}",
+                            "error": f"Settings sync failed: {str(e)}",
                             "timestamp": time.time()
                         }
                     })
+            
+            async def _handle_chat_message(self, client_id: str, message: Dict[str, Any]):
+                """Handle individual chat message from frontend"""
+                try:
+                    message_data = message.get("data", {})
+                    
+                    # Validate message data
+                    if not message_data:
+                        await self.send_to_client(client_id, {
+                            "type": "error",
+                            "data": {
+                                "error": "No message data provided",
+                                "timestamp": time.time()
+                            }
+                        })
+                        return
+                    
+                    # Use WebSocket message collector
+                    from services.message_services.websocket_message_collector import add_client_message
+                    
+                    # Add chat message to collector
+                    success = add_client_message(client_id, message_data)
+                    if not success:
+                        await self.send_to_client(client_id, {
+                            "type": "error",
+                            "data": {
+                                "error": "Failed to store chat message",
+                                "timestamp": time.time()
+                            }
+                        })
+                    else:
+                        logger.debug(f"Chat message stored from client {client_id}")
+                        
+                except Exception as e:
+                    logger.error(f"Error handling chat message from {client_id}: {e}")
+                    await self.send_to_client(client_id, {
+                        "type": "error",
+                        "data": {
+                            "error": f"Chat message handling failed: {str(e)}",
+                            "timestamp": time.time()
+                        }
+                    })
+            
+            async def _handle_dice_roll(self, client_id: str, message: Dict[str, Any]):
+                """Handle individual dice roll from frontend"""
+                try:
+                    roll_data = message.get("data", {})
+                    
+                    # Validate roll data
+                    if not roll_data:
+                        await self.send_to_client(client_id, {
+                            "type": "error",
+                            "data": {
+                                "error": "No roll data provided",
+                                "timestamp": time.time()
+                            }
+                        })
+                        return
+                    
+                    # Use WebSocket message collector
+                    from services.message_services.websocket_message_collector import add_client_roll
+                    
+                    # Add dice roll to collector
+                    success = add_client_roll(client_id, roll_data)
+                    if not success:
+                        await self.send_to_client(client_id, {
+                            "type": "error",
+                            "data": {
+                                "error": "Failed to store dice roll",
+                                "timestamp": time.time()
+                            }
+                        })
+                    else:
+                        logger.debug(f"Dice roll stored from client {client_id}: {roll_data.get('formula', 'unknown')}")
+                        
+                except Exception as e:
+                    logger.error(f"Error handling dice roll from {client_id}: {e}")
+                    await self.send_to_client(client_id, {
+                        "type": "error",
+                        "data": {
+                            "error": f"Dice roll handling failed: {str(e)}",
+                            "timestamp": time.time()
+                        }
+                    })
+            
+            def _convert_single_message_to_compact(self, message: Dict[str, Any]) -> Dict[str, Any]:
+                """Convert a single raw HTML message to compact JSON format - DELEGATE TO UNIFIED PROCESSOR"""
+                # Import unified processor at function level to avoid circular import issues
+                from shared.core.unified_message_processor import get_unified_processor
+                
+                content = message.get("content", "")
+                original_timestamp = message.get("timestamp", int(time.time() * 1000))
+                
+                # Skip empty messages
+                if not content or not content.strip():
+                    return None
+                
+                # Use unified processor for all HTML parsing - no duplicate logic
+                processor = get_unified_processor()
+                parsed = processor.html_to_compact_json(content)
+                
+                # Override with original timestamp
+                if 'ts' in parsed:
+                    parsed['ts'] = original_timestamp
+                
+                return parsed
+            
+            
+        
         
         websocket_manager = WebSocketConnectionManager()
-        logger.info("WebSocket connection manager initialized")
-        
-        # Export to server module for other files to import
-        try:
-            import server
-            server.websocket_manager = websocket_manager
-        except ImportError:
-            # This can happen during initial imports, but that's OK
-            pass
+        # WebSocket connection manager initialized (no server module exports - use ServiceFactory)
         
         return websocket_manager
         
+    except (ImportError, RuntimeError) as e:
+        logger.error(f"Failed to initialize WebSocket connection manager: {e}")
+        raise StartupServicesException(f"WebSocket manager initialization failed: {e}")
     except Exception as e:
         logger.error(f"Failed to initialize WebSocket connection manager: {e}")
-        return None
+        raise StartupServicesException(f"Unexpected WebSocket manager error: {e}")
 
 def setup_settings_manager():
     """
-    Initialize the global settings manager.
+    Initialize global settings manager.
     
     Returns:
         SettingsManager instance or None if failed
@@ -371,11 +510,13 @@ def setup_settings_manager():
                     nonlocal frontend_settings
                     frontend_settings.clear()
                     frontend_settings.update(new_settings)
-                    logger.info(f"Frontend settings updated: {len(frontend_settings)} settings loaded")
                     return True
+                except (TypeError, ValueError) as e:
+                    logger.error(f"Invalid settings data: {e}")
+                    raise ServiceConfigurationException(f"Settings validation failed: {e}")
                 except Exception as e:
-                    logger.error(f"Failed to update frontend settings: {e}")
-                    return False
+                    logger.error(f"Unexpected error updating settings: {e}")
+                    raise ServiceConfigurationException(f"Settings update failed: {e}")
             
             @staticmethod
             def get_settings() -> Dict:
@@ -397,22 +538,16 @@ def setup_settings_manager():
                 logger.info("Frontend settings cleared")
         
         settings_manager = SettingsManager()
-        logger.info("Settings manager initialized")
-        
-        # Export settings_manager to server module for other files to import
-        try:
-            import server
-            server.settings_manager = settings_manager
-            server.get_settings_manager = lambda: settings_manager
-        except ImportError:
-            # This can happen during initial imports, but that's OK
-            pass
+        logger.info("Settings manager initialized (no server module exports - use ServiceFactory)")
         
         return settings_manager
         
+    except (RuntimeError, ValueError) as e:
+        logger.error(f"Failed to initialize settings manager: {e}")
+        raise StartupServicesException(f"Settings manager initialization failed: {e}")
     except Exception as e:
         logger.error(f"Failed to initialize settings manager: {e}")
-        return None
+        raise StartupServicesException(f"Unexpected settings manager error: {e}")
 
 
 async def start_websocket_chat_handler():
@@ -423,8 +558,6 @@ async def start_websocket_chat_handler():
         True if successful, False otherwise
     """
     try:
-        logger.info("WebSocket endpoint /ws registered with FastAPI")
-        logger.info("WebSocket chat handler started successfully")
         return True
         
     except Exception as e:
@@ -459,33 +592,151 @@ def get_global_services() -> Dict[str, Any]:
         else:
             services['settings_manager'] = settings_manager
     
-    # Initialize client manager
+    # Initialize frontend settings handler (frontend is source of truth)
+    from services.system_services.frontend_settings_handler import get_frontend_settings_handler
+    try:
+        frontend_settings_handler = get_frontend_settings_handler()
+        if not ServiceRegistry.register('frontend_settings_handler', frontend_settings_handler):
+            logger.error("Failed to register frontend settings handler")
+        else:
+            services['frontend_settings_handler'] = frontend_settings_handler
+            logger.info("✅ Frontend settings handler initialized and registered")
+    except (ImportError, RuntimeError) as e:
+        logger.error(f"Failed to initialize frontend settings handler: {e}")
+        raise StartupServicesException(f"Frontend settings handler initialization failed: {e}")
+    except Exception as e:
+        logger.error(f"Failed to initialize frontend settings handler: {e}")
+        raise StartupServicesException(f"Unexpected frontend settings handler error: {e}")
+    
+    # Initialize client manager directly to avoid ServiceFactory circular dependency
     from services.system_services.client_manager import ClientManager
-    client_manager = ClientManager()
-    if client_manager:
+    try:
+        client_manager = ClientManager()
         if not ServiceRegistry.register('client_manager', client_manager):
             logger.error("Failed to register client manager")
         else:
             services['client_manager'] = client_manager
+    except (ImportError, RuntimeError) as e:
+        logger.error(f"Failed to initialize client manager: {e}")
+        raise StartupServicesException(f"Client manager initialization failed: {e}")
+    except Exception as e:
+        logger.error(f"Failed to initialize client manager: {e}")
+        raise StartupServicesException(f"Unexpected client manager error: {e}")
+    
+    # Initialize WebSocket message collector directly to avoid ServiceFactory circular dependency
+    from services.message_services.websocket_message_collector import get_websocket_message_collector
+    try:
+        websocket_message_collector = get_websocket_message_collector()
+        if not ServiceRegistry.register('websocket_message_collector', websocket_message_collector):
+            logger.error("Failed to register websocket message collector")
+        else:
+            services['websocket_message_collector'] = websocket_message_collector
+            logger.info("✅ WebSocket message collector initialized and registered")
+    except (ImportError, RuntimeError) as e:
+        logger.error(f"Failed to initialize websocket message collector: {e}")
+        raise StartupServicesException(f"WebSocket message collector initialization failed: {e}")
+    except Exception as e:
+        logger.error(f"Failed to initialize websocket message collector: {e}")
+        raise StartupServicesException(f"Unexpected websocket message collector error: {e}")
+    
+    # Initialize input validator directly to avoid ServiceFactory circular dependency
+    from shared.security.input_validator import UniversalInputValidator
+    try:
+        input_validator = UniversalInputValidator()
+        if not ServiceRegistry.register('input_validator', input_validator):
+            logger.error("Failed to register input validator")
+        else:
+            services['input_validator'] = input_validator
+    except (ImportError, RuntimeError) as e:
+        logger.error(f"Failed to initialize input validator: {e}")
+        raise StartupServicesException(f"Input validator initialization failed: {e}")
+    except Exception as e:
+        logger.error(f"Failed to initialize input validator: {e}")
+        raise StartupServicesException(f"Unexpected input validator error: {e}")
+    
+    # Initialize attribute mapper directly to avoid ServiceFactory circular dependency
+    from shared.core.simple_attribute_mapper import SimpleAttributeMapper
+    try:
+        attribute_mapper = SimpleAttributeMapper()
+        if not ServiceRegistry.register('attribute_mapper', attribute_mapper):
+            logger.error("Failed to register attribute mapper")
+        else:
+            services['attribute_mapper'] = attribute_mapper
+    except (ImportError, RuntimeError) as e:
+        logger.error(f"Failed to initialize attribute mapper: {e}")
+        raise StartupServicesException(f"Attribute mapper initialization failed: {e}")
+    except Exception as e:
+        logger.error(f"Failed to initialize attribute mapper: {e}")
+        raise StartupServicesException(f"Unexpected attribute mapper error: {e}")
+    
+    # Initialize JSON optimizer directly to avoid ServiceFactory circular dependency
+    from shared.core.json_optimizer import JSONOptimizer
+    try:
+        json_optimizer = JSONOptimizer()
+        if not ServiceRegistry.register('json_optimizer', json_optimizer):
+            logger.error("Failed to register JSON optimizer")
+        else:
+            services['json_optimizer'] = json_optimizer
+    except (ImportError, RuntimeError) as e:
+        logger.error(f"Failed to initialize JSON optimizer: {e}")
+        raise StartupServicesException(f"JSON optimizer initialization failed: {e}")
+    except Exception as e:
+        logger.error(f"Failed to initialize JSON optimizer: {e}")
+        raise StartupServicesException(f"Unexpected JSON optimizer error: {e}")
+    
+    # Initialize AI service - move after ServiceRegistry is ready
+    # This will be initialized later in the startup sequence
+    services['ai_service'] = None  # Placeholder, will be set after registry is ready
     
     # Start WebSocket chat handler
     services['websocket_started'] = asyncio.run(start_websocket_chat_handler())
     
-    # Validate service initialization
-    services_valid = (
+    # Validate core service initialization (excluding ai_service which is initialized after)
+    core_services_valid = (
         services.get('websocket_manager') is not None and
         services.get('settings_manager') is not None and
-        services.get('client_manager') is not None
+        services.get('frontend_settings_handler') is not None and
+        services.get('client_manager') is not None and
+        services.get('websocket_message_collector') is not None
     )
     
-    services['services_valid'] = services_valid
+    services['services_valid'] = core_services_valid
     
-    if services_valid:
-        logger.info("✅ All global services initialized and registered")
-        # Mark registry as fully initialized
-        ServiceRegistry.initialize_complete()
+    # Registry is already marked as ready from validate_requirements()
+    # No need to call initialize_complete() again
+    
+    if core_services_valid:
+        # Initialize AI service after registry is ready - create directly to avoid factory circular dependency
+        try:
+            from services.ai_services.ai_service import AIService
+            # Get provider manager from already registered services
+            provider_manager = ServiceRegistry.get('provider_manager')
+            ai_service = AIService(provider_manager)
+            if ai_service:
+                if not ServiceRegistry.register('ai_service', ai_service):
+                    logger.error("Failed to register AI service")
+                    services['services_valid'] = False
+                else:
+                    services['ai_service'] = ai_service
+                    logger.info("✅ AI service initialized and registered")
+            else:
+                logger.error("Failed to create AI service")
+                services['services_valid'] = False
+        except (ImportError, RuntimeError, ValueError) as e:
+            logger.error(f"Failed to initialize AI service: {e}")
+            raise StartupServicesException(f"AI service initialization failed: {e}")
+        except Exception as e:
+            logger.error(f"Failed to initialize AI service: {e}")
+            raise StartupServicesException(f"Unexpected AI service error: {e}")
+        
+        if services['services_valid']:
+            logger.info("✅ All global services initialized and registered")
+            # Mark registry as fully initialized
+            ServiceRegistry.initialize_complete()
+        else:
+            logger.warning("⚠️ Some global services failed to initialize")
     else:
-        logger.warning("⚠️ Some global services failed to initialize")
+        logger.warning("⚠️ Core services failed to initialize")
     
     return services
 
@@ -500,13 +751,37 @@ def setup_application_routers(app: FastAPI) -> bool:
         True if successful, False otherwise
     """
     try:
-        # Include API chat router
+        # Import routers - they will use service factory when accessed, not during setup
         from api.api_chat import router as api_chat_router
-        app.include_router(api_chat_router)
-        logger.info("API chat router included")
+        from api.health import create_health_router
+        from api.system import create_system_router
+        from api.session import create_session_router
+        from api.admin import create_admin_router
         
+        # Get components for router setup
+        from .config import get_server_config
+        
+        config = get_server_config()
+        
+        # Create and include routers - routers will use service factory when needed
+        health_router = create_health_router(config)
+        system_router = create_system_router(config)
+        session_router = create_session_router(config)
+        admin_router = create_admin_router(config)
+        
+        # Include routers in app
+        app.include_router(health_router, prefix="/api")
+        app.include_router(system_router, prefix="/api")
+        app.include_router(session_router, prefix="/api")
+        app.include_router(admin_router, prefix="/api")
+        app.include_router(api_chat_router, prefix="/api")
+        
+        logger.info("All application routers included successfully")
         return True
         
+    except (ImportError, RuntimeError) as e:
+        logger.error(f"Failed to setup application routers: {e}")
+        raise StartupServicesException(f"Router setup failed: {e}")
     except Exception as e:
         logger.error(f"Failed to setup application routers: {e}")
-        return False
+        raise StartupServicesException(f"Unexpected router setup error: {e}")

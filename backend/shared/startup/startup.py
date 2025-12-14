@@ -37,6 +37,30 @@ class ServerStartup:
         self.app: Optional[FastAPI] = None
         self.manager = None
         self.available_port: Optional[int] = None
+    
+    
+    def get_effective_port(self) -> int:
+        """
+        Get port from environment override or config default.
+        
+        Returns:
+            Port to use for server startup
+        """
+        # Check environment variable override first
+        override_port = os.getenv('GOLD_BOX_PORT_OVERRIDE')
+        if override_port:
+            try:
+                port = int(override_port)
+                if 1024 <= port <= 65535:
+                    logger.info(f"Using port override from environment: {port}")
+                    return port
+                else:
+                    logger.warning(f"Invalid GOLD_BOX_PORT_OVERRIDE: {port}, must be 1024-65535")
+            except ValueError:
+                logger.warning(f"Invalid GOLD_BOX_PORT_OVERRIDE: {override_port}, not a number")
+        
+        # Use config default
+        return self.config.get('GOLD_BOX_PORT', 5000)
         
     def load_configuration(self) -> bool:
         """
@@ -140,23 +164,30 @@ class ServerStartup:
             True if all requirements are met, False otherwise
         """
         try:
+            # Direct instantiation to avoid circular dependency during startup
             from services.system_services.key_manager import MultiKeyManager
+            from services.system_services.provider_manager import ProviderManager
             
-            # Initialize key manager
-            self.manager = MultiKeyManager()
+            # Create instances directly first
+            provider_manager = ProviderManager()
+            self.manager = MultiKeyManager('server_files/keys.enc', provider_manager)  # Pass provider_manager as dependency
             
-            # Register key manager and provider manager with universal service registry
+            # Initialize ServiceRegistry for these core services
             from services.system_services.registry import ServiceRegistry
+            
+            # Mark registry as initializing
+            ServiceRegistry._is_ready = True
+            
+            # Register key manager and provider manager
             if not ServiceRegistry.register('key_manager', self.manager):
                 logger.error("Failed to register key manager with service registry")
                 return False
             
-            # Register provider manager (nested inside key manager)
-            if not ServiceRegistry.register('provider_manager', self.manager.provider_manager):
+            if not ServiceRegistry.register('provider_manager', provider_manager):
                 logger.error("Failed to register provider manager with service registry")
                 return False
             
-            logger.info("✅ Key manager and provider manager registered with service registry")
+            logger.info("✅ Key manager and provider manager registered with service registry (direct initialization)")
             
             # Handle key management
             if not manage_keys(self.manager, self.config['GOLD_BOX_KEYCHANGE']):
@@ -191,10 +222,13 @@ class ServerStartup:
             True if environment is valid, False otherwise
         """
         try:
-            # Find available port
-            self.available_port = find_available_port(self.config['GOLD_BOX_PORT'])
+            # Get effective port (environment override or config)
+            start_port = self.get_effective_port()
+            
+            # Find available port with simple fallback (max 3 attempts)
+            self.available_port = find_available_port(start_port)
             if not self.available_port:
-                logger.error(f"No available ports found starting from {self.config['GOLD_BOX_PORT']}")
+                logger.error(f"No available ports found starting from {start_port}")
                 return False
             
             # Validate startup environment
@@ -302,16 +336,16 @@ class ServerStartup:
             if not self.validate_requirements():
                 return False
             
-            # Phase 3: Initialize security
+            # Phase 3: Initialize global services
+            if not self.initialize_global_services():
+                return False
+            
+            # Phase 4: Initialize security
             if not self.initialize_security():
                 return False
             
-            # Phase 4: Setup application
+            # Phase 5: Setup application (now services are ready)
             if not self.setup_application():
-                return False
-            
-            # Phase 5: Initialize global services
-            if not self.initialize_global_services():
                 return False
             
             # Phase 6: Validate startup environment

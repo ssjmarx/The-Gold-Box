@@ -19,8 +19,7 @@ const ConnectionState = {
  * Connection Types
  */
 const ConnectionType = {
-  WEBSOCKET: 'websocket',
-  HTTP: 'http'
+  WEBSOCKET: 'websocket'
 };
 
 /**
@@ -51,10 +50,8 @@ class ConnectionManager {
     this.initPromise = null;
     this.initQueue = [];
     
-    // Configuration
+    // Configuration (simplified)
     this.defaultPort = 5000;
-    this.maxPortAttempts = 20;
-    this.portTimeout = 2000;
     
     console.log('ConnectionManager: Initialized singleton instance');
   }
@@ -145,47 +142,152 @@ class ConnectionManager {
     }
   }
 
+
   /**
-   * Discover backend port by testing multiple ports
-   * @param {number} startPort - Starting port (default: 5000)
-   * @param {number} maxAttempts - Maximum ports to check (default: 20)
-   * @returns {Promise<number|null>} - Found port or null
+   * Discover backend port using browser-compatible methods (WebSocket-first, HTTP fallback)
+   * @returns {Promise<number|null>} - Port number or null
    */
-  async discoverBackendPort(startPort = this.defaultPort, maxAttempts = this.maxPortAttempts) {
-    console.log(`ConnectionManager: Scanning ports from ${startPort}...`);
+  async discoverBackendPort() {
+    console.log('ConnectionManager: Starting browser-compatible port discovery...');
     
-    for (let i = 0; i < maxAttempts; i++) {
-      const port = startPort + i;
-      const testUrl = `http://localhost:${port}`;
-      
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), this.portTimeout);
-        
-        const response = await fetch(`${testUrl}/api/health`, {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (response.ok) {
-          const data = await response.json();
-          // Check for our backend service identifier
-          if (data.service === 'The Gold Box Backend' || data.version === '0.2.3') {
-            console.log(`ConnectionManager: Found backend on port ${port}`, data);
+    // Try environment override first
+    const envPort = this.getEnvironmentPortOverride();
+    if (envPort) {
+      console.log(`ConnectionManager: Using environment override port: ${envPort}`);
+      return envPort;
+    }
+    
+    // Try WebSocket discovery first (primary method)
+    const wsPort = await this.tryWebSocketPortDiscovery();
+    if (wsPort) {
+      console.log(`ConnectionManager: Using WebSocket-discovered port: ${wsPort}`);
+      return wsPort;
+    }
+    
+    // Fallback to HTTP health check
+    const httpPort = await this.tryHttpPortDiscovery();
+    if (httpPort) {
+      console.log(`ConnectionManager: Using HTTP-discovered port: ${httpPort}`);
+      return httpPort;
+    }
+    
+    throw new Error('No backend server found on any standard port. Please start the backend server first.');
+  }
+
+  /**
+   * Get port from environment variable override
+   * @returns {number|null} - Port number or null
+   */
+  getEnvironmentPortOverride() {
+    try {
+      // Check for browser-compatible environment detection
+      if (window.localStorage) {
+        const overridePort = localStorage.getItem('GOLD_BOX_PORT_OVERRIDE');
+        if (overridePort) {
+          const port = parseInt(overridePort);
+          if (!isNaN(port) && port >= 1024 && port <= 65535) {
             return port;
           }
         }
+      }
+      
+      // Check global window object for testing
+      if (window.GOLD_BOX_PORT_OVERRIDE) {
+        const port = parseInt(window.GOLD_BOX_PORT_OVERRIDE);
+        if (!isNaN(port) && port >= 1024 && port <= 65535) {
+          return port;
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.warn('ConnectionManager: Environment override check failed:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Try to discover port via WebSocket connections
+   * @returns {Promise<number|null>} - Port number or null
+   */
+  async tryWebSocketPortDiscovery() {
+    const standardPorts = [5000, 5001, 5002];
+    
+    for (const port of standardPorts) {
+      try {
+        console.log(`ConnectionManager: Testing WebSocket port ${port}...`);
+        
+        const wsUrl = `ws://localhost:${port}/ws`;
+        const testWs = new WebSocket(wsUrl);
+        
+        // Create a promise that resolves when connection succeeds or fails
+        const connectionResult = await Promise.race([
+          new Promise((resolve) => {
+            testWs.onopen = () => {
+              testWs.close();
+              resolve(port);
+            };
+            testWs.onerror = () => resolve(null);
+          }),
+          new Promise(resolve => setTimeout(() => {
+            testWs.close();
+            resolve(null);
+          }, 1000)) // 1 second timeout
+        ]);
+        
+        if (connectionResult === port) {
+          console.log(`ConnectionManager: WebSocket connection successful on port ${port}`);
+          return port;
+        }
+        
       } catch (error) {
-        // Expected for ports that aren't running our backend
-        continue;
+        console.log(`ConnectionManager: WebSocket test failed for port ${port}:`, error.message);
       }
     }
+    
     return null;
+  }
+
+  /**
+   * Try to discover port via HTTP health checks
+   * @returns {Promise<number|null>} - Port number or null
+   */
+  async tryHttpPortDiscovery() {
+    const standardPorts = [5000, 5001, 5002];
+    
+    for (const port of standardPorts) {
+      try {
+        console.log(`ConnectionManager: Testing HTTP port ${port}...`);
+        
+        const response = await fetch(`http://localhost:${port}/api/health`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(2000) // 2 second timeout
+        });
+        
+        if (response.ok) {
+          console.log(`ConnectionManager: HTTP health check successful on port ${port}`);
+          return port;
+        }
+        
+      } catch (error) {
+        console.log(`ConnectionManager: HTTP test failed for port ${port}:`, error.message);
+      }
+    }
+    
+    return null;
+  }
+
+  /**
+   * Validate port number
+   * @param {number} port - Port to validate
+   * @param {string} source - Source of port for error messages
+   * @returns {number} - Validated port
+   */
+  validatePort(port, source) {
+    if (isNaN(port) || port < 1024 || port > 65535) {
+      throw new Error(`Invalid port ${port} from ${source}. Must be 1024-65535.`);
+    }
+    return port;
   }
 
   /**
@@ -225,65 +327,29 @@ class ConnectionManager {
   }
   
   /**
-   * Make an API request to backend (WebSocket-first with HTTP fallback)
+   * Make an API request to backend (WebSocket-only)
    * @param {string} endpoint - API endpoint
    * @param {Object} data - Request data
-   * @param {string} method - HTTP method (default: POST)
    * @returns {Promise<Object>} - Response data
    */
-  async makeRequest(endpoint, data, method = 'POST') {
-    // Phase 4: Try WebSocket first if available and connected
-    if (this.connectionType === ConnectionType.WEBSOCKET && 
-        this.webSocketClient && 
-        this.webSocketClient.isConnected) {
-      
-      try {
-        console.log(`ConnectionManager: Using WebSocket for ${endpoint}`);
-        return await this.makeWebSocketRequest(endpoint, data);
-      } catch (error) {
-        console.warn('ConnectionManager: WebSocket request failed, falling back to HTTP:', error);
-        // Fall back to HTTP on WebSocket failure
-      }
-    }
-    
-    // Ensure we're connected before making HTTP request
+  async makeRequest(endpoint, data) {
+    // Ensure we're connected before making request
     if (this.state !== ConnectionState.CONNECTED || !this.isSessionValid()) {
       console.log('ConnectionManager: Not connected, initializing...');
       await this.initialize();
     }
     
-    // Get security headers
-    const headers = this.getSecurityHeaders();
+    // Use WebSocket only - no HTTP fallback
+    if (!this.webSocketClient || !this.webSocketClient.isConnected) {
+      throw new Error('WebSocket connection required. Please ensure backend server is running.');
+    }
     
     try {
-      console.log(`ConnectionManager: Making HTTP ${method} request to ${endpoint}`);
-      
-      const response = await fetch(`${this.baseUrl}${endpoint}`, {
-        method: method,
-        headers: headers,
-        body: data ? JSON.stringify(data) : undefined
-      });
-
-      if (!response.ok) {
-        // Handle security-related errors specifically
-        if (response.status === 429) {
-          throw new Error(`Rate limit exceeded. Please wait before trying again.`);
-        } else if (response.status === 401) {
-          throw new Error(`Session required or expired. Please refresh the page.`);
-        } else {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-      }
-
-      const responseData = await response.json();
-      return {
-        success: true,
-        data: responseData
-      };
-      
+      console.log(`ConnectionManager: Using WebSocket for ${endpoint}`);
+      return await this.makeWebSocketRequest(endpoint, data);
     } catch (error) {
-      console.error('ConnectionManager: HTTP request failed:', error);
-      throw error;
+      console.error('ConnectionManager: WebSocket request failed:', error);
+      throw new Error(`WebSocket connection failed: ${error.message}. Please restart the backend server.`);
     }
   }
 
@@ -356,96 +422,33 @@ class ConnectionManager {
   }
 
   /**
-   * Send data via real-time synchronization (Phase 4)
+   * Send data via real-time synchronization (WebSocket-only)
    * @param {string} syncType - Type of sync data
    * @param {Object} syncData - Data to synchronize
    * @returns {Promise<boolean>} - Success status
    */
   async syncDataRealTime(syncType, syncData) {
-    if (this.connectionType === ConnectionType.WEBSOCKET && 
-        this.webSocketClient && 
-        this.webSocketClient.isConnected) {
-      
-      try {
-        const syncMessage = {
-          type: 'data_sync',
-          data: {
-            sync_type: syncType,
-            sync_data: syncData,
-            timestamp: Date.now()
-          }
-        };
-        
-        await this.webSocketClient.send(syncMessage);
-        console.log(`ConnectionManager: Real-time sync sent for ${syncType}`);
-        return true;
-        
-      } catch (error) {
-        console.error('ConnectionManager: Real-time sync failed:', error);
-        return false;
-      }
-    }
-    
-    // Fallback: store for batch sync when WebSocket becomes available
-    this.storeBatchSyncData(syncType, syncData);
-    return false;
-  }
-
-  /**
-   * Store batch sync data for later transmission
-   * @param {string} syncType - Type of sync data
-   * @param {Object} syncData - Data to synchronize
-   */
-  storeBatchSyncData(syncType, syncData) {
-    if (!this.batchSyncQueue) {
-      this.batchSyncQueue = [];
-    }
-    
-    this.batchSyncQueue.push({
-      sync_type: syncType,
-      sync_data: syncData,
-      timestamp: Date.now()
-    });
-    
-    // Limit queue size to prevent memory issues
-    if (this.batchSyncQueue.length > 100) {
-      this.batchSyncQueue = this.batchSyncQueue.slice(-50); // Keep last 50 items
-    }
-    
-    console.log(`ConnectionManager: Stored batch sync data for ${syncType} (${this.batchSyncQueue.length} items queued)`);
-  }
-
-  /**
-   * Flush batch sync data when WebSocket becomes available
-   */
-  async flushBatchSyncData() {
-    if (!this.batchSyncQueue || this.batchSyncQueue.length === 0) {
-      return;
-    }
-    
-    if (this.connectionType !== ConnectionType.WEBSOCKET || 
-        !this.webSocketClient || 
-        !this.webSocketClient.isConnected) {
-      return;
+    if (!this.webSocketClient || !this.webSocketClient.isConnected) {
+      throw new Error('WebSocket connection required for real-time sync. Please ensure backend server is running.');
     }
     
     try {
-      const batchMessage = {
-        type: 'batch_sync',
+      const syncMessage = {
+        type: 'data_sync',
         data: {
-          sync_items: this.batchSyncQueue,
-          flush_timestamp: Date.now()
+          sync_type: syncType,
+          sync_data: syncData,
+          timestamp: Date.now()
         }
       };
       
-      await this.webSocketClient.send(batchMessage);
-      console.log(`ConnectionManager: Flushed ${this.batchSyncQueue.length} batch sync items`);
-      
-      // Clear queue after successful flush
-      this.batchSyncQueue = [];
+      await this.webSocketClient.send(syncMessage);
+      console.log(`ConnectionManager: Real-time sync sent for ${syncType}`);
+      return true;
       
     } catch (error) {
-      console.error('ConnectionManager: Failed to flush batch sync data:', error);
+      console.error('ConnectionManager: Real-time sync failed:', error);
+      throw new Error(`Real-time sync failed: ${error.message}. Please restart the backend server.`);
     }
   }
   

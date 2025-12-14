@@ -12,6 +12,10 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
+class ServiceRegistryException(Exception):
+    """Exception raised when ServiceRegistry operations fail"""
+    pass
+
 class ServiceRegistry:
     """
     Central registry for all shared services
@@ -47,12 +51,12 @@ class ServiceRegistry:
             cls._startup_order.append(name)
             
             service_type = type(service).__name__
-            logger.info(f"✅ Registered service: {name} ({service_type})")
+            # Service registered
             return True
             
         except Exception as e:
             logger.error(f"❌ Failed to register service '{name}': {e}")
-            return False
+            raise ServiceRegistryException(f"Failed to register service '{name}': {e}")
     
     @classmethod
     def get(cls, name: str, default: Any = None) -> Any:
@@ -85,11 +89,12 @@ class ServiceRegistry:
             logger.debug(f"🔧 Retrieved service: {name} ({type(service).__name__})")
             return service
             
+        except ValueError:
+            # Re-raise ValueError for missing services
+            raise
         except Exception as e:
             logger.error(f"❌ Failed to get service '{name}': {e}")
-            if default is not None:
-                return default
-            raise
+            raise ServiceRegistryException(f"Failed to get service '{name}': {e}")
     
     @classmethod
     def is_registered(cls, name: str) -> bool:
@@ -151,20 +156,13 @@ class ServiceRegistry:
             cls._initialized = True
             service_count = len(cls._services)
             
-            logger.info(f"🎉 Service Registry initialized with {service_count} services")
-            logger.info(f"📋 Services in startup order: {cls._startup_order}")
-            
-            # Log all registered services
-            for name in cls._startup_order:
-                service = cls._services[name]
-                service_type = type(service).__name__
-                logger.info(f"  ✓ {name}: {service_type}")
+            # Service registry initialized
             
             return True
             
         except Exception as e:
             logger.error(f"❌ Failed to mark registry as initialized: {e}")
-            return False
+            raise ServiceRegistryException(f"Failed to mark registry as initialized: {e}")
     
     @classmethod
     def is_ready(cls) -> bool:
@@ -228,7 +226,7 @@ class ServiceRegistry:
             return True
         except Exception as e:
             logger.error(f"❌ Failed to reset registry: {e}")
-            return False
+            raise ServiceRegistryException(f"Failed to reset registry: {e}")
 
 # Convenience functions for common operations
 def register_service(name: str, service: Any, overwrite: bool = False) -> bool:

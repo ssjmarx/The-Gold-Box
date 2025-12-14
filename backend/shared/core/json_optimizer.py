@@ -93,7 +93,8 @@ class JSONOptimizer:
             # Handle other types by converting to dict if possible
             try:
                 scene_dict = dict(scene_data) if hasattr(scene_data, '__iter__') else scene_data
-            except:
+            except Exception as e:
+                logger.warning(f"WebSocket optimization failed, using fallback: {e}")
                 return scene_data
         
         # Map to compact field names

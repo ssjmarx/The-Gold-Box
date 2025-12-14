@@ -95,7 +95,7 @@ def configure_logging(log_level: str, log_file: str) -> bool:
         True if successful, False otherwise
     """
     try:
-        log_level_obj = getattr(logging, log_level.upper(), logging.INFO)
+        log_level_obj = getattr(logging, log_level.upper(), logging.WARNING)
         logging.basicConfig(
             level=log_level_obj,
             format='%(asctime)s - %(levelname)s - %(message)s',

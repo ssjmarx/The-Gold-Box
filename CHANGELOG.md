@@ -5,9 +5,102 @@ All notable changes to The Gold Box project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0/).
 
+## [0.3.4] - 2025-12-14
+
+### Major Architecture Refactor
+- **Complete Module Reorganization** - Restructured entire backend into logical service-oriented architecture
+- **Service Factory Pattern** - Implemented dependency injection system for service management and lifecycle
+- **Service Registry** - Created centralized service registry for consistent service access patterns
+- **Unified WebSocket Communication** - Moved to WebSocket-only architecture with native FastAPI WebSocket support
+- **Shared Component Library** - Extracted common functionality into shared modules for code reuse
+
+#### Backend Architecture Changes
+- **API Layer (`backend/api/`)** - Consolidated all API endpoints into dedicated module
+- **Services Layer (`backend/services/`)** - Organized into ai_services, message_services, and system_services
+- **Shared Components (`backend/shared/`)** - Created shared library for core utilities, security, and providers
+- **Startup System (`backend/shared/startup/`)** - Comprehensive initialization and validation system
+
+#### Service Factory Implementation
+- **Dependency Injection** - Automatic service instantiation and dependency management
+- **Service Lifecycle Management** - Proper initialization, configuration, and cleanup
+- **Consistent Access Patterns** - Standardized service retrieval through factory functions
+- **Configuration Integration** - Services automatically receive configuration and security components
+
+#### WebSocket Architecture
+- **Native FastAPI WebSocket** - Removed relay server dependency, implemented direct WebSocket endpoint
+- **Connection Management** - Centralized client connection and session management
+- **Message Protocol** - Structured WebSocket message format for reliable communication
+- **Real-time Communication** - Enhanced performance with direct server-client communication
+
+#### Frontend Refactoring
+- **Backend Communicator** - New unified WebSocket client for server communication
+- **Separated Services** - Split connection manager, session manager, and settings manager
+- **Message Collection** - Dedicated service for chat message collection and processing
+- **UI Management** - Shared utilities for consistent user interface handling
+
+#### Security and Configuration
+- **Universal Settings** - Centralized configuration management across all services
+- **Enhanced Key Management** - Improved API key storage and retrieval system
+- **Security Integration** - Consistent security middleware across all endpoints
+- **Validation Framework** - Comprehensive input validation and sanitization
+
+#### Code Quality Improvements
+- **Module Separation** - Clear separation of concerns across service boundaries
+- **Import Optimization** - Updated all imports to use service registry and factory
+- **Error Handling** - Standardized error handling and logging across services
+- **Documentation Alignment** - Code structure now matches documentation
+
+#### Breaking Changes
+- **Import Changes** - All service imports now use factory pattern and registry
+- **Configuration Updates** - Settings management moved to universal settings system
+- **Endpoint Updates** - Deprecated endpoints removed in favor of WebSocket communication
+- **Module Structure** - File organization significantly changed from previous versions
+
+#### Migration Notes
+- **Service Factory Usage** - All services now accessed through `get_service_name()` functions
+- **Configuration Access** - Settings accessed through universal settings manager
+- **WebSocket Communication** - Direct WebSocket replaces relay server communication
+- **Shared Components** - Common functionality moved to shared modules
+
+#### README.md Updates
+- **Current File Structure** - Updated to reflect actual backend organization (api/, services/, shared/)
+- **WebSocket Architecture** - Added WebSocket-only communication documentation
+- **Processing Modes** - Updated to reflect current 2-mode system (API and Context)
+- **Dependency Updates** - Removed Flask references, updated to FastAPI-only architecture
+- **Installation Instructions** - Streamlined for simplified dependency requirements
+
+#### USAGE.md Enhancements
+- **FastAPI Configuration** - Replaced Flask configuration with FastAPI-specific settings
+- **WebSocket Settings** - Added WebSocket communication configuration options
+- **Service Factory Pattern** - Documented new dependency injection system
+- **Universal Settings** - Added comprehensive settings management documentation
+- **Real-time Sync** - Documented new data synchronization features
+- **Removed Relay References** - Eliminated deprecated relay server documentation
+
+#### TESTING.md Modernization
+- **Current Endpoint Tests** - Updated test commands for existing endpoints
+- **WebSocket Testing** - Added WebSocket connection and communication tests
+- **API Chat Tests** - Added comprehensive tests for primary chat endpoint
+- **Security Feature Tests** - Updated for current security framework
+- **Removed Deprecated Tests** - Eliminated tests for removed endpoints
+
+#### Technical Documentation
+- **Unified Message Processor** - Documented central message processing component
+- **Service Factory** - Added documentation for new service management pattern
+- **Client Management** - Documented WebSocket client lifecycle management
+- **Message Protocol** - Added WebSocket message format specification
+- **Real-time Features** - Documented new synchronization capabilities
+
 ## [0.3.3] - 2025-12-06
 
-### Major Release: Deprecated Endpoint Cleanup & API Refinement
+### Major Release: Unified Architecture & Code Cleanup
+
+#### Architecture Unification
+- **Service Factory Pattern** - Implemented centralized service management with dependency injection
+- **Unified Message Processor** - Consolidated all message processing into single component
+- **WebSocket-Only Communication** - Complete removal of relay server dependencies
+- **Shared Components** - Created shared library for common functionality across services
+- **Enhanced Startup System** - Comprehensive startup validation and service initialization
 
 #### Codebase Streamlining
 - **Deprecated Endpoint Removal** - Completely removed "Simple" and "Processed" chat endpoints and all associated code
@@ -23,7 +116,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Current API Compliance** - Updated to use latest Foundry VTT API without deprecation warnings
 
 #### Backend Cleanup
-- **Removed Deprecated Files** - Deleted `simple_chat.py` and `process_chat.py` endpoints
+- **Removed Deprecated Files** - Deleted legacy endpoint files
 - **Updated Server Configuration** - Removed imports and router registration for deprecated endpoints
 - **Helpful Error Messages** - Deprecated endpoints now return 501 errors directing users to API endpoint
 - **Maintained Backward Compatibility** - Existing installations gracefully handle endpoint deprecation
@@ -56,15 +149,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **No Action Required** - Existing installations will automatically adapt to new architecture
 - **Settings Update** - Users may need to re-select "API (recommended)" mode if using deprecated modes
 - **Clear Documentation** - All guides updated to reflect current system state
-
-## [0.3.3] - 2025-12-06
-
-### Major Architecture Change: WebSocket Migration
-- **Native WebSocket Communication** - Replaced relay server dependency with direct FastAPI WebSocket integration
-- **Relay Server Removal** - Completely removed Node.js relay server from project
-- **Gold API Dependency Removal** - No longer requires external Foundry REST API module
-- **Standalone Operation** - Module now operates completely independently
-- **Simplified Architecture** - Reduced complexity and eliminated external dependencies
 
 ### Backend WebSocket Implementation
 - **FastAPI WebSocket Endpoint** - Native `/ws` endpoint for real-time communication

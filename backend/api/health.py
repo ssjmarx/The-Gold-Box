@@ -26,13 +26,12 @@ class HealthResponse(BaseModel):
     cors: Dict[str, Union[int, List[str], bool]]
     configured_providers: Optional[List[Dict[str, Union[str, bool]]]] = None
 
-def create_health_router(global_config, manager):
+def create_health_router(global_config):
     """
     Create and configure health check router
     
     Args:
         global_config: Global configuration dictionary
-        manager: Key manager instance
     """
     router = APIRouter()
     
@@ -53,7 +52,7 @@ def create_health_router(global_config, manager):
         Health check endpoint
         Security is now handled by UniversalSecurityMiddleware
         """
-        configured_providers = get_configured_providers(manager)
+        configured_providers = get_configured_providers()
         
         return HealthResponse(
             status='healthy',

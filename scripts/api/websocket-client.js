@@ -15,7 +15,7 @@ class GoldBoxWebSocketClient {
     this.clientId = this.generateClientId();
     this.isConnected = false;
     this.reconnectAttempts = 0;
-    this.maxReconnectAttempts = 5;
+    this.maxReconnectAttempts =5;
     this.reconnectDelay = 1000;
     this.reconnectTimer = null;
     this.pingInterval = null;
@@ -141,9 +141,9 @@ class GoldBoxWebSocketClient {
       return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
           reject(new Error('Connection timeout'));
-        }, 10000); // 10 second timeout
+        },10000); // 10 second timeout
 
-        // Override the onopen handler for this promise
+        // Override: onopen handler for this promise
         const originalOnopen = this.ws.onopen;
         this.ws.onopen = () => {
           clearTimeout(timeout);
@@ -330,7 +330,7 @@ class GoldBoxWebSocketClient {
           timestamp: Date.now()
         }));
       }
-    }, 30000);
+    },30000);
   }
 
   /**
@@ -385,7 +385,7 @@ class GoldBoxWebSocketClient {
         type: 'chat_request',
         data: {
           messages: messages,
-          context_count: options.contextCount || 15,
+          context_count: options.contextCount || 5,  // Changed from 15 to 5
           scene_id: options.sceneId || null,
           ...options
         }
@@ -461,7 +461,7 @@ class GoldBoxWebSocketClient {
   /**
    * Wait for connection to be established
    */
-  waitForConnection(timeout = 10000) {
+  waitForConnection(timeout =10000) {
     return new Promise((resolve) => {
       if (this.isConnected) {
         resolve(true);

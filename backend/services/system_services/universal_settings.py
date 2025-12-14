@@ -16,6 +16,10 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+class SettingsException(Exception):
+    """Exception raised when settings operations fail"""
+    pass
+
 class UniversalSettings:
     """
     Universal settings handler for all The Gold Box endpoints
@@ -169,7 +173,7 @@ class UniversalSettings:
             Dictionary containing validated and normalized settings
         """
         try:
-            logger.info(f"UniversalSettings: Extracting settings for {endpoint_name}")
+            logger.debug(f"UniversalSettings: Extracting settings for {endpoint_name}")
             
             # Extract settings from request data
             if isinstance(request_data, dict):
@@ -211,7 +215,7 @@ class UniversalSettings:
             if validation_errors:
                 logger.warning(f"UniversalSettings: Validation errors for {endpoint_name}: {validation_errors}")
             else:
-                logger.info(f"UniversalSettings: All settings validated successfully for {endpoint_name}")
+                logger.debug(f"UniversalSettings: All settings validated successfully for {endpoint_name}")
             
             # Add metadata
             validated_settings['_metadata'] = {
@@ -226,10 +230,12 @@ class UniversalSettings:
             
             return validated_settings
             
+        except (TypeError, ValueError, KeyError) as e:
+            logger.error(f"UniversalSettings: Settings validation error for {endpoint_name}: {e}")
+            raise SettingsException(f"Settings validation failed for {endpoint_name}: {e}")
         except Exception as e:
-            logger.error(f"UniversalSettings: Error extracting settings for {endpoint_name}: {e}")
-            # Return defaults on error
-            return cls.get_default_settings()
+            logger.error(f"UniversalSettings: Unexpected error for {endpoint_name}: {e}")
+            raise SettingsException(f"Unexpected settings error for {endpoint_name}: {e}")
     
     @classmethod
     def _validate_field(cls, field_name: str, value: Any, schema: Dict[str, Any]) -> tuple[Any, str]:
@@ -291,8 +297,11 @@ class UniversalSettings:
             # Additional validation can be added here
             return validated, None
             
-        except Exception as e:
+        except (ValueError, TypeError) as e:
             return schema['default'], f"Validation error for {field_name}: {str(e)}"
+        except Exception as e:
+            logger.error(f"Unexpected validation error for {field_name}: {e}")
+            raise SettingsException(f"Unexpected validation error for {field_name}: {e}")
     
     @classmethod
     def get_default_settings(cls) -> Dict[str, Any]:
@@ -320,39 +329,77 @@ class UniversalSettings:
     @classmethod
     def get_provider_config(cls, settings: Dict[str, Any], use_tactical: bool = False) -> Dict[str, Any]:
         """
-        Extract provider configuration from settings
+        Extract provider configuration from validated settings
         
         Args:
-            settings: Validated settings dictionary
+            settings: Validated settings dictionary (must contain required fields)
             use_tactical: Whether to use tactical or general settings
             
         Returns:
             Provider configuration dictionary for AI service
+            
+        Raises:
+            SettingsException: If required configuration fields are missing
         """
         try:
+            # Validate that settings dictionary is provided
+            if not settings or not isinstance(settings, dict):
+                raise SettingsException("Settings dictionary is required and must be non-empty")
+            
+            # Define required field mappings based on configuration type
             if use_tactical:
-                provider_config = {
-                    'provider': settings.get('tactical llm provider', 'openai'),
-                    'model': settings.get('tactical llm model', 'gpt-3.5-turbo'),
-                    'base_url': settings.get('tactical llm base url', ''),
-                    'api_version': settings.get('tactical llm version', 'v1'),
-                    'timeout': settings.get('tactical llm timeout', 30),
-                    'max_retries': settings.get('tactical llm max retries', 3),
-                    'custom_headers': settings.get('tactical llm custom headers', '{}')
+                required_fields = {
+                    'tactical llm provider': 'provider',
+                    'tactical llm model': 'model'
+                }
+                optional_fields = {
+                    'tactical llm base url': 'base_url',
+                    'tactical llm version': 'api_version',
+                    'tactical llm timeout': 'timeout',
+                    'tactical llm max retries': 'max_retries',
+                    'tactical llm custom headers': 'custom_headers'
                 }
             else:
-                provider_config = {
-                    'provider': settings.get('general llm provider', 'openai'),
-                    'model': settings.get('general llm model', 'gpt-3.5-turbo'),
-                    'base_url': settings.get('general llm base url', ''),
-                    'api_version': settings.get('general llm version', 'v1'),
-                    'timeout': settings.get('general llm timeout', 30),
-                    'max_retries': settings.get('general llm max retries', 3),
-                    'custom_headers': settings.get('general llm custom headers', '{}')
+                required_fields = {
+                    'general llm provider': 'provider',
+                    'general llm model': 'model'
+                }
+                optional_fields = {
+                    'general llm base url': 'base_url',
+                    'general llm version': 'api_version',
+                    'general llm timeout': 'timeout',
+                    'general llm max retries': 'max_retries',
+                    'general llm custom headers': 'custom_headers'
                 }
             
+            # Validate required fields are present
+            missing_fields = []
+            for settings_field, config_field in required_fields.items():
+                if settings_field not in settings or settings[settings_field] is None:
+                    missing_fields.append(settings_field)
+            
+            if missing_fields:
+                config_type = "tactical" if use_tactical else "general"
+                raise SettingsException(f"Required {config_type} configuration fields missing: {', '.join(missing_fields)}")
+            
+            # Build provider config with explicit field access
+            provider_config = {}
+            
+            # Add required fields (must exist)
+            for settings_field, config_field in required_fields.items():
+                provider_config[config_field] = settings[settings_field]
+            
+            # Add optional fields with explicit presence checking
+            for settings_field, config_field in optional_fields.items():
+                if settings_field in settings and settings[settings_field] is not None:
+                    provider_config[config_field] = settings[settings_field]
+                else:
+                    # Use schema defaults for optional fields if not provided
+                    schema_field = cls.SETTINGS_SCHEMA.get(settings_field, {})
+                    provider_config[config_field] = schema_field.get('default')
+            
             # Parse custom headers if provided
-            custom_headers_str = provider_config['custom_headers']
+            custom_headers_str = provider_config.get('custom_headers', '{}')
             if custom_headers_str and custom_headers_str.strip() and custom_headers_str != '{}':
                 try:
                     provider_config['headers'] = json.loads(custom_headers_str)
@@ -362,52 +409,64 @@ class UniversalSettings:
             else:
                 provider_config['headers'] = {}
             
-            # logger.info(f"UniversalSettings: Provider config extracted (use_tactical={use_tactical}): {provider_config}")
+            logger.debug(f"UniversalSettings: Provider config extracted (use_tactical={use_tactical}): {provider_config}")
             
             return provider_config
             
-        except Exception as e:
+        except (json.JSONDecodeError, ValueError, TypeError) as e:
             logger.error(f"UniversalSettings: Error extracting provider config: {e}")
-            # Return safe defaults
-            return {
-                'provider': 'openai',
-                'model': 'gpt-3.5-turbo',
-                'base_url': '',
-                'api_version': 'v1',
-                'timeout': 30,
-                'max_retries': 3,
-                'headers': {}
-            }
+            raise SettingsException(f"Provider config extraction failed: {e}")
+        except Exception as e:
+            logger.error(f"UniversalSettings: Unexpected error extracting provider config: {e}")
+            raise SettingsException(f"Unexpected provider config error: {e}")
     
     @classmethod
     def debug_settings(cls, settings: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Create debug information for settings
+        Create debug information for settings with explicit field validation
         
         Args:
             settings: Settings dictionary to debug
             
         Returns:
             Debug information dictionary
+            
+        Raises:
+            SettingsException: If settings dictionary is invalid
         """
-        debug_info = {
-            'timestamp': datetime.now().isoformat(),
-            'settings_count': len([k for k in settings.keys() if not k.startswith('_')]),
-            'has_general_provider': bool(settings.get('general llm provider')),
-            'has_general_model': bool(settings.get('general llm model')),
-            'has_tactical_provider': bool(settings.get('tactical llm provider')),
-            'has_tactical_model': bool(settings.get('tactical llm model')),
-            'general_provider': settings.get('general llm provider', 'NOT_SET'),
-            'general_model': settings.get('general llm model', 'NOT_SET'),
-            'general_base_url': settings.get('general llm base url', 'NOT_SET'),
-            'tactical_provider': settings.get('tactical llm provider', 'NOT_SET'),
-            'tactical_model': settings.get('tactical llm model', 'NOT_SET'),
-            'tactical_base_url': settings.get('tactical llm base url', 'NOT_SET'),
-            'metadata': settings.get('_metadata', {}),
-            'all_keys': list(settings.keys())
-        }
-        
-        return debug_info
+        try:
+            # Validate input
+            if not settings or not isinstance(settings, dict):
+                raise SettingsException("Settings dictionary is required for debugging")
+            
+            # Define debug fields with explicit presence checking
+            debug_fields = [
+                'general llm provider', 'general llm model', 'general llm base url',
+                'tactical llm provider', 'tactical llm model', 'tactical llm base url'
+            ]
+            
+            debug_info = {
+                'timestamp': datetime.now().isoformat(),
+                'settings_count': len([k for k in settings.keys() if not k.startswith('_')]),
+                'metadata': settings.get('_metadata', {}),
+                'all_keys': list(settings.keys())
+            }
+            
+            # Add explicit field presence checks
+            for field in debug_fields:
+                field_key = field.replace(' ', '_')
+                if field in settings:
+                    debug_info[f'has_{field_key}'] = True
+                    debug_info[field_key] = settings[field]
+                else:
+                    debug_info[f'has_{field_key}'] = False
+                    debug_info[field_key] = 'NOT_SET'
+            
+            return debug_info
+            
+        except Exception as e:
+            logger.error(f"UniversalSettings: Error creating debug info: {e}")
+            raise SettingsException(f"Debug settings creation failed: {e}")
     
     @classmethod
     def get_settings_schema(cls) -> Dict[str, Any]:
