@@ -1,4 +1,4 @@
-# Testing The Gold Box Backend Server (v0.3.3)
+# Testing The Gold Box Backend Server (v0.3.4)
 
 This document provides comprehensive curl commands to test all API endpoints and security features of The Gold Box backend server from the terminal.
 
@@ -72,9 +72,9 @@ curl -X POST http://localhost:5000/api/session/init \
 ```
 *Expected*: Extended session with updated expiry time
 
-### 7. Simple Chat Endpoint (Requires API Keys)
+### 7. API Chat Endpoint (Requires API Keys)
 ```bash
-curl -X POST http://localhost:5000/api/simple_chat \
+curl -X POST http://localhost:5000/api/api_chat \
   -H "Content-Type: application/json" \
   -H "X-Session-ID: $SESSION_ID" \
   -H "X-CSRF-Token: $CSRF_TOKEN" \
@@ -90,59 +90,19 @@ curl -X POST http://localhost:5000/api/simple_chat \
 ```
 *Expected*: AI response from configured provider with success status
 
-### 8. Process Chat Endpoint (Requires API Keys)
+### 8. WebSocket Connection Test
 ```bash
-curl -X POST http://localhost:5000/api/process_chat \
-  -H "Content-Type: application/json" \
-  -H "X-Session-ID: $SESSION_ID" \
-  -H "X-CSRF-Token: $CSRF_TOKEN" \
-  -d '{
-    "messages": [
-      "<div class=\"chat-message\"><div class=\"message-content\"><p>Hello from Foundry!</p></div></div>",
-      "<div class=\"chat-message dice-roll\"><div class=\"dice-result\">3d6: 2, 4, 2 = 8</div></div>"
-    ],
-    "settings": {
-      "general llm provider": "openai",
-      "general llm model": "gpt-3.5-turbo"
-    }
-  }' | jq .
+# Test WebSocket connection (requires websocat or similar tool)
+websocat ws://localhost:5000/ws
 ```
-*Expected*: Processed AI response with compact JSON conversion and HTML rendering
+*Expected*: WebSocket connection established and ready for message exchange
 
-### 9. Process Chat Status Endpoint
+### 9. WebSocket Message Exchange Test
 ```bash
-curl -X GET http://localhost:5000/api/process_chat/status/test_req_123456 | jq .
+# Send a test message via WebSocket (JSON format)
+echo '{"type": "test", "data": {"message": "Hello WebSocket"}}' | websocat ws://localhost:5000/ws
 ```
-*Expected*: Processing status for specified request ID (not_found if request doesn't exist)
-
-### 10. Process Chat Validation Endpoint
-```bash
-curl -X POST http://localhost:5000/api/process_chat/validate \
-  -H "Content-Type: application/json" \
-  -H "X-Session-ID: $SESSION_ID" \
-  -H "X-CSRF-Token: $CSRF_TOKEN" \
-  -d '[
-    "<div class=\"chat-message\"><div class=\"message-content\"><p>Test message</p></div></div>",
-    {
-      "sender": "User",
-      "content": "<div class=\"dice-roll\">1d20: 15</div>",
-      "timestamp": "2025-01-01T12:00:00Z"
-    }
-  ]' | jq .
-```
-*Expected*: Validation results for each message with compact JSON conversion
-
-### 11. Process Chat Schemas Endpoint
-```bash
-curl -X GET http://localhost:5000/api/process_chat/schemas | jq .
-```
-*Expected*: Compact JSON schemas, type codes, and system prompt
-
-### 12. Process Chat Test Endpoint
-```bash
-curl -X GET http://localhost:5000/api/process_chat/test | jq .
-```
-*Expected*: Operational status confirming processor and provider manager are loaded
+*Expected*: Server processes WebSocket message and responds appropriately
 
 ### 13. Admin Status Endpoint (Requires Admin Password)
 ```bash
@@ -188,7 +148,7 @@ echo "Testing rate limiting (should succeed first 5, fail on 6th)..."
 for i in {1..6}; do
   echo "Request $i:"
   response=$(curl -s -o /dev/null -w "%{http_code}" \
-    -X POST http://localhost:5000/api/simple_chat \
+    -X POST http://localhost:5000/api/api_chat \
     -H "Content-Type: application/json" \
     -H "X-Session-ID: $SESSION_ID" \
     -H "X-CSRF-Token: $CSRF_TOKEN" \
@@ -207,7 +167,7 @@ done
 
 ### 18. CSRF Protection Test (Invalid Token)
 ```bash
-curl -s -X POST http://localhost:5000/api/simple_chat \
+curl -s -X POST http://localhost:5000/api/api_chat \
   -H "Content-Type: application/json" \
   -H "X-Session-ID: $SESSION_ID" \
   -H "X-CSRF-Token: invalid-csrf-token" \
@@ -218,9 +178,9 @@ curl -s -X POST http://localhost:5000/api/simple_chat \
 ```
 *Expected*: 403 Forbidden error with CSRF token validation failed message
 
-### 19. CSRF Protection Test (Missing Token)
+###19. CSRF Protection Test (Missing Token)
 ```bash
-curl -s -X POST http://localhost:5000/api/simple_chat \
+curl -s -X POST http://localhost:5000/api/api_chat \
   -H "Content-Type: application/json" \
   -H "X-Session-ID: $SESSION_ID" \
   -d '{
@@ -230,9 +190,9 @@ curl -s -X POST http://localhost:5000/api/simple_chat \
 ```
 *Expected*: 403 Forbidden error with CSRF token required message
 
-### 20. Session Validation Test (Invalid Session)
+###20. Session Validation Test (Invalid Session)
 ```bash
-curl -s -X POST http://localhost:5000/api/simple_chat \
+curl -s -X POST http://localhost:5000/api/api_chat \
   -H "Content-Type: application/json" \
   -H "X-Session-ID: invalid-session-id" \
   -H "X-CSRF-Token: $CSRF_TOKEN" \
@@ -243,9 +203,9 @@ curl -s -X POST http://localhost:5000/api/simple_chat \
 ```
 *Expected*: 401 Unauthorized error with session validation failed message
 
-### 21. Session Validation Test (Missing Session)
+###21. Session Validation Test (Missing Session)
 ```bash
-curl -s -X POST http://localhost:5000/api/simple_chat \
+curl -s -X POST http://localhost:5000/api/api_chat \
   -H "Content-Type: application/json" \
   -H "X-CSRF-Token: $CSRF_TOKEN" \
   -d '{
@@ -257,7 +217,7 @@ curl -s -X POST http://localhost:5000/api/simple_chat \
 
 ### 22. Input Validation Test (XSS Protection)
 ```bash
-curl -s -X POST http://localhost:5000/api/simple_chat \
+curl -s -X POST http://localhost:5000/api/api_chat \
   -H "Content-Type: application/json" \
   -H "X-Session-ID: $SESSION_ID" \
   -H "X-CSRF-Token: $CSRF_TOKEN" \
@@ -270,7 +230,7 @@ curl -s -X POST http://localhost:5000/api/simple_chat \
 
 ### 23. Input Validation Test (SQL Injection)
 ```bash
-curl -s -X POST http://localhost:5000/api/simple_chat \
+curl -s -X POST http://localhost:5000/api/api_chat \
   -H "Content-Type: application/json" \
   -H "X-Session-ID: $SESSION_ID" \
   -H "X-CSRF-Token: $CSRF_TOKEN" \
@@ -283,7 +243,7 @@ curl -s -X POST http://localhost:5000/api/simple_chat \
 
 ### 24. Input Validation Test (Command Injection)
 ```bash
-curl -s -X POST http://localhost:5000/api/simple_chat \
+curl -s -X POST http://localhost:5000/api/api_chat \
   -H "Content-Type: application/json" \
   -H "X-Session-ID: $SESSION_ID" \
   -H "X-CSRF-Token: $CSRF_TOKEN" \
@@ -293,22 +253,6 @@ curl -s -X POST http://localhost:5000/api/simple_chat \
   }' | jq .
 ```
 *Expected*: 400 Bad Request error with dangerous content detected (command injection)
-
-### 25. Input Validation Test (HTML Safe Mode - Foundry VTT)
-```bash
-curl -s -X POST http://localhost:5000/api/process_chat \
-  -H "Content-Type: application/json" \
-  -H "X-Session-ID: $SESSION_ID" \
-  -H "X-CSRF-Token: $CSRF_TOKEN" \
-  -d '{
-    "messages": [
-      "<div class=\"chat-message player-chat\"><div class=\"message-content\"><p>Safe Foundry HTML</p></div></div>",
-      "<div class=\"chat-message dice-roll\"><div class=\"dice-formula\">3d6</div><div class=\"dice-result\">8</div></div>"
-    ],
-    "settings": {"general llm provider": "openai"}
-  }' | jq '.processed_context'
-```
-*Expected*: Successfully processed messages with HTML structure preserved in compact JSON format
 
 ### 26. Security Headers Test
 ```bash
@@ -326,7 +270,7 @@ curl -I -X GET http://localhost:5000/api/health
 curl -H "Origin: https://malicious-site.com" \
   -H "Access-Control-Request-Method: POST" \
   -H "Access-Control-Request-Headers: Content-Type" \
-  -X OPTIONS http://localhost:5000/api/simple_chat
+  -X OPTIONS http://localhost:5000/api/api_chat
 ```
 *Expected*: 403 Forbidden or no Access-Control-Allow-Origin header (depending on CORS configuration)
 
@@ -354,7 +298,7 @@ curl -s -X GET http://localhost:5000/api/security | jq '.checks.file_permissions
 ### 31. Audit Logging Test
 ```bash
 # Make a request that should be logged
-curl -s -X POST http://localhost:5000/api/simple_chat \
+curl -s -X POST http://localhost:5000/api/api_chat \
   -H "Content-Type: application/json" \
   -H "X-Session-ID: $SESSION_ID" \
   -H "X-CSRF-Token: $CSRF_TOKEN" \
@@ -375,7 +319,7 @@ OLD_SESSION_RESPONSE=$(curl -s -X POST http://localhost:5000/api/session/init \
 OLD_SESSION_ID=$(echo $OLD_SESSION_RESPONSE | jq -r '.session_id')
 
 # Try to use expired session (will work immediately after creation, fail after timeout)
-curl -s -X POST http://localhost:5000/api/simple_chat \
+curl -s -X POST http://localhost:5000/api/api_chat \
   -H "Content-Type: application/json" \
   -H "X-Session-ID: $OLD_SESSION_ID" \
   -H "X-CSRF-Token: $CSRF_TOKEN" \
@@ -407,7 +351,7 @@ Save this as `comprehensive_test.sh` and make it executable:
 ```bash
 #!/bin/bash
 
-echo "=== The Gold Box Backend Comprehensive Test Suite v0.3.3 ==="
+echo "=== The Gold Box Backend Comprehensive Test Suite v0.3.4 ==="
 echo
 
 # Initialize session
@@ -439,12 +383,18 @@ echo "3. Security Verification..."
 curl -s -X GET http://localhost:5000/api/security | jq '.overall_status, .security_score'
 echo
 
-echo "4. Process Chat Schemas..."
-curl -s -X GET http://localhost:5000/api/process_chat/schemas | jq '.type_codes | keys'
+echo "4. API Chat Test..."
+curl -s -X POST http://localhost:5000/api/api_chat \
+  -H "Content-Type: application/json" \
+  -H "X-Session-ID: $SESSION_ID" \
+  -H "X-CSRF-Token: $CSRF_TOKEN" \
+  -d '{"settings": {"general llm provider": "openai"}, "messages": [{"sender": "Test", "content": "test"}]}' | jq '.success'
 echo
 
-echo "5. Process Chat Test..."
-curl -s -X GET http://localhost:5000/api/process_chat/test | jq '.status'
+echo "5. WebSocket Test..."
+echo "Testing WebSocket connection (basic test)..."
+# Note: WebSocket testing requires websocat or similar tool
+echo "Run: websocat ws://localhost:5000/ws"
 echo
 
 # Test security features
@@ -453,7 +403,7 @@ echo
 
 echo "6. CSRF Protection (Invalid Token)..."
 response=$(curl -s -o /dev/null -w "%{http_code}" \
-  -X POST http://localhost:5000/api/simple_chat \
+  -X POST http://localhost:5000/api/api_chat \
   -H "Content-Type: application/json" \
   -H "X-Session-ID: $SESSION_ID" \
   -H "X-CSRF-Token: invalid-token" \
@@ -463,7 +413,7 @@ echo
 
 echo "7. Input Validation (XSS)..."
 response=$(curl -s -o /dev/null -w "%{http_code}" \
-  -X POST http://localhost:5000/api/simple_chat \
+  -X POST http://localhost:5000/api/api_chat \
   -H "Content-Type: application/json" \
   -H "X-Session-ID: $SESSION_ID" \
   -H "X-CSRF-Token: $CSRF_TOKEN" \
@@ -476,7 +426,7 @@ echo "Testing rate limit (first 5 should succeed, 6th should fail)..."
 success_count=0
 for i in {1..6}; do
   response=$(curl -s -o /dev/null -w "%{http_code}" \
-    -X POST http://localhost:5000/api/simple_chat \
+    -X POST http://localhost:5000/api/api_chat \
     -H "Content-Type: application/json" \
     -H "X-Session-ID: $SESSION_ID" \
     -H "X-CSRF-Token: $CSRF_TOKEN" \
@@ -609,4 +559,4 @@ curl --max-time 10 -X POST http://localhost:5000/api/simple_chat \
 - Verify file permissions on server_files directory
 - Confirm virtual environment isolation
 
-This comprehensive testing suite covers all endpoints and security features implemented in The Gold Box v0.2.5 backend server.
+This comprehensive testing suite covers all endpoints and security features implemented in The Gold Box v0.3.4 backend server.

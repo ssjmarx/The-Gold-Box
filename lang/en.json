@@ -53,8 +53,6 @@
       "BACKEND_STATUS_HINT": "Current status of backend server (automatically detected)",
       "BACKEND_PASSWORD": "Backend Password",
       "BACKEND_PASSWORD_HINT": "Password for admin operations on backend server (used to sync settings)",
-      "CHAT_PROCESSING_MODE": "Chat Processing Mode",
-      "CHAT_PROCESSING_MODE_HINT": "Choose how AI processes chat messages",
       "MAX_MESSAGE_CONTEXT": "Maximum Message Context",
       "MAX_MESSAGE_CONTEXT_HINT": "Number of recent chat messages to send to AI for context (default: 15)",
       "AI_RESPONSE_TIMEOUT": "AI Response Timeout (seconds)",
@@ -91,8 +89,6 @@
       "TACTICAL_LLM_CUSTOM_HEADERS_HINT": "Custom headers for Tactical LLM in JSON format (advanced)",
       
       "CHOICES": {
-        "SIMPLE": "Simple (existing /api/simple_chat)",
-        "PROCESSED": "Processed (new /api/process_chat)",
         "DM": "Dungeon Master",
         "DM_ASSISTANT": "DM Assistant", 
         "PLAYER": "Player"
@@ -114,7 +110,7 @@
       "NOTE": "Note: The frontend automatically discovers backend port. Use \"Discover Backend\" button if needed.",
       
       "NO_PROVIDERS_CONFIGURED": "No LLM providers configured",
-      "CONFIGURE_API_KEYS": "Please configure API keys in the backend to use AI features.",
+      "CONFIGURE_API_KEYS": "Please configure API keys in backend to use AI features.",
       "USE_KEY_MANAGER": "Use key manager to add providers like OpenAI, Anthropic, or others.",
       "FOUND_PROVIDERS": "Found {count} configured LLM provider(s):",
       "CONFIGURE_DESIRED": "Configure your desired provider in The Gold Box settings.",

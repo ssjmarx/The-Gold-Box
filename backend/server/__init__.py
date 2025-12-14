@@ -1,57 +1,9 @@
 """
-Server module exports for The Gold Box
+Server module for The Gold Box
+This module serves as a package structure only - all service access should use ServiceFactory.
 """
 
-from .key_manager import MultiKeyManager
-from .processor import ChatContextProcessor
-from .ai_service import AIService
-from .api_chat_processor import APIChatProcessor
-from .ai_chat_processor import AIChatProcessor
-from .provider_manager import ProviderManager
-from .universal_settings import UniversalSettings, extract_universal_settings, get_provider_config
+# No exports - use ServiceFactory for all service access
+# This eliminates redundant service access patterns and fallback chains
 
-# Import settings_manager from server.py (it's defined there)
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-# This will be set by server.py when it starts
-settings_manager = None
-
-def get_settings_manager():
-    """Get the global settings manager instance"""
-    global settings_manager
-    return settings_manager
-
-# Import settings_manager from server.py (it's defined there)
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-# This will be set by server.py when it starts
-settings_manager = None
-websocket_manager = None
-
-def get_settings_manager():
-    """Get the global settings manager instance"""
-    global settings_manager
-    return settings_manager
-
-def get_websocket_connection_manager():
-    """Get the global WebSocket connection manager instance"""
-    global websocket_manager
-    return websocket_manager
-
-__all__ = [
-    'MultiKeyManager',
-    'ChatContextProcessor', 
-    'AIService',
-    'APIChatProcessor',
-    'AIChatProcessor',
-    'ProviderManager',
-    'UniversalSettings',
-    'extract_universal_settings',
-    'get_provider_config',
-    'get_settings_manager',
-    'get_websocket_connection_manager'
-]
+__all__ = []
