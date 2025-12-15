@@ -52,9 +52,11 @@ class GoldBoxAPI {
     let response = null; // Define response outside try block so it's accessible in finally
     
     try {
-      // Use WebSocket-only communication
+      // Use WebSocket-only communication with proper context count
+      const maxMessages = this.settingsManager ? this.settingsManager.getSetting('maxMessageContext', 15) : 15;
       response = await this.communicator.sendChatRequest(messages, {
-        timeout: timeout
+        timeout: timeout,
+        contextCount: maxMessages
       });
       
       if (response.success) {
@@ -173,6 +175,8 @@ class GoldBoxModule {
         // Initialize message collector
         if (typeof MessageCollector !== 'undefined') {
           this.messageCollector = new MessageCollector();
+          // Set SettingsManager reference in message collector
+          this.messageCollector.setSettingsManager(this.settingsManager);
           // Set WebSocket client reference in message collector
           if (this.webSocketClient) {
             this.messageCollector.webSocketClient = this.webSocketClient;

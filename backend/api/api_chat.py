@@ -44,6 +44,19 @@ from services.system_services.service_factory import (
     get_provider_manager, get_ai_service, get_websocket_manager, get_message_collector
 )
 
+# Import dynamic chat card translation components
+try:
+    from services.message_services.chat_card_translation_cache import reset_cache, get_current_cache
+    from services.message_services.chat_card_translator import get_translator
+except ImportError:
+    # Fallback for when running outside main application context
+    def reset_cache():
+        return None
+    def get_current_cache():
+        return None
+    def get_translator():
+        return None
+
 # Relay server functions removed - now using WebSocket-only communication
 
 @router.post("/api_chat", response_model=APIChatResponse)
@@ -91,6 +104,14 @@ async def api_chat(http_request: Request, request: APIChatRequest):
                 success=False,
                 error="Client ID is required"
             )
+        
+        # Step 0.5: Reset dynamic cache for new AI turn
+        try:
+            cache = reset_cache()
+            if cache:
+                logger.info("Dynamic chat card translation cache reset for new AI turn")
+        except Exception as e:
+            logger.warning(f"Failed to reset dynamic cache: {e}")
         
         # Step 1: Collect chat messages via WebSocket
         logger.info(f"Collecting {context_count} chat messages via WebSocket for client {client_id}")

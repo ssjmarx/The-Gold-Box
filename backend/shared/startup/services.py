@@ -87,7 +87,6 @@ def initialize_websocket_manager():
                     logger.warning(f"Attempted to send to unknown WebSocket client: {client_id}")
                     return False
             
-            
             async def handle_message(self, client_id: str, message: Dict[str, Any]):
                 """Handle incoming WebSocket message"""
                 try:
@@ -401,7 +400,7 @@ def initialize_websocket_manager():
                         logger.debug(f"Chat message stored from client {client_id}")
                         
                 except Exception as e:
-                    logger.error(f"Error handling chat message from {client_id}: {e}")
+                    logger.error(f"Error handling chat message from client {client_id}: {e}")
                     await self.send_to_client(client_id, {
                         "type": "error",
                         "data": {
@@ -443,7 +442,7 @@ def initialize_websocket_manager():
                         logger.debug(f"Dice roll stored from client {client_id}: {roll_data.get('formula', 'unknown')}")
                         
                 except Exception as e:
-                    logger.error(f"Error handling dice roll from {client_id}: {e}")
+                    logger.error(f"Error handling dice roll from client {client_id}: {e}")
                     await self.send_to_client(client_id, {
                         "type": "error",
                         "data": {
@@ -473,7 +472,6 @@ def initialize_websocket_manager():
                     parsed['ts'] = original_timestamp
                 
                 return parsed
-            
             
         
         
@@ -684,6 +682,42 @@ def get_global_services() -> Dict[str, Any]:
         logger.error(f"Failed to initialize JSON optimizer: {e}")
         raise StartupServicesException(f"Unexpected JSON optimizer error: {e}")
     
+    # Initialize chat card translation cache and translator
+    from services.message_services.chat_card_translation_cache import get_current_cache, reset_cache, is_cache_active
+    try:
+        # Reset and initialize translation cache for new AI turn
+        reset_cache()
+        translation_cache = get_current_cache()
+        if not ServiceRegistry.register('chat_card_translation_cache', translation_cache):
+            logger.error("Failed to register chat card translation cache")
+        else:
+            services['chat_card_translation_cache'] = translation_cache
+            logger.info("✅ Chat card translation cache initialized and registered")
+    except (ImportError, RuntimeError) as e:
+        logger.error(f"Failed to initialize chat card translation cache: {e}")
+        raise StartupServicesException(f"Chat card translation cache initialization failed: {e}")
+    except Exception as e:
+        logger.error(f"Failed to initialize chat card translation cache: {e}")
+        raise StartupServicesException(f"Unexpected chat card translation cache error: {e}")
+    
+    # Initialize chat card translator
+    from services.message_services.chat_card_translator import get_translator, reset_translator
+    try:
+        # Reset and initialize chat card translator for new AI turn
+        reset_translator()
+        chat_card_translator = get_translator()
+        if not ServiceRegistry.register('chat_card_translator', chat_card_translator):
+            logger.error("Failed to register chat card translator")
+        else:
+            services['chat_card_translator'] = chat_card_translator
+            logger.info("✅ Chat card translator initialized and registered")
+    except (ImportError, RuntimeError) as e:
+        logger.error(f"Failed to initialize chat card translator: {e}")
+        raise StartupServicesException(f"Chat card translator initialization failed: {e}")
+    except Exception as e:
+        logger.error(f"Failed to initialize chat card translator: {e}")
+        raise StartupServicesException(f"Unexpected chat card translator error: {e}")
+    
     # Initialize AI service - move after ServiceRegistry is ready
     # This will be initialized later in the startup sequence
     services['ai_service'] = None  # Placeholder, will be set after registry is ready
@@ -697,7 +731,11 @@ def get_global_services() -> Dict[str, Any]:
         services.get('settings_manager') is not None and
         services.get('frontend_settings_handler') is not None and
         services.get('client_manager') is not None and
-        services.get('websocket_message_collector') is not None
+        services.get('websocket_message_collector') is not None and
+        services.get('attribute_mapper') is not None and
+        services.get('json_optimizer') is not None and
+        services.get('chat_card_translation_cache') is not None and
+        services.get('chat_card_translator') is not None
     )
     
     services['services_valid'] = core_services_valid

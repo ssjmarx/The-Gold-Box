@@ -11,12 +11,13 @@ class MessageCollector {
   constructor() {
     this.messages = [];
     this.rolls = [];
-    this.maxMessages = 50; // Keep last 50 messages
+    this.maxMessages = 15; // Default to 15, will be updated by settings
     this.maxRolls = 50; // Keep last 50 rolls
     this.hooks = [];
     this.isEnabled = false;
     this.collectionInterval = null;
     this.lastCollection = 0;
+    this.settingsManager = null; // Will be set from gold-box.js
     
     console.log('MessageCollector: Initialized');
   }
@@ -515,6 +516,18 @@ class MessageCollector {
     this.rolls = [];
     this.lastCollection = 0;
     console.log('MessageCollector: Cleared all messages');
+  }
+
+  /**
+   * Set SettingsManager reference and update maxMessages from settings
+   */
+  setSettingsManager(settingsManager) {
+    this.settingsManager = settingsManager;
+    // Update maxMessages from settings
+    if (this.settingsManager) {
+      this.maxMessages = this.settingsManager.getSetting('maxMessageContext', 15);
+      console.log(`MessageCollector: Updated maxMessages to ${this.maxMessages} from settings`);
+    }
   }
 
   /**

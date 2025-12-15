@@ -18,6 +18,19 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 from bs4 import BeautifulSoup
 
+# Import dynamic chat card translation components
+try:
+    from services.message_services.chat_card_translator import get_translator
+    from services.message_services.chat_card_translation_cache import get_current_cache, is_cache_active
+except ImportError:
+    # Fallback for when running outside main application context
+    def get_translator():
+        return None
+    def get_current_cache():
+        return None
+    def is_cache_active():
+        return False
+
 logger = logging.getLogger(__name__)
 
 class UnifiedMessageProcessor:
@@ -136,6 +149,21 @@ class UnifiedMessageProcessor:
             elif msg_type == "wp":
                 if "tg" in compact_msg:
                     api_msg["whisperTo"] = compact_msg["tg"]
+            elif msg_type == "cc":
+                # Handle chat cards with dynamic translation - NO FALLBACKS
+                translator = get_translator()
+                if not translator:
+                    raise ValueError("Chat card translator not available - fail-fast architecture")
+                
+                websocket_data = translator.compact_to_websocket(compact_msg)
+                if not websocket_data or not websocket_data.get("content"):
+                    raise ValueError("Dynamic chat card conversion failed - fail-fast architecture")
+                    
+                api_msg["content"] = websocket_data["content"]
+                if "fields" in websocket_data["content"]:
+                    # Convert fields back to HTML for Foundry
+                    api_msg["chat-card"] = self._convert_compact_to_html(websocket_data["content"])
+                logger.debug(f"Dynamic chat card conversion: {len(websocket_data.get('content', {}).get('fields', {}))} fields")
             
             logger.debug(f"Compact → API: {msg_type} → {api_msg}")
             return api_msg
@@ -297,27 +325,19 @@ class UnifiedMessageProcessor:
         return data
     
     def _extract_chat_card_data(self, soup: BeautifulSoup) -> Dict[str, Any]:
-        """Extract chat card data from HTML"""
-        data = {}
+        """
+        Extract chat card data from HTML with dynamic field discovery
+        Fail-fast architecture - no static fallbacks
+        """
+        # Use dynamic processing only - NO FALLBACKS
+        translator = get_translator()
+        if not translator:
+            raise ValueError("Chat card translator not available - fail-fast architecture")
         
-        # Extract title
-        title_elem = soup.select_one('.card-header h3')
-        if title_elem:
-            data['n'] = title_elem.get_text(strip=True)
-        
-        # Extract description
-        desc_elem = soup.select_one('.card-content p')
-        if desc_elem:
-            data['d'] = desc_elem.get_text(strip=True)
-        
-        # Extract speaker properly (title/subtitle structure)
-        speaker, author = self._extract_speaker_info(soup)
-        if speaker:
-            data['s'] = speaker
-        if author:
-            data['a'] = author
-        
-        return data
+        html_content = str(soup)
+        compact_data = translator.html_to_compact(html_content)
+        logger.debug(f"Dynamic chat card processing: {len(compact_data.get('f', {}))} fields")
+        return compact_data
     
     def _extract_speaker_info(self, soup: BeautifulSoup) -> tuple[str, str]:
         """
@@ -604,14 +624,14 @@ class UnifiedMessageProcessor:
         
         # Get AI role specific prompt content
         role_prompts = {
-            'gm': 'You are assigned as a full gamemaster. Your role is to describe the scene, describe NPC actions, and create dice rolls whenever NPCs do anything that requires one. Keep generating descriptions, actions, and dice rolls until every NPC in the scene has gone, and then turn action back over to the players.',
+            'gm': 'You are assigned as a full gamemaster. Your role is to describe scene, describe NPC actions, and create dice rolls whenever NPCs do anything that requires one. Keep generating descriptions, actions, and dice rolls until every NPC in the scene has gone, and then turn action back over to the players.',
             'gm assistant': 'You are assigned as a GM\'s assistant. Your role is to aid the GM in whatever task they are currently doing, which they will usually prompt for you in the most recent message.',
-            'player': 'You are assigned as a Player. Your role is to participate in the story via in-character chat and actions. Describe what your character is doing and roll dice as appropriate for your actions.'
+            'player': 'You are assigned as a Player. Your role is to participate in story via in-character chat and actions. Describe what your character is doing and roll dice as appropriate for your actions.'
         }
         
         role_specific_prompt = role_prompts.get(ai_role.lower(), role_prompts['gm'])
         
-        # Build enhanced system prompt - REMOVED REDUNDANT HARDCODED INFO
+        # Build enhanced system prompt with dynamic field discovery
         system_prompt = f"""You are an AI assistant for tabletop RPG games, with role {ai_role}. {role_specific_prompt}
 
 Data from chat and environment is formatted as follows:
@@ -625,7 +645,62 @@ Field Abbreviations:
 Message Schemas:
 {'; '.join(context_schemas) if context_schemas else 'No specific schemas detected'}"""
         
+        # Add dynamic field definitions if cache is active
+        if is_cache_active():
+            try:
+                cache = get_current_cache()
+                if cache:
+                    dynamic_fields = cache.get_schema_definitions()
+                    if dynamic_fields:
+                        system_prompt += f"\n\nDYNAMIC FIELD DEFINITIONS:\n{dynamic_fields}"
+                        logger.info(f"Added {len(dynamic_fields.split())} dynamic field definitions to system prompt")
+            except Exception as e:
+                logger.warning(f"Failed to add dynamic field definitions: {e}")
+        
         return system_prompt
+    
+    def _convert_compact_to_html(self, websocket_content: Dict[str, Any]) -> str:
+        """
+        Convert compact WebSocket content back to HTML format
+        
+        Args:
+            websocket_content: WebSocket content with fields
+            
+        Returns:
+            HTML string representation
+        """
+        try:
+            if not isinstance(websocket_content, dict):
+                return ""
+            
+            fields = websocket_content.get('fields', {})
+            card_type = websocket_content.get('cardType', 'unknown-card')
+            name = websocket_content.get('name', '')
+            
+            # Build basic HTML structure
+            html_parts = []
+            
+            # Add card type and name
+            if card_type:
+                html_parts.append(f'<div class="{card_type}">')
+            
+            if name:
+                html_parts.append(f'<h3>{name}</h3>')
+            
+            # Add fields
+            for field_name, field_value in fields.items():
+                if field_value:  # Skip empty fields
+                    html_parts.append(f'<div class="field-{field_name}">{field_value}</div>')
+            
+            # Close card type div
+            if card_type:
+                html_parts.append('</div>')
+            
+            return '\n'.join(html_parts)
+            
+        except Exception as e:
+            logger.error(f"Failed to convert compact to HTML: {e}")
+            return ""
 
 # Global instance - single source of truth
 unified_processor = UnifiedMessageProcessor()

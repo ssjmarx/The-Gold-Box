@@ -385,7 +385,7 @@ class GoldBoxWebSocketClient {
         type: 'chat_request',
         data: {
           messages: messages,
-          context_count: options.contextCount || 5,  // Changed from 15 to 5
+          context_count: options.contextCount || 15,  // Use proper default of 15
           scene_id: options.sceneId || null,
           ...options
         }

@@ -138,6 +138,44 @@ class SimpleAttributeMapper:
                 mapped_data[key] = value
         
         return mapped_data
+    
+    def create_attribute_mapping(self, attributes: List[str], max_length: int = 4, context: Dict[str, any] = None) -> str:
+        """
+        Create a single attribute mapping for a list of attributes
+        
+        Args:
+            attributes: List of attribute names to map
+            max_length: Maximum length for generated code
+            context: Optional context for mapping (ignored in this implementation)
+            
+        Returns:
+            Generated code for first attribute in list
+        """
+        if not attributes:
+            return ""
+        
+        # Generate code for first attribute (simplest approach)
+        primary_attr = attributes[0]
+        
+        # Use the code generator to create a code
+        self.code_generator.reset_codes()
+        return self.code_generator.generate_code(primary_attr)
+
+
+# Global instance management
+_mapper_instance = None
+
+def get_attribute_mapper():
+    """
+    Get or create the global attribute mapper instance
+    
+    Returns:
+        SimpleAttributeMapper instance
+    """
+    global _mapper_instance
+    if _mapper_instance is None:
+        _mapper_instance = SimpleAttributeMapper()
+    return _mapper_instance
 
 
 # Example usage and testing

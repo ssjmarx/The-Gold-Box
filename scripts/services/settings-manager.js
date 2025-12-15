@@ -34,7 +34,6 @@ class SettingsManager {
     this.registerBackendStatus();
     this.registerBackendPassword();
     this.registerMaxMessageContext();
-    this.registerContextCount();
     this.registerAIResponseTimeout();
     this.registerAIRole();
     this.registerGeneralLLMSettings();
@@ -92,19 +91,6 @@ class SettingsManager {
     });
   }
 
-  /**
-   * Register context count setting (alias for maxMessageContext)
-   */
-  registerContextCount() {
-    game.settings.register(this.moduleName, 'contextCount', {
-      name: "Context Count",
-      hint: "Number of recent chat messages to send to AI for context (default: 15)",
-      scope: "world",
-      config: true,
-      type: Number,
-      default: 15
-    });
-  }
 
   /**
    * Register AI Response Timeout setting
