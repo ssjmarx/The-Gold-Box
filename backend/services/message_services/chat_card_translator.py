@@ -7,7 +7,9 @@ License: CC-BY-NC-SA 4.0 (compatible with dependencies)
 
 import logging
 import json
+import re
 from typing import Dict, List, Any, Optional, Union, Tuple
+from collections import defaultdict
 from bs4 import BeautifulSoup, Tag
 
 from services.message_services.chat_card_translation_cache import ChatCardTranslationCache, get_current_cache
@@ -40,6 +42,332 @@ class ChatCardTranslator:
         }
         
         self.logger.info("ChatCardTranslator initialized")
+    
+    def detect_and_consolidate_patterns(self, compact_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Detect numbered patterns in field codes and consolidate them into arrays
+        
+        Args:
+            compact_data: Compact data with fields to process
+            
+        Returns:
+            Updated compact data with consolidated patterns
+        """
+        if 'f' not in compact_data:
+            return compact_data
+        
+        fields = compact_data['f']
+        if not isinstance(fields, dict):
+            return compact_data
+        
+        # Pattern to detect numbered field codes: base_name + number
+        numbered_pattern = re.compile(r'^([a-zA-Z_]+)(\d+)$')
+        
+        # Group fields by base name
+        pattern_groups = defaultdict(list)
+        non_pattern_fields = {}
+        
+        for code, value in fields.items():
+            match = numbered_pattern.match(code)
+            if match:
+                base_name = match.group(1)
+                number = int(match.group(2))
+                pattern_groups[base_name].append((number, code, value))
+            else:
+                # Keep non-pattern fields as-is
+                non_pattern_fields[code] = value
+        
+        # Process each pattern group
+        consolidated_fields = dict(non_pattern_fields)
+        
+        for base_name, items in pattern_groups.items():
+            # Sort by number to ensure correct order
+            items.sort(key=lambda x: x[0])
+            
+            # Consolidate ALL numbered fields into one array (no sequential requirement)
+            if len(items) > 1:
+                # Create array field
+                array_values = [item[2] for item in items]
+                consolidated_fields[f"{base_name}_array"] = array_values
+                
+                self.logger.debug(f"Consolidated {len(items)} {base_name} fields into array")
+            else:
+                # Keep original field if only one item
+                for _, original_code, value in items:
+                    consolidated_fields[original_code] = value
+        
+        # Return updated compact data
+        result = compact_data.copy()
+        result['f'] = consolidated_fields
+        return result
+    
+    def detect_and_abbreviate_duplicates(self, message_data: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """
+        Detect duplicate values across cards and replace with abbreviations
+        
+        Args:
+            message_data: List of compact card data
+            
+        Returns:
+            Tuple of (updated_cards, value_dictionary)
+        """
+        if not message_data:
+            return message_data, {}
+        
+        # Count occurrences of each value across all cards
+        value_counts = defaultdict(int)
+        value_locations = []  # Track where each value appears
+        
+        for card_idx, card in enumerate(message_data):
+            if 'f' not in card or not isinstance(card['f'], dict):
+                continue
+                
+            for code, value in card['f'].items():
+                # Convert value to hashable form for counting
+                value_key = self._make_value_hashable(value)
+                value_counts[value_key] += 1
+                value_locations.append((card_idx, code, value_key, value))
+        
+        # Find values that appear more than once
+        duplicate_values = {k: v for k, v in value_counts.items() if v > 1}
+        
+        if not duplicate_values:
+            return message_data, {}
+        
+        # Assign abbreviations to duplicate values
+        value_dict = {}
+        abbreviation_counter = 1
+        
+        for value_key, count in duplicate_values.items():
+            if count > 1:
+                abbreviation = f"@v{abbreviation_counter}"
+                # Find the actual value for this key
+                for _, _, _, actual_value in value_locations:
+                    if self._make_value_hashable(actual_value) == value_key:
+                        value_dict[abbreviation] = actual_value
+                        break
+                abbreviation_counter += 1
+        
+        # Create reverse lookup: value_key -> abbreviation
+        value_to_abbreviation = {}
+        for abbreviation, actual_value in value_dict.items():
+            value_key = self._make_value_hashable(actual_value)
+            value_to_abbreviation[value_key] = abbreviation
+        
+        # Update cards with abbreviations
+        updated_cards = []
+        for card in message_data:
+            updated_card = card.copy()
+            
+            if 'f' in updated_card and isinstance(updated_card['f'], dict):
+                updated_fields = {}
+                
+                for code, value in updated_card['f'].items():
+                    value_key = self._make_value_hashable(value)
+                    
+                    if value_key in value_to_abbreviation:
+                        # Replace with abbreviation
+                        updated_fields[code] = value_to_abbreviation[value_key]
+                    else:
+                        # Keep original value
+                        updated_fields[code] = value
+                
+                updated_card['f'] = updated_fields
+            
+            updated_cards.append(updated_card)
+        
+        duplicates_found = len(value_dict)
+        self.logger.debug(f"Created {duplicates_found} value abbreviations across {len(message_data)} cards")
+        
+        return updated_cards, value_dict
+    
+    def detect_and_remove_redundancy(self, message_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Detect and remove redundant fields within each card (90% containment threshold)
+        
+        Args:
+            message_data: List of compact card data
+            
+        Returns:
+            Updated cards with redundant fields removed
+        """
+        if not message_data:
+            return message_data
+        
+        processed_cards = []
+        
+        for card in message_data:
+            if 'f' not in card or not isinstance(card['f'], dict):
+                processed_cards.append(card)
+                continue
+            
+            fields = card['f']
+            redundant_codes = set()
+            
+            # Compare each field against every other field within same card
+            for code1, value1 in fields.items():
+                # Skip non-text fields, numbers, booleans
+                if not self._is_redundancy_candidate(value1):
+                    continue
+                    
+                for code2, value2 in fields.items():
+                    if code1 == code2:
+                        continue
+                    
+                    # Skip non-text fields for comparison
+                    if not self._is_redundancy_candidate(value2):
+                        continue
+                    
+                    # Check if value1 is 90%+ contained in value2
+                    if self._is_contained(value1, value2, 0.9):
+                        # Special case: if both fields are 100% identical, prefer the longer field name
+                        if (len(str(value1)) == len(str(value2)) and 
+                            len(str(code1)) != len(str(code2))):
+                            # Prefer longer field name, mark shorter for removal
+                            if len(str(code1)) < len(str(code2)):
+                                redundant_codes.add(code1)
+                                self.logger.debug(f"Field '{code1}' identical to '{code2}', preferring longer name '{code2}'")
+                            else:
+                                redundant_codes.add(code2)
+                                self.logger.debug(f"Field '{code2}' identical to '{code1}', preferring longer name '{code1}'")
+                            break
+                        else:
+                            redundant_codes.add(code1)
+                            self.logger.debug(f"Field '{code1}' is 90%+ contained in '{code2}', marked for removal")
+                            break
+            
+            # Remove redundant fields, keeping preferred one
+            cleaned_fields = {}
+            for code, value in fields.items():
+                if code not in redundant_codes:
+                    cleaned_fields[code] = value
+                else:
+                    self.logger.debug(f"Removed redundant field '{code}' from card")
+            
+            # Create cleaned card
+            cleaned_card = card.copy()
+            cleaned_card['f'] = cleaned_fields
+            processed_cards.append(cleaned_card)
+        
+        return processed_cards
+    
+    def _is_redundancy_candidate(self, value: Any) -> bool:
+        """
+        Check if a value is a candidate for redundancy detection
+        
+        Args:
+            value: Value to check
+            
+        Returns:
+            True if value should be checked for redundancy
+        """
+        # Only check text fields for redundancy
+        if isinstance(value, str):
+            # Must be substantial enough to compare
+            return len(value.strip()) > 20
+        elif isinstance(value, (list, dict)):
+            # Check arrays and objects if they contain substantial text
+            text_content = str(value)
+            return len(text_content.strip()) > 20
+        
+        # Skip numbers, booleans, null, short text
+        return False
+    
+    def _is_contained(self, smaller_value: Any, larger_value: Any, threshold: float = 0.9) -> bool:
+        """
+        Check if smaller_value is contained in larger_value with given threshold
+        
+        Args:
+            smaller_value: Value that might be contained
+            larger_value: Value that might contain the other
+            threshold: Containment threshold (0.9 = 90%)
+            
+        Returns:
+            True if smaller_value is threshold% contained in larger_value
+        """
+        if not isinstance(smaller_value, str) or not isinstance(larger_value, str):
+            return False
+        
+        smaller_clean = smaller_value.strip().lower()
+        larger_clean = larger_value.strip().lower()
+        
+        # If smaller is empty or very short, not considered contained
+        if len(smaller_clean) < 10:
+            return False
+        
+        # Check if smaller string is contained in larger string
+        if smaller_clean in larger_clean:
+            # Calculate containment ratio
+            containment_ratio = len(smaller_clean) / len(larger_clean)
+            return containment_ratio >= threshold
+        
+        return False
+    
+    def apply_post_processing(self, message_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Apply all post-processing optimizations to a list of cards
+        
+        Args:
+            message_data: List of compact card data
+            
+        Returns:
+            Processed message with optimizations applied
+        """
+        if not message_data:
+            return {'cards': [], 'value_dict': {}}
+        
+        # Step 1: Apply pattern consolidation to each card
+        processed_cards = []
+        for card in message_data:
+            consolidated_card = self.detect_and_consolidate_patterns(card)
+            processed_cards.append(consolidated_card)
+        
+        # Step 2: Apply duplicate value abbreviation
+        deduped_cards, value_dict = self.detect_and_abbreviate_duplicates(processed_cards)
+        
+        # Step 3: Apply redundancy detection (NEW)
+        final_cards = self.detect_and_remove_redundancy(deduped_cards)
+        
+        result = {
+            'cards': final_cards
+        }
+        
+        # Add value dictionary only if we have abbreviations
+        if value_dict:
+            result['value_dict'] = value_dict
+        
+        # Calculate and log optimization stats
+        original_field_count = sum(len(card.get('f', {})) for card in message_data)
+        optimized_field_count = sum(len(card.get('f', {})) for card in final_cards)
+        
+        abbreviations_count = len(value_dict)
+        fields_saved = original_field_count - optimized_field_count
+        
+        if fields_saved > 0 or abbreviations_count > 0:
+            self.logger.info(f"Post-processing: saved {fields_saved} fields, created {abbreviations_count} abbreviations")
+        
+        return result
+    
+    def _make_value_hashable(self, value: Any) -> Any:
+        """
+        Convert a value to a hashable form for counting duplicates
+        
+        Args:
+            value: Any value (string, number, dict, list, etc.)
+            
+        Returns:
+            Hashable representation of value
+        """
+        if isinstance(value, dict):
+            # Sort keys for consistent hashing
+            return tuple(sorted((k, self._make_value_hashable(v)) for k, v in value.items()))
+        elif isinstance(value, list):
+            return tuple(self._make_value_hashable(item) for item in value)
+        elif isinstance(value, (str, int, float, bool, type(None))):
+            return value
+        else:
+            # Convert other objects to string
+            return str(value)
     
     def html_to_compact(self, html_content: str, card_type: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -100,13 +428,14 @@ class ChatCardTranslator:
             self.logger.error(f"Failed to convert HTML to compact format: {e}")
             raise ValueError(f"HTML to compact conversion failed: {e}")
     
-    def compact_to_websocket(self, compact_data: Dict[str, Any], card_type: Optional[str] = None) -> Dict[str, Any]:
+    def compact_to_websocket(self, compact_data: Dict[str, Any], card_type: Optional[str] = None, value_dict: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Convert compact JSON back to WebSocket message format
         
         Args:
             compact_data: Compact representation from AI
             card_type: Expected card type (extracted from compact_data if None)
+            value_dict: Optional value dictionary for abbreviations
             
         Returns:
             WebSocket format message for Foundry
@@ -119,12 +448,24 @@ class ChatCardTranslator:
             target_card_type = card_type or compact_data.get('ct', 'unknown-card')
             fields = compact_data.get('f', {})
             
+            # Resolve abbreviations if value_dict provided
+            if value_dict and isinstance(fields, dict):
+                resolved_fields = {}
+                for code, value in fields.items():
+                    if isinstance(value, str) and value.startswith('@v'):
+                        # Resolve abbreviation
+                        resolved_value = value_dict.get(value, value)
+                        resolved_fields[code] = resolved_value
+                    else:
+                        resolved_fields[code] = value
+                fields = resolved_fields
+            
             # Get cached mappings for this card type
             card_mapping = self.cache.get_cached_mapping(target_card_type)
             
             if not card_mapping:
                 self.logger.warning(f"No cached mapping for card type '{target_card_type}', using fallback")
-                return self._fallback_to_websocket(compact_data)
+                return self._fallback_to_websocket(compact_data, value_dict)
             
             # Build WebSocket format message
             websocket_data = {
@@ -285,12 +626,13 @@ class ChatCardTranslator:
         
         return len(errors) == 0, errors
     
-    def _fallback_to_websocket(self, compact_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _fallback_to_websocket(self, compact_data: Dict[str, Any], value_dict: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Fallback conversion when no cached mapping is available
         
         Args:
             compact_data: Compact data to convert
+            value_dict: Optional value dictionary for abbreviations
             
         Returns:
             WebSocket format with minimal conversion
@@ -304,6 +646,22 @@ class ChatCardTranslator:
                 'fields': compact_data.get('f', {})
             }
         }
+        
+        # Add cardType to content as well for consistency
+        if 'ct' in compact_data:
+            websocket_data['content']['cardType'] = compact_data['ct']
+        
+        # Resolve abbreviations if value_dict provided
+        if value_dict and isinstance(websocket_data['content']['fields'], dict):
+            resolved_fields = {}
+            for code, value in websocket_data['content']['fields'].items():
+                if isinstance(value, str) and value.startswith('@v'):
+                    # Resolve abbreviation
+                    resolved_value = value_dict.get(value, value)
+                    resolved_fields[code] = resolved_value
+                else:
+                    resolved_fields[code] = value
+            websocket_data['content']['fields'] = resolved_fields
         
         # Add name if present
         if 'n' in compact_data:

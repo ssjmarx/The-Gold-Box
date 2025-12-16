@@ -155,7 +155,10 @@ class UnifiedMessageProcessor:
                 if not translator:
                     raise ValueError("Chat card translator not available - fail-fast architecture")
                 
-                websocket_data = translator.compact_to_websocket(compact_msg)
+                # Extract value_dict if present from post-processing
+                value_dict = compact_msg.pop('_value_dict', None)
+                
+                websocket_data = translator.compact_to_websocket(compact_msg, value_dict=value_dict)
                 if not websocket_data or not websocket_data.get("content"):
                     raise ValueError("Dynamic chat card conversion failed - fail-fast architecture")
                     
@@ -336,6 +339,23 @@ class UnifiedMessageProcessor:
         
         html_content = str(soup)
         compact_data = translator.html_to_compact(html_content)
+        
+        # Apply post-processing enhancements
+        processed_data = translator.apply_post_processing([compact_data])
+        if processed_data.get('cards'):
+            value_dict_count = len(processed_data.get('value_dict', {}))
+            logger.info(f"Applied post-processing: {len(processed_data['cards'])} cards processed, {value_dict_count} value abbreviations")
+            # Use processed cards with arrays and abbreviations
+            if len(processed_data['cards']) > 0:
+                compact_data = processed_data['cards'][0]
+                # Store value_dict in compact_data for later use in reverse translation
+                if value_dict_count > 0:
+                    compact_data['_value_dict'] = processed_data['value_dict']
+            else:
+                compact_data = {}
+        else:
+            logger.info('No cards to post-process, using original compact data')
+        
         logger.debug(f"Dynamic chat card processing: {len(compact_data.get('f', {}))} fields")
         return compact_data
     
@@ -604,10 +624,17 @@ class UnifiedMessageProcessor:
         # ALWAYS include basic field definitions for all messages (including new author field)
         context_abbreviations.extend(['t: type', 's: speaker', 'a: author', 'c: content', 'ts: timestamp', 'f: formula', 'r: results', 'tt: total', 'ft: flavor_text', 'n: name', 'd: description', 'at: actions'])
         
+        # Add post-processing field information
+        context_abbreviations.extend(['_array: consolidated numbered fields', '@v#: value abbreviation'])
+        
         # Analyze compact messages to determine available context
         has_rolls = any(msg.get('t') == 'dr' for msg in compact_messages)
         has_chat = any(msg.get('t') == 'cm' for msg in compact_messages)
         has_cards = any(msg.get('t') in ['cc', 'cd'] for msg in compact_messages)  # Check for both 'cc' and 'cd'
+        
+        # Check for post-processed content
+        has_arrays = any('_array' in str(msg) for msg in compact_messages)
+        has_abbreviations = any('@v' in str(msg) for msg in compact_messages)
         
         # Add context codes based on available data
         if has_chat:
@@ -620,7 +647,13 @@ class UnifiedMessageProcessor:
         
         if has_cards:
             context_codes.append('cc: chat_card')
-            context_schemas.append('cc: {"t": "cc", "tt": "title", "ct": "card_type", "l": "level", "s": "school", "n": "name", "d": "description", "at": "actions"}')
+            if has_arrays:
+                context_schemas.append('cc: {"t": "cc", "tt": "title", "ct": "card_type", "l": "level", "s": "school", "n": "name", "d": "description", "at": "actions", "field_array": ["value1", "value2", ...]}')
+            else:
+                context_schemas.append('cc: {"t": "cc", "tt": "title", "ct": "card_type", "l": "level", "s": "school", "n": "name", "d": "description", "at": "actions"}')
+        
+        if has_abbreviations:
+            context_abbreviations.append('value_dict: {"@v1": "full_value1", "@v2": "full_value2", ...} - resolves abbreviations in cards')
         
         # Get AI role specific prompt content
         role_prompts = {
