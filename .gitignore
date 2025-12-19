@@ -8,9 +8,9 @@ venv/
 plans/
 
 # Runtime data files
-backend/server_files/rate_limits.json
-backend/server_files/sessions.json
 backend/server_files/goldbox.log
+backend/shared/server_files/rate_limits.json
+backend/shared/server_files/sessions.json
 
 # Workspace files
 scripts/Gold Box.code-workspace
