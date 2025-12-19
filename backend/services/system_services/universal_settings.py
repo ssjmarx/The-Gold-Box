@@ -157,6 +157,26 @@ class UniversalSettings:
             'required': False, 
             'default': '',
             'description': 'Password for backend admin functions'
+        },
+        'combat ai thinking': {
+            'type': bool, 
+            'required': False, 
+            'default': True,
+            'description': 'Enable AI thinking during combat encounters'
+        },
+        'thinking whisper duration': {
+            'type': int, 
+            'required': False, 
+            'default': 5,
+            'min': 1,
+            'max': 30,
+            'description': 'Duration in seconds for thinking whisper animations'
+        },
+        'auto tactical mode': {
+            'type': bool, 
+            'required': False, 
+            'default': True,
+            'description': 'Automatically use tactical LLM during combat'
         }
     }
     

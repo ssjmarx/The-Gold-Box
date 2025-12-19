@@ -13,6 +13,7 @@ import litellm
 from typing import Dict, Any, Optional, List
 from ..system_services.service_factory import get_provider_manager
 from ..system_services.universal_settings import get_provider_config
+from ..message_services.whisper_service import get_whisper_service
 from shared.exceptions import APIKeyException, ProviderException, TimeoutException, ValidationException
 
 logger = logging.getLogger(__name__)
@@ -136,18 +137,24 @@ class AIService:
                         elif hasattr(response, 'content'):
                             content = response.content or ""
                 
+                # Extract thinking content
+                whisper_service = get_whisper_service()
+                thinking = whisper_service.extract_ai_thinking({}, response)
+                
                 # Extract metadata
                 metadata = {
                     'provider': provider_id,
                     'provider_name': provider.get('name', provider_id),
                     'model': model,
                     'finish_reason': getattr(choice, 'finish_reason', 'unknown'),
-                    'usage': getattr(response, 'usage', None)
+                    'usage': getattr(response, 'usage', None),
+                    'has_thinking': bool(thinking)
                 }
                 
                 return {
                     'success': True,
                     'response': content,
+                    'thinking': thinking,
                     'metadata': metadata,
                     'tokens_used': getattr(response.usage, 'total_tokens', 0) if response.usage else 0,
                     'response_object': response
@@ -280,8 +287,11 @@ class AIService:
             ValidationException: When compact context is invalid
         """
         try:
+            # Check if in combat to determine tactical vs general LLM
+            use_tactical = self._should_use_tactical_llm(processed_messages)
+            
             # Use universal settings to get provider config
-            provider_config = get_provider_config(settings, use_tactical=False)
+            provider_config = get_provider_config(settings, use_tactical=use_tactical)
             
             # Extract values from pre-validated provider config
             provider_id = provider_config['provider']
@@ -345,6 +355,42 @@ class AIService:
         except Exception as e:
             # Wrap unexpected exceptions
             raise ProviderException(f"Error processing compact context: {str(e)}")
+    
+    def _should_use_tactical_llm(self, processed_messages: List[Dict]) -> bool:
+        """
+        Determine if tactical LLM should be used based on combat context
+        
+        Args:
+            processed_messages: List of processed messages from context processor
+            
+        Returns:
+            True if tactical LLM should be used, False otherwise
+        """
+        try:
+            # Check if combat context exists and indicates active combat
+            for msg in processed_messages:
+                if msg.get('type') == 'combat_context':
+                    combat_data = msg.get('combat_context', {})
+                    
+                    # Check both direct combat_data and nested structure
+                    if isinstance(combat_data, dict):
+                        # Direct combat data from frontend
+                        if combat_data.get('in_combat', False):
+                            logger.debug("Tactical LLM selected: in_combat=True from direct combat data")
+                            return True
+                        
+                        # Check nested combat_context structure
+                        nested_combat = combat_data.get('combat_context', {})
+                        if nested_combat.get('in_combat', False):
+                            logger.debug("Tactical LLM selected: in_combat=True from nested combat context")
+                            return True
+            
+            logger.debug("General LLM selected: no active combat detected")
+            return False
+            
+        except Exception as e:
+            logger.warning(f"Error determining tactical LLM usage: {e}")
+            return False
 
 def get_ai_service() -> 'AIService':
     """Get AI service instance from ServiceRegistry"""

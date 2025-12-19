@@ -5,7 +5,7 @@ __pycache__/
 *.log
 *.enc
 venv/
-/plans/
+plans/
 
 # Runtime data files
 backend/server_files/rate_limits.json

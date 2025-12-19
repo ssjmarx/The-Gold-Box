@@ -27,7 +27,7 @@ class MessageCollector {
    * Replaces DOM scraping with real-time collection
    */
   sendChatMessage(messageData) {
-    if (this.active && this.webSocketClient && this.webSocketClient.isConnected) {
+    if (this.isEnabled && this.webSocketClient && this.webSocketClient.isConnected) {
       // Add metadata to message
       const enrichedMessage = {
         ...messageData,
@@ -53,7 +53,7 @@ class MessageCollector {
    * Replaces DOM scraping with real-time collection
    */
   sendDiceRoll(rollData) {
-    if (this.active && this.webSocketClient && this.webSocketClient.isConnected) {
+    if (this.isEnabled && this.webSocketClient && this.webSocketClient.isConnected) {
       // Add metadata to roll
       const enrichedRoll = {
         ...rollData,
@@ -75,11 +75,33 @@ class MessageCollector {
   }
 
   /**
+   * Send combat context to backend via WebSocket
+   * Replaces DOM scraping with real-time collection
+   */
+  sendCombatContext(combatData) {
+    // Debug WebSocket client state
+    console.log('MessageCollector: sendCombatContext called, webSocketClient:', !!this.webSocketClient, 'isConnected:', this.webSocketClient?.isConnected);
+    
+    if (this.isEnabled && this.webSocketClient && this.webSocketClient.isConnected) {
+      // Send combat context via WebSocket
+      this.webSocketClient.sendMessage({
+        type: 'combat_context',
+        data: combatData
+      });
+      
+      console.log('MessageCollector: Sent combat context via WebSocket: in_combat=', combatData.in_combat, ', combatants=', combatData.combatants?.length || 0);
+    } else {
+      console.warn('MessageCollector: WebSocket not connected - cannot send combat context');
+      console.warn('MessageCollector: Debug info - isEnabled:', this.isEnabled, 'webSocketClient:', !!this.webSocketClient, 'isConnected:', this.webSocketClient?.isConnected);
+    }
+  }
+
+  /**
    * Collect chat messages (now WebSocket-ready)
    * DEPRECATED: Use WebSocket collection instead of DOM scraping
    */
   collectChatMessages() {
-    if (this.active && this.uiManager && this.webSocketClient) {
+    if (this.isEnabled && this.uiManager && this.webSocketClient) {
       const messages = this.uiManager.collectChatMessages();
       console.log('MessageCollector: Collected messages for WebSocket collection:', messages.length);
       
@@ -133,12 +155,6 @@ class MessageCollector {
       this.onDiceRoll(message, options, userId);
     }));
 
-    // Combat hook for combat events
-    if (Hooks.on) {
-      this.hooks.push(Hooks.on('updateCombat', (combat, changes) => {
-        this.onCombatUpdate(combat, changes);
-      }));
-    }
 
     console.log(`MessageCollector: Registered ${this.hooks.length} hooks`);
   }
@@ -226,34 +242,6 @@ class MessageCollector {
     }
   }
 
-  /**
-   * Handle combat updates
-   */
-  onCombatUpdate(combat, changes) {
-    if (!this.isEnabled || !combat) return;
-
-    try {
-      // Create a combat event message
-      const combatMessage = {
-        id: `combat_${Date.now()}`,
-        type: 'combat',
-        content: `Combat update: ${JSON.stringify(changes)}`,
-        timestamp: Date.now(),
-        combat: {
-          id: combat.id,
-          active: combat.active,
-          round: combat.round,
-          turn: combat.turn,
-          changes: changes
-        }
-      };
-
-      this.addMessage(combatMessage);
-      console.log('MessageCollector: Collected combat event');
-    } catch (error) {
-      console.error('MessageCollector: Error handling combat update:', error);
-    }
-  }
 
   /**
    * Format message for backend processing

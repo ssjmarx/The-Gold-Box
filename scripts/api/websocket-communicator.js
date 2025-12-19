@@ -282,6 +282,13 @@ class WebSocketCommunicator {
       // Sync settings to backend first (frontend is source of truth)
       await this.syncSettingsToBackend();
       
+      // Add combat state to request if available
+      const combatState = this.getCombatStateForRequest();
+      if (combatState) {
+        options.combat_state = combatState;
+        console.log('WebSocketCommunicator: Added combat state to request:', combatState);
+      }
+      
       const response = await this.webSocketClient.sendChatRequest(messages, options);
       
       return {
@@ -439,6 +446,49 @@ class WebSocketCommunicator {
     
     if (oldState !== newState) {
       console.log(`WebSocketCommunicator: State changed from ${oldState} to ${newState}`);
+    }
+  }
+
+  /**
+   * Get combat state for request (integrates with CombatMonitor)
+   * @returns {Object|null} - Combat state or null
+   */
+  getCombatStateForRequest() {
+    try {
+      // Check if CombatMonitor is available
+      if (window.CombatMonitor) {
+        const combatMonitor = window.CombatMonitor;
+        if (typeof combatMonitor.getCurrentCombatState === 'function') {
+          return combatMonitor.getCombatStateForBackend();
+        }
+      }
+      
+      // Fallback: try to get basic combat info directly
+      if (window.game && window.game.combat) {
+        const combat = window.game.combat;
+        if (combat && combat.started) {
+          const combatants = combat.combatants.map(c => ({
+            name: c.name,
+            initiative: c.initiative || 0,
+            is_player: c.hasPlayerOwner,
+            is_current_turn: combat.current === c._id
+          }));
+          
+          return {
+            in_combat: true,
+            combat_id: combat._id,
+            round: combat.round || 0,
+            turn: combat.turn || 0,
+            combatants: combatants
+          };
+        }
+      }
+      
+      return null;
+      
+    } catch (error) {
+      console.warn('WebSocketCommunicator: Error getting combat state:', error);
+      return null;
     }
   }
 

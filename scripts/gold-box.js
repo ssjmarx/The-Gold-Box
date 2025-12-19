@@ -161,7 +161,7 @@ class GoldBoxModule {
     // Check if WebSocket client is available
     if (typeof GoldBoxWebSocketClient !== 'undefined') {
       try {
-        // Use the communicator's baseUrl which is properly initialized
+        // Use communicator's baseUrl which is properly initialized
         const baseUrl = this.api.communicator.baseUrl || this.api.baseUrl;
         const wsUrl = baseUrl.replace('http://', 'ws://').replace('https://', 'wss://');
         console.log('The Gold Box: Using WebSocket URL:', wsUrl);
@@ -181,7 +181,10 @@ class GoldBoxModule {
           if (this.webSocketClient) {
             this.messageCollector.webSocketClient = this.webSocketClient;
           }
-          console.log('The Gold Box: Message collector initialized');
+        
+          // Enable message collector for WebSocket communication
+          this.messageCollector.isEnabled = true;
+          console.log('The Gold Box: Message collector initialized and enabled');
         }
 
         // Connect to WebSocket server
@@ -417,7 +420,6 @@ class GoldBoxModule {
     });
   }
 
-
   /**
    * Handle "Take AI Turn" button click
    */
@@ -437,6 +439,26 @@ class GoldBoxModule {
       // WebSocket-only: collect messages from Foundry chat and send via WebSocket
       const messages = this.collectFoundryChatMessages();
       console.log('The Gold Box: Collected messages from Foundry chat:', messages.length);
+      
+      // ADD COMBAT CONTEXT: Check if CombatMonitor is available and get FRESH combat state
+      let combatContext = null;
+      if (window.CombatMonitor) {
+        // Force refresh combat state to get current turn information
+        window.CombatMonitor.refreshCombatState();
+        combatContext = window.CombatMonitor.getCombatStateForBackend();
+        console.log('The Gold Box: Combat context retrieved:', combatContext);
+        
+        // Add combat context as a special message type if combat is active
+        if (combatContext && combatContext.in_combat) {
+          messages.push({
+            type: 'combat_context',
+            combat_context: combatContext
+          });
+          console.log('The Gold Box: Added combat context to messages (in_combat:', combatContext.in_combat, ', combatants:', combatContext.combatants?.length || 0, ')');
+        }
+      } else {
+        console.warn('The Gold Box: CombatMonitor not available - no combat context will be sent');
+      }
       
       // Send to backend for processing (pass button element for proper state management)
       await this.api.sendMessageContext(messages, this, button);
@@ -772,7 +794,7 @@ class GoldBoxModule {
   }
 }
 
-// Create and register the module
+// Create and register module
 const goldBox = new GoldBoxModule();
 
 // Make module instance globally available for API class
@@ -792,6 +814,29 @@ Hooks.once('init', () => {
   } else {
     console.error('The Gold Box: game or game.settings not available during init');
   }
+});
+
+// Initialize combat monitoring and whisper display when ready - with delay for module loading
+Hooks.once('ready', () => {
+  console.log('The Gold Box: Initializing combat monitoring and whisper display...');  
+  
+  // Add small delay to allow all modules to load
+  setTimeout(() => {
+    // Combat Monitor will auto-initialize from combat-monitor.js
+    // Whisper Display Manager will auto-initialize from whisper-display.js
+  
+    // Set up integration between components
+    if (window.CombatMonitor && window.WhisperDisplayManager) {
+      console.log('The Gold Box: Combat Monitor and Whisper Display Manager initialized');
+      
+      // Set up real-time combat thinking updates
+      Hooks.on('combatTurn', (combat, turn, combatant) => {
+        console.log('The Gold Box: Combat turn detected, thinking updates may follow');
+      });
+    } else {
+      console.warn('The Gold Box: Combat Monitor or Whisper Display Manager not available');
+    }
+  }, 500); // 500ms delay to allow modules to load
 });
 
 // Clean up when module is disabled

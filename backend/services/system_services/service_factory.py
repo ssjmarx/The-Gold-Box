@@ -400,3 +400,55 @@ def get_json_optimizer() -> Any:
         )
     
     return ServiceRegistry.get('json_optimizer')
+
+def get_combat_encounter_service() -> Any:
+    """
+    Get combat encounter service from ServiceRegistry.
+    
+    Returns:
+        CombatEncounterService instance from ServiceRegistry
+        
+    Raises:
+        RuntimeError: If ServiceRegistry is not ready or combat_encounter_service is not registered
+    """
+    from .registry import ServiceRegistry
+    
+    if not ServiceRegistry.is_ready():
+        raise RuntimeError(
+            "ServiceRegistry is not ready. Services must be initialized during server startup. "
+            "Check that run_server_startup() completed successfully."
+        )
+    
+    if not ServiceRegistry.is_registered('combat_encounter_service'):
+        raise RuntimeError(
+            "combat_encounter_service is not registered in ServiceRegistry. "
+            "Check that combat_encounter_service is properly registered during startup."
+        )
+    
+    return ServiceRegistry.get('combat_encounter_service')
+
+def get_whisper_service() -> Any:
+    """
+    Get whisper service from ServiceRegistry.
+    
+    Returns:
+        WhisperService instance from ServiceRegistry
+        
+    Raises:
+        RuntimeError: If ServiceRegistry is not ready or whisper_service is not registered
+    """
+    from .registry import ServiceRegistry
+    
+    if not ServiceRegistry.is_ready():
+        raise RuntimeError(
+            "ServiceRegistry is not ready. Services must be initialized during server startup. "
+            "Check that run_server_startup() completed successfully."
+        )
+    
+    if not ServiceRegistry.is_registered('whisper_service'):
+        raise RuntimeError(
+            "whisper_service is not registered in ServiceRegistry. "
+            "Check that whisper_service is properly registered during startup."
+        )
+    
+    return ServiceRegistry.get('whisper_service')

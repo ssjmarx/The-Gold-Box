@@ -404,6 +404,13 @@ class GoldBoxWebSocketClient {
   }
 
   /**
+   * Send message (alias for compatibility with MessageCollector)
+   */
+  async sendMessage(message) {
+    return this.send(message);
+  }
+
+  /**
    * Disconnect from WebSocket server
    */
   disconnect() {

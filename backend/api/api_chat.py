@@ -27,6 +27,7 @@ class APIChatRequest(BaseModel):
     """Request model for API chat endpoint"""
     context_count: Optional[int] = Field(15, description="Number of recent messages to retrieve", ge=1, le=50)
     settings: Optional[Dict[str, Any]] = Field(None, description="Frontend settings including provider info and client ID")
+    combat_state: Optional[Dict[str, Any]] = Field(None, description="Combat state from frontend")
     # Removed: relayClientId - now included in unified settings (Phase 2 fix)
 
 class APIChatResponse(BaseModel):
@@ -80,17 +81,11 @@ async def api_chat(http_request: Request, request: APIChatRequest):
             context_count = validated_request.get('context_count', request.context_count)
             settings = validated_request.get('settings', request.settings)
             logger.info("Processing API chat request with middleware-validated data")
-            # logger.info(f"DEBUG: Request body from middleware: {validated_request}")
         else:
             # Fallback to original request data (should not happen with proper middleware)
             context_count = request.context_count
             settings = request.settings
             logger.info("Processing API chat request with original request data")
-        
-        # logger.info(f"DEBUG: Request data received: {request}")
-        # logger.info(f"DEBUG: Extracted context_count: {context_count}")
-        # logger.info(f"DEBUG: Extracted settings: {settings}")
-        # logger.info(f"DEBUG: Settings keys: {list(settings.keys()) if settings else 'None'}")
         
         # Use UniversalSettings as single source of truth - no fallbacks
         universal_settings = extract_universal_settings(request, "api_chat")
@@ -122,7 +117,6 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         
         # Extract provider config from universal settings
         provider_config = get_provider_config(universal_settings, use_tactical=False)
-        # logger.info(f"DEBUG: Provider config extracted: {provider_config}")
         
         # Use provider config values for consistency
         provider_id = provider_config['provider']
@@ -146,18 +140,56 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         logger.info(f"Processing API chat request from {client_host}: provider={provider_id}, model={model}")
         logger.info(f"Settings: base_url={base_url}, api_version={api_version}, timeout={timeout}, max_retries={max_retries}")
         
-        # Step 4: Convert compact messages to JSON string for AI
+        # Step 4: Check for combat state from WebSocket message data and add to context
+        # Combat state comes from frontend via WebSocket chat_request messages
+        combat_state = request.combat_state  # From APIChatRequest model
+        
+        if combat_state:
+            # Update CombatEncounterService with latest combat state
+            try:
+                from services.system_services.service_factory import get_combat_encounter_service
+                combat_service = get_combat_encounter_service()
+                update_success = combat_service.update_combat_state(combat_state)
+                if update_success:
+                    logger.info(f"CombatEncounterService updated with combat state: {combat_state}")
+                else:
+                    logger.warning(f"Failed to update CombatEncounterService with combat state: {combat_state}")
+            except Exception as e:
+                logger.error(f"Error updating CombatEncounterService: {e}")
+        
+        # Step 4.5: Get fresh combat context from CombatEncounterService for AI
+        try:
+            from services.system_services.service_factory import get_combat_encounter_service
+            combat_service = get_combat_encounter_service()
+            combat_context = combat_service.get_combat_context()
+            
+            # Add combat context to messages with fresh data from service
+            combat_context_message = {
+                'type': 'combat_context',
+                'combat_context': combat_context
+            }
+            
+            # Remove any existing combat context messages and add fresh one
+            compact_messages = [msg for msg in compact_messages if msg.get('type') != 'combat_context']
+            compact_messages.append(combat_context_message)
+            
+            logger.info(f"Fresh combat context from service: in_combat={combat_context.get('in_combat', False)}")
+            
+        except Exception as e:
+            logger.error(f"Error getting combat context from service: {e}")
+        
+        # Step 5: Convert compact messages to JSON string for AI
         compact_json_context = json.dumps(compact_messages, indent=2)
         
         # DEBUG: Show exactly what we're sending to AI
-        # logger.info("=== CHAT CONTEXT DEBUG ===")
-        # logger.info(f"Raw messages count from API: {len(api_messages)}")
-        # logger.info(f"Compact messages count after processing: {len(compact_messages)}")
-        # logger.info(f"Sample compact messages: {compact_messages[:3] if compact_messages else 'None'}")
-        # logger.info(f"Full JSON context being sent to AI:\n{compact_json_context}")
-        # logger.info("=== END CHAT CONTEXT DEBUG ===")
+        logger.info("=== CHAT CONTEXT DEBUG ===")
+        logger.info(f"Raw messages count from API: {len(api_messages)}")
+        logger.info(f"Compact messages count after processing: {len(compact_messages)}")
+        logger.info(f"Sample compact messages: {compact_messages[:3] if compact_messages else 'None'}")
+        logger.info(f"Full JSON context being sent to AI:\n{compact_json_context}")
+        logger.info("=== END CHAT CONTEXT DEBUG ===")
         
-        # Step 5: Prepare enhanced AI messages with role-based prompts (from legacy context chat)
+        # Step 6: Prepare enhanced AI messages with role-based prompts (from legacy context chat)
         ai_role = universal_settings.get('ai role', 'gm') if universal_settings else 'gm'
         
         # Generate enhanced system prompt based on AI role using unified processor
@@ -167,13 +199,6 @@ async def api_chat(http_request: Request, request: APIChatRequest):
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"Chat Context (Compact JSON Format):\n{compact_json_context}\n\nPlease respond to this conversation as an AI assistant for tabletop RPGs. If you need to generate game mechanics, use compact JSON format specified in system prompt."}
         ]
-        
-        # DEBUG: Show final AI messages
-        # logger.info("=== AI MESSAGES DEBUG ===")
-        # logger.info(f"System prompt length: {len(system_prompt)} characters")
-        # logger.info(f"User message length: {len(ai_messages[1]['content'])} characters")
-        # logger.info(f"Total AI messages: {len(ai_messages)}")
-        # logger.info("=== END AI MESSAGES DEBUG ===")
         
         # Step 6: Call AI service with universal settings
         logger.info("=== AI SERVICE CALL DEBUG ===")
@@ -197,14 +222,44 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         
         ai_response = ai_response_data.get("response", "")
         tokens_used = ai_response_data.get("tokens_used", 0)
+        thinking = ai_response_data.get("thinking", "")
+        
         logger.info(f"AI service returned response of length: {len(ai_response)} characters")
         logger.info(f"Tokens used: {tokens_used}")
+        if thinking:
+            logger.info(f"AI thinking extracted: {len(thinking)} characters")
         
-        # DEBUG: Show exactly what the AI returned before processing
+        # Step 7: Send thinking whisper if available
+        if thinking:
+            try:
+                from services.system_services.service_factory import get_whisper_service, get_websocket_manager
+                whisper_service = get_whisper_service()
+                ws_manager = get_websocket_manager()
+                
+                # Create thinking whisper
+                whisper = whisper_service.create_thinking_whisper(
+                    thinking=thinking,
+                    original_prompt=compact_json_context,
+                    metadata={"combat_active": combat_context.get('in_combat', False)}
+                )
+                
+                # Format whisper for Foundry and send via WebSocket
+                foundry_whisper = whisper_service.format_whisper_for_foundry(whisper)
+                whisper_sent = await ws_manager.send_to_client(client_id, foundry_whisper)
+                
+                if whisper_sent:
+                    logger.info(f"Thinking whisper sent to client {client_id}: {len(thinking)} characters")
+                else:
+                    logger.warning(f"Failed to send thinking whisper to client {client_id}")
+                    
+            except Exception as e:
+                logger.error(f"Error sending thinking whisper: {e}")
+                # Don't fail the entire request if whisper sending fails
+        
+        # DEBUG: Show exactly what AI returned before processing
         logger.info("=== RAW AI RESPONSE BEFORE PROCESSING ===")
         logger.info(f"Raw AI Response: {ai_response}")
         logger.info("=== END RAW AI RESPONSE ===")
-        # logger.info("=== END AI SERVICE CALL DEBUG ===")
         
         # Step 7: Process AI response back to API format and send to Foundry
         api_formatted = unified_processor.process_ai_response(ai_response, compact_messages)
@@ -215,19 +270,27 @@ async def api_chat(http_request: Request, request: APIChatRequest):
             client_id = settings.get('relay client id') if settings else None
             if client_id:
                 success_count, total_messages = await _send_messages_to_websocket(api_formatted, client_id)
+                
                 # Step 8: Return confirmation response (only log success, don't send to frontend)
+                metadata = {
+                    "context_count": len(compact_messages),
+                    "tokens_used": tokens_used,
+                    "messages_sent": success_count,
+                    "total_messages": total_messages,
+                    "api_formatted": api_formatted,
+                    "provider_used": provider_id,
+                    "model_used": model
+                }
+                
+                # Add thinking to metadata if available
+                if thinking:
+                    metadata["thinking"] = thinking
+                    logger.info(f"AI thinking included in response metadata: {len(thinking)} characters")
+                
                 return APIChatResponse(
                     success=True,
                     response="",  # Empty response - success message should only be in logs
-                    metadata={
-                        "context_count": len(compact_messages),
-                        "tokens_used": tokens_used,
-                        "messages_sent": success_count,
-                        "total_messages": total_messages,
-                        "api_formatted": api_formatted,
-                        "provider_used": provider_id,
-                        "model_used": model
-                    }
+                    metadata=metadata
                 )
             else:
                 logger.error("No client ID available - cannot send messages to Foundry")

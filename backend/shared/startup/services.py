@@ -116,6 +116,11 @@ def initialize_websocket_manager():
                         await self._handle_dice_roll(client_id, message)
                         return
                     
+                    # Handle combat context messages from frontend
+                    if message_type == "combat_context":
+                        await self._handle_combat_context(client_id, message)
+                        return
+                    
                     # Handle chat requests using existing logic from original file
                     if message_type == "chat_request":
                         # Import full message processing logic from original file
@@ -135,6 +140,21 @@ def initialize_websocket_manager():
                                 }
                             })
                             return
+                        
+                        # Handle combat state from WebSocket message data (same as API chat endpoint)
+                        combat_state = message_data.get("combat_state")
+                        if combat_state:
+                            # Update CombatEncounterService with latest combat state
+                            try:
+                                from services.system_services.service_factory import get_combat_encounter_service
+                                combat_service = get_combat_encounter_service()
+                                update_success = combat_service.update_combat_state(combat_state)
+                                if update_success:
+                                    logger.info(f"CombatEncounterService updated with combat state from WebSocket: {combat_state}")
+                                else:
+                                    logger.warning(f"Failed to update CombatEncounterService with combat state from WebSocket: {combat_state}")
+                            except Exception as e:
+                                logger.error(f"Error updating CombatEncounterService from WebSocket: {e}")
                         
                         # Handle message collection from WebSocket clients
                         messages = message_data.get("messages", [])
@@ -228,6 +248,27 @@ def initialize_websocket_manager():
                         
                         # Convert raw HTML messages to compact JSON for AI
                         compact_messages = self._convert_raw_html_to_compact(stored_messages)
+                        
+                        # Get fresh combat context from CombatEncounterService for AI (same as API chat endpoint)
+                        try:
+                            from services.system_services.service_factory import get_combat_encounter_service
+                            combat_service = get_combat_encounter_service()
+                            combat_context = combat_service.get_combat_context()
+                            
+                            # Add combat context to messages with fresh data from service
+                            combat_context_message = {
+                                'type': 'combat_context',
+                                'combat_context': combat_context
+                            }
+                            
+                            # Remove any existing combat context messages and add fresh one
+                            compact_messages = [msg for msg in compact_messages if msg.get('type') != 'combat_context']
+                            compact_messages.append(combat_context_message)
+                            
+                            logger.info(f"Fresh combat context from service for WebSocket: in_combat={combat_context.get('in_combat', False)}")
+                            
+                        except Exception as e:
+                            logger.error(f"Error getting combat context from service for WebSocket: {e}")
                         
                         # Get AI role from settings for enhanced role-based prompt generation
                         ai_role = universal_settings.get('ai role', 'gm')
@@ -447,6 +488,55 @@ def initialize_websocket_manager():
                         "type": "error",
                         "data": {
                             "error": f"Dice roll handling failed: {str(e)}",
+                            "timestamp": time.time()
+                        }
+                    })
+            
+            async def _handle_combat_context(self, client_id: str, message: Dict[str, Any]):
+                """Handle combat context message from frontend"""
+                try:
+                    combat_data = message.get("data", {})
+                    
+                    # Validate combat data
+                    if not combat_data:
+                        await self.send_to_client(client_id, {
+                            "type": "error",
+                            "data": {
+                                "error": "No combat data provided",
+                                "timestamp": time.time()
+                            }
+                        })
+                        return
+                    
+                    # Use WebSocket message collector to store combat context
+                    from services.message_services.websocket_message_collector import add_client_message
+                    
+                    # Convert combat data to message format
+                    combat_message = {
+                        "type": "combat_context",
+                        "combat_context": combat_data,
+                        "timestamp": int(time.time() * 1000)
+                    }
+                    
+                    # Add combat context message to collector
+                    success = add_client_message(client_id, combat_message)
+                    if not success:
+                        await self.send_to_client(client_id, {
+                            "type": "error",
+                            "data": {
+                                "error": "Failed to store combat context",
+                                "timestamp": time.time()
+                            }
+                        })
+                    else:
+                        logger.debug(f"Combat context stored from client {client_id}: in_combat={combat_data.get('in_combat')}")
+                        
+                except Exception as e:
+                    logger.error(f"Error handling combat context from client {client_id}: {e}")
+                    await self.send_to_client(client_id, {
+                        "type": "error",
+                        "data": {
+                            "error": f"Combat context handling failed: {str(e)}",
                             "timestamp": time.time()
                         }
                     })
@@ -682,6 +772,38 @@ def get_global_services() -> Dict[str, Any]:
         logger.error(f"Failed to initialize JSON optimizer: {e}")
         raise StartupServicesException(f"Unexpected JSON optimizer error: {e}")
     
+    # Initialize combat encounter service directly to avoid ServiceFactory circular dependency
+    from services.message_services.combat_encounter_service import get_combat_encounter_service
+    try:
+        combat_encounter_service = get_combat_encounter_service()
+        if not ServiceRegistry.register('combat_encounter_service', combat_encounter_service):
+            logger.error("Failed to register combat encounter service")
+        else:
+            services['combat_encounter_service'] = combat_encounter_service
+            logger.info("✅ Combat encounter service initialized and registered")
+    except (ImportError, RuntimeError) as e:
+        logger.error(f"Failed to initialize combat encounter service: {e}")
+        raise StartupServicesException(f"Combat encounter service initialization failed: {e}")
+    except Exception as e:
+        logger.error(f"Failed to initialize combat encounter service: {e}")
+        raise StartupServicesException(f"Unexpected combat encounter service error: {e}")
+    
+    # Initialize whisper service directly to avoid ServiceFactory circular dependency
+    from services.message_services.whisper_service import get_whisper_service
+    try:
+        whisper_service = get_whisper_service()
+        if not ServiceRegistry.register('whisper_service', whisper_service):
+            logger.error("Failed to register whisper service")
+        else:
+            services['whisper_service'] = whisper_service
+            logger.info("✅ Whisper service initialized and registered")
+    except (ImportError, RuntimeError) as e:
+        logger.error(f"Failed to initialize whisper service: {e}")
+        raise StartupServicesException(f"Whisper service initialization failed: {e}")
+    except Exception as e:
+        logger.error(f"Failed to initialize whisper service: {e}")
+        raise StartupServicesException(f"Unexpected whisper service error: {e}")
+    
     # Initialize chat card translation cache and translator
     from services.message_services.chat_card_translation_cache import get_current_cache, reset_cache, is_cache_active
     try:
@@ -734,6 +856,8 @@ def get_global_services() -> Dict[str, Any]:
         services.get('websocket_message_collector') is not None and
         services.get('attribute_mapper') is not None and
         services.get('json_optimizer') is not None and
+        services.get('combat_encounter_service') is not None and
+        services.get('whisper_service') is not None and
         services.get('chat_card_translation_cache') is not None and
         services.get('chat_card_translator') is not None
     )
@@ -777,6 +901,31 @@ def get_global_services() -> Dict[str, Any]:
         logger.warning("⚠️ Core services failed to initialize")
     
     return services
+
+async def run_server_startup() -> bool:
+    """
+    Run complete server startup sequence.
+    
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        logger.info("Starting complete server startup sequence...")
+        
+        # Get and initialize all global services
+        services = get_global_services()
+        
+        # Check if all services initialized successfully
+        if services.get('services_valid', False):
+            logger.info("✅ Server startup completed successfully")
+            return True
+        else:
+            logger.error("❌ Server startup failed - some services did not initialize properly")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Server startup failed with exception: {e}")
+        return False
 
 def setup_application_routers(app: FastAPI) -> bool:
     """

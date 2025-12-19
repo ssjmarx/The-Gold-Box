@@ -18,6 +18,8 @@
     "scripts/services/message-collector.js",
     "scripts/services/settings-manager.js",
     "scripts/shared/ui-manager.js",
+    "scripts/api/combat-monitor.js",
+    "scripts/shared/whisper-display.js",
     "scripts/gold-box.js"
   ],
   "styles": [

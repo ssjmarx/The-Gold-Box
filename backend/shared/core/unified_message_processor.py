@@ -457,6 +457,13 @@ class UnifiedMessageProcessor:
     
     def _convert_api_message_to_compact(self, api_msg: Dict[str, Any]) -> Dict[str, Any]:
         """Convert API message to compact format"""
+        # Handle combat context messages from WebSocket collector
+        if api_msg.get("type") == "combat_context":
+            compact = {"t": "combat_context"}
+            if "combat_context" in api_msg:
+                compact["combat_context"] = api_msg["combat_context"]
+            return compact
+        
         msg_type = self._detect_message_type(api_msg)
         
         if msg_type not in self.TYPE_CODES:
@@ -631,6 +638,7 @@ class UnifiedMessageProcessor:
         has_rolls = any(msg.get('t') == 'dr' for msg in compact_messages)
         has_chat = any(msg.get('t') == 'cm' for msg in compact_messages)
         has_cards = any(msg.get('t') in ['cc', 'cd'] for msg in compact_messages)  # Check for both 'cc' and 'cd'
+        has_combat = any(msg.get('t') == 'combat_context' for msg in compact_messages)
         
         # Check for post-processed content
         has_arrays = any('_array' in str(msg) for msg in compact_messages)
@@ -652,6 +660,10 @@ class UnifiedMessageProcessor:
             else:
                 context_schemas.append('cc: {"t": "cc", "tt": "title", "ct": "card_type", "l": "level", "s": "school", "n": "name", "d": "description", "at": "actions"}')
         
+        if has_combat:
+            context_codes.append('ccx: combat_context')
+            context_schemas.append('ccx: {"t": "ccx", "in_combat": "boolean", "combat_id": "string", "round": "number", "turn": "number", "combatants": "array"}')
+        
         if has_abbreviations:
             context_abbreviations.append('value_dict: {"@v1": "full_value1", "@v2": "full_value2", ...} - resolves abbreviations in cards')
         
@@ -664,8 +676,61 @@ class UnifiedMessageProcessor:
         
         role_specific_prompt = role_prompts.get(ai_role.lower(), role_prompts['gm'])
         
+        # Extract and add combat context if present
+        combat_context_info = ""
+        if has_combat:
+            # Look for combat context in multiple possible structures
+            combat_msg = None
+            for msg in compact_messages:
+                if msg.get('t') == 'combat_context':
+                    combat_msg = msg
+                    break
+                # Also check if combat context is nested in other structures
+                elif 'combat_context' in msg and isinstance(msg.get('combat_context'), dict):
+                    combat_msg = msg
+                    break
+            
+            if combat_msg:
+                # Handle both direct combat_context and nested structures
+                combat_data = combat_msg.get('combat_context', {})
+                if not combat_data:
+                    # If combat_context field exists directly, use the entire message as combat data
+                    # This happens when combat_msg is the combat_context data itself
+                    combat_data = combat_msg
+                # Log what we found
+                logger.info(f"Combat context data found: {combat_data}")
+                combat_context_info = f"""
+
+CURRENT COMBAT STATUS:
+- In Combat: {combat_data.get('in_combat', False)}
+- Combat ID: {combat_data.get('combat_id', 'Unknown')}
+- Round: {combat_data.get('round', 'Unknown')}
+- Current Turn: {combat_data.get('turn', 'Unknown')}
+- Combatants: {len(combat_data.get('combatants', []))} participants
+
+Turn Order:
+"""
+                # Add turn order information
+                combatants = combat_data.get('combatants', [])
+                if combatants:
+                    for i, combatant in enumerate(combatants, 1):
+                        current_marker = " ← CURRENT TURN" if combatant.get('is_current_turn', False) else ""
+                        combatant_info = f"  {i}. {combatant.get('name', 'Unknown')} (Initiative: {combatant.get('initiative', 'Unknown')}{current_marker})"
+                        combat_context_info += combatant_info + "\n"
+                
+                # Add current turn tactical context
+                current_combatant = next((c for c in combatants if c.get('is_current_turn', False)), None)
+                if current_combatant:
+                    combat_context_info += f"""
+
+CURRENT TACTICAL SITUATION:
+- Acting Combatant: {current_combatant.get('name', 'Unknown')}
+- Is Player Character: {current_combatant.get('is_player', False)}
+- Initiative Position: {current_combatant.get('initiative', 'Unknown')}
+"""
+        
         # Build enhanced system prompt with dynamic field discovery
-        system_prompt = f"""You are an AI assistant for tabletop RPG games, with role {ai_role}. {role_specific_prompt}
+        system_prompt = f"""You are an AI assistant for tabletop RPG games, with role {ai_role}. {role_specific_prompt}{combat_context_info}
 
 Data from chat and environment is formatted as follows:
 
@@ -689,6 +754,16 @@ Message Schemas:
                         logger.info(f"Added {len(dynamic_fields.split())} dynamic field definitions to system prompt")
             except Exception as e:
                 logger.warning(f"Failed to add dynamic field definitions: {e}")
+        
+        # DEBUG: Log what we're including
+        logger.info(f"=== SYSTEM PROMPT DEBUG ===")
+        logger.info(f"Combat context detected: {has_combat}")
+        logger.info(f"Combat context info length: {len(combat_context_info)} characters")
+        logger.info(f"Has 'CURRENT COMBAT STATUS' in prompt: {'CURRENT COMBAT STATUS' in system_prompt}")
+        logger.info(f"Has 'Turn Order' in prompt: {'Turn Order' in system_prompt}")
+        logger.info(f"Full system prompt length: {len(system_prompt)} characters")
+        logger.info(f"System prompt preview:\n{system_prompt[:500]}...")
+        logger.info("=== END SYSTEM PROMPT DEBUG ===")
         
         return system_prompt
     

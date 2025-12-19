@@ -3,6 +3,7 @@ Context Processor - Core logic for transforming complete board data into compact
 Game-Agnostic: Handle different game systems dynamically
 Dynamic Attribute Mapping: Mechanical field detection and standardization
 Compression: Optimize data for token efficiency
+Combat-Aware: Include combat context for tactical AI decisions
 """
 
 import json
@@ -24,10 +25,11 @@ class ContextProcessor:
         self.logger = logging.getLogger(__name__)
         
         # Initialize components using ServiceFactory pattern
-        from ..system_services.service_factory import get_attribute_mapper, get_json_optimizer
+        from ..system_services.service_factory import get_attribute_mapper, get_json_optimizer, get_combat_encounter_service
         
         self.attribute_mapper = get_attribute_mapper()
         self.json_optimizer = get_json_optimizer()
+        self.combat_encounter_service = get_combat_encounter_service()
         
         # Board collector still needs direct client injection
         from shared.core.board_collector import BoardStateCollector
@@ -76,17 +78,22 @@ class ContextProcessor:
             # Step 6: Generate system prompt with attribute mappings
             system_prompt = self._generate_system_prompt(reverse_mapping, optimized_board_state)
             
+            # Step 6: Get combat context
+            combat_context = self.combat_encounter_service.get_combat_context()
+            
             # Step 7: Create final context
             processed_context = {
                 'system_prompt': system_prompt,
                 'board_state': optimized_board_state,
                 'chat_history': chat_history,
+                'combat_context': combat_context,
                 'metadata': {
                     'client_id': client_id,
                     'scene_id': scene_id,
                     'attribute_count': len(all_attributes),
                     'optimization_stats': self.json_optimizer.get_optimization_stats(),
-                    'processed_at': self._get_timestamp()
+                    'processed_at': self._get_timestamp(),
+                    'in_combat': combat_context.get('in_combat', False)
                 }
             }
             
@@ -182,7 +189,12 @@ class ContextProcessor:
         board_instructions = """Universal Board Format Instructions:
 Complete Board State: {scene dimensions, walls, lighting, notes, token positions, ALL attributes, templates}
 Use spatial and attribute data for contextual responses
-This data format works with ANY TTRPG system or custom implementation"""
+This data format works with ANY TTRPG system or custom implementation
+
+Combat Context Instructions:
+When in combat, use combat context for tactical decision making
+Current turn, turn order, and combatant information provided
+Use this information to make tactical suggestions and track combat flow"""
         
         # PHASE 5: Enhanced context usage guidelines for system-agnostic operation
         usage_guidelines = """Universal Context Usage Guidelines (System-Agnostic):

@@ -177,13 +177,25 @@ class WebSocketMessageCollector:
                 return False
             
             # Must have content or be a recognized type
-            if 'content' not in message and message.get('type') != 'system':
+            message_type = message.get('type')
+            if 'content' not in message and message_type not in ['system', 'combat_context']:
                 return False
             
-            # Content must be non-empty for non-system messages
+            # Content must be non-empty for non-system, non-combat-context messages
             content = message.get('content', '')
-            if message.get('type') != 'system' and not content.strip():
+            if message_type not in ['system', 'combat_context'] and not content.strip():
                 return False
+            
+            # Combat context messages must have combat_context field
+            if message_type == 'combat_context':
+                if 'combat_context' not in message:
+                    return False
+                # Validate combat_context structure
+                combat_context = message.get('combat_context')
+                if not isinstance(combat_context, dict):
+                    return False
+                if 'in_combat' not in combat_context:
+                    return False
             
             return True
             
