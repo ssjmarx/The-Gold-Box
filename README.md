@@ -8,10 +8,14 @@ An AI-powered Foundry VTT module that provides intelligent TTRPG assistance thro
 
 ## Features
 
+- **Dynamic Chat Card Translation**: Game-agnostic field discovery and dynamic code generation for any Foundry module
+- **Combat-Aware AI**: AI receives contextual instructions based on combat state with turn order awareness
+- **AI Thinking Transparency**: AI reasoning process extracted and displayed as GM whispers
+- **Advanced Processing**: Pattern consolidation and duplicate value optimization for token efficiency
+- **Combat Integration**: Automatic combat detection with tactical AI model switching
 - **LLM Responses**: The LLM can read and react to all of Foundry's chat messages, responding with its own based on what it sees.
 - **Multi-Provider Support**: Connect to 70+ AI providers including OpenAI, Anthropic, and more
 - **Secure Backend**: Encrypted API key storage with comprehensive security framework
-- **User Privacy**: None of your data is collected, none of your information goes anywhere you don't want it
 
 ## Quick Start
 
@@ -134,7 +138,9 @@ The-Gold-Box/
 │   ├── server.py            # FastAPI application entry point
 │   ├── requirements.txt     # Python dependencies
 │   ├── security_config.ini  # Security configuration
-│   ├── TESTING.md          # Backend testing guide
+│   ├── testing/
+│   │   ├── TESTING.md       # Backend testing guide
+│   │   └── comprehensive_test.sh # Comprehensive test script
 │   ├── api/               # API endpoint implementations
 │   │   ├── __init__.py
 │   │   ├── admin.py         # Admin operations endpoint
@@ -257,4 +263,4 @@ This project is licensed under **Creative Commons Attribution-NonCommercial-Shar
 - Define LLM "role" with Foundry permissions
 - Access other generative services, such as image and voice
 
-**Current Version: 0.3.4** - Documentation overhaul and architecture alignment
+**Current Version: 0.3.5** - Major AI enhancement release with dynamic chat card translation and combat-aware AI

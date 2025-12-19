@@ -5,6 +5,83 @@ All notable changes to The Gold Box project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0/).
 
+## [0.3.5] - 2025-12-18
+
+### Major AI Enhancement Release
+- **Dynamic Chat Card Translation System** - Complete overhaul of chat card processing with game-agnostic field discovery and dynamic code generation
+- **Combat-Aware AI Prompts** - AI now receives context-aware instructions based on combat state with dynamic prompt generation
+- **AI Thinking Extraction** - AI reasoning process is extracted and displayed as GM whispers in Foundry for transparency
+- **Chat Card Post-Processing** - Advanced optimization with pattern consolidation and duplicate value abbreviation for token efficiency
+- **Combat Detection Integration** - System detects combat encounters and provides turn order context to AI for tactical responses
+
+#### Dynamic Chat Card Translation System
+- **Game-Agnostic Field Discovery** - System dynamically identifies ALL fields in chat cards without hard-coded game system patterns
+- **Universal Attribute Mapping** - Pure algorithmic code generation using `SimpleAttributeMapper` for any Foundry module or game system
+- **Bidirectional Translation** - Seamless conversion between Foundry HTML and compact JSON format with full data fidelity
+- **Comprehensive Field Extraction** - Captures pills, roll data, effects, enchantments, data attributes, and nested structures
+- **Real-Time Schema Generation** - Dynamic system prompt updates with discovered field definitions and examples
+- **Context-Aware Code Generation** - Generates meaningful attribute codes based on card type, field patterns, and semantic grouping
+
+#### Combat-Aware AI System
+- **Combat Encounter Detection** - Automatic detection of combat state through Foundry combat event monitoring
+- **Turn Order Context** - AI receives current turn order, initiative values, and whose turn it is during combat
+- **Dynamic Prompt Templates** - Three distinct prompt types for no combat, player turn, and NPC group turn scenarios
+- **Tactical LLM Integration** - Support for combat-specific AI models when configured
+- **Turn-Based Instructions** - AI receives targeted guidance based on current combat phase and active combatants
+
+#### AI Thinking Transparency
+- **Reasoning Extraction** - Extracts AI's thinking process from LiteLLM responses across different providers
+- **GM Whisper Display** - AI reasoning displayed as GM whispers in Foundry chat for full transparency
+- **Multi-Provider Support** - Compatible with reasoning content from OpenAI, Anthropic, and other providers
+- **Structured Thinking Format** - Consistent formatting for AI reasoning regardless of provider
+
+#### Advanced Chat Card Processing
+- **Universal Pattern Detection** - Regex-based detection of numbered field patterns (`field1`, `field2`, etc.) with array consolidation
+- **Duplicate Value Optimization** - Identifies repeated values across cards and replaces with abbreviations (`@v1`, `@v2`, etc.)
+- **Token Efficiency** - Significant reduction in token usage while maintaining complete data fidelity
+- **Value Dictionary Management** - Message-level value reference for AI to access abbreviated content
+- **Backward Compatibility** - Maintains compatibility with existing card formats while adding optimizations
+
+#### Combat Integration Features
+- **Frontend Combat Monitoring** - Local Foundry combat event tracking with on-demand state transmission
+- **WebSocket Communication** - Combat state transmitted to backend only when AI turn is requested
+- **NPC Group Processing** - Intelligent grouping of consecutive NPC turns for coordinated actions
+- **Turn Sequence Analysis** - Determines next player combatant and NPC turn groups dynamically
+- **Combat State Caching** - Efficient local caching with periodic synchronization
+
+#### New Backend Services
+- **`DynamicChatCardAnalyzer`** - Advanced HTML structure analysis and field pattern detection
+- **`ChatCardTranslationCache`** - Lifecycle management for dynamic code mappings with cleanup
+- **`ChatCardTranslator`** - Bidirectional translation engine with post-processing optimizations
+- **`CombatEncounterService`** - Combat state management and turn order processing
+- **`WhisperService`** - GM whisper creation and delivery for AI thinking display
+- **`CombatPromptGenerator`** - Dynamic prompt generation based on combat state
+
+#### Enhanced Processing Pipeline
+- **Unified Message Collection** - Single WebSocket message workflow with combat state integration
+- **Dynamic Schema Updates** - Real-time system prompt updates with discovered card structures
+- **Post-Processing Optimizations** - Automatic pattern consolidation and value abbreviation
+- **Cache Lifecycle Management** - Proper cleanup of translation caches after AI responses
+- **Error Recovery** - Graceful fallbacks for unknown card structures and extraction failures
+
+#### Breaking Changes
+- **Dynamic Field Mappings** - Chat card codes are now generated dynamically rather than using static mappings
+- **Enhanced AI Prompts** - System prompts now include combat context and dynamic field definitions
+- **WebSocket Message Format** - Updated to include combat state and thinking extraction data
+- **Processing Pipeline Changes** - Enhanced message collection with combat integration
+
+#### Migration Notes
+- **Automatic Code Generation** - No need to pre-define field mappings - system discovers and codes fields automatically
+- **Combat Detection** - System automatically detects combat state without user configuration
+- **Thinking Display** - AI reasoning appears as GM whispers and can be disabled if desired
+- **Performance Improvements** - Token optimization reduces AI costs while maintaining functionality
+
+#### Documentation Updates
+- **Enhanced Feature Documentation** - Comprehensive documentation for new dynamic translation system
+- **Combat Integration Guide** - Detailed setup and usage instructions for combat-aware features
+- **AI Thinking Explanation** - Documentation of reasoning extraction and display system
+- **Migration Guide** - Instructions for transitioning from static to dynamic field mappings
+
 ## [0.3.4] - 2025-12-14
 
 ### Major Architecture Refactor
@@ -77,8 +154,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Real-time Sync** - Documented new data synchronization features
 - **Removed Relay References** - Eliminated deprecated relay server documentation
 
-#### TESTING.md Modernization
-- **Current Endpoint Tests** - Updated test commands for existing endpoints
+#### Testing Structure Reorganization
+- **Testing Folder Created** - Moved testing documentation to dedicated `backend/testing/` folder
+- **Comprehensive Test Script** - Added runnable `comprehensive_test.sh` with automated testing
+- **Updated Documentation** - All references now point to new testing folder structure
 - **WebSocket Testing** - Added WebSocket connection and communication tests
 - **API Chat Tests** - Added comprehensive tests for primary chat endpoint
 - **Security Feature Tests** - Updated for current security framework
