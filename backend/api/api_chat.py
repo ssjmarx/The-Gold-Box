@@ -195,9 +195,18 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         # Generate enhanced system prompt based on AI role using unified processor
         system_prompt = unified_processor.generate_enhanced_system_prompt(ai_role, compact_messages)
         
+        # Generate dynamic combat-aware prompt
+        from services.ai_services.combat_prompt_generator import get_combat_prompt_generator
+        
+        combat_prompt_generator = get_combat_prompt_generator()
+        combat_context = combat_context  # Already extracted above
+        combat_state = combat_state if combat_state else {}  # From APIChatRequest
+        
+        dynamic_prompt = combat_prompt_generator.generate_prompt(combat_context, combat_state)
+        
         ai_messages = [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Chat Context (Compact JSON Format):\n{compact_json_context}\n\nPlease respond to this conversation as an AI assistant for tabletop RPGs. If you need to generate game mechanics, use compact JSON format specified in system prompt."}
+            {"role": "user", "content": f"Chat Context (Compact JSON Format):\n{compact_json_context}\n\n{dynamic_prompt}"}
         ]
         
         # Step 6: Call AI service with universal settings

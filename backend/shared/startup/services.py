@@ -278,10 +278,19 @@ def initialize_websocket_manager():
                         import json
                         compact_json_context = json.dumps(compact_messages, indent=2)
                         
+                        # Generate dynamic combat-aware prompt
+                        from services.ai_services.combat_prompt_generator import get_combat_prompt_generator
+                        
+                        combat_prompt_generator = get_combat_prompt_generator()
+                        combat_context = combat_context if combat_context else {}
+                        combat_state = combat_state if combat_state else {}
+                        
+                        dynamic_prompt = combat_prompt_generator.generate_prompt(combat_context, combat_state)
+                        
                         # Prepare AI messages
                         ai_messages = [
                             {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": f"Chat Context (Compact JSON Format):\n{compact_json_context}\n\nPlease respond to this conversation as an AI assistant for tabletop RPGs. If you need to generate game mechanics, use compact JSON format specified in system prompt."}
+                            {"role": "user", "content": f"Chat Context (Compact JSON Format):\n{compact_json_context}\n\n{dynamic_prompt}"}
                         ]
                         
                         # Log messages with proper newlines for readability

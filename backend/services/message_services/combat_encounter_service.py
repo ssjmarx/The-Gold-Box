@@ -263,6 +263,109 @@ class CombatEncounterService:
             return current_turn.get("name", "Unknown")
         return "Unknown"
     
+    def is_current_turn_player(self) -> bool:
+        """
+        Determine if current turn belongs to a player character
+        
+        Returns:
+            True if current turn is a player, False otherwise
+        """
+        current_turn = self.get_current_turn()
+        if current_turn:
+            return current_turn.get("is_player", False)
+        return False
+    
+    def get_next_player_combatant(self) -> Optional[Dict[str, Any]]:
+        """
+        Find the next player character in turn order
+        
+        Returns:
+            Next player combatant data or None
+        """
+        try:
+            turn_order = self.get_turn_order()
+            if not turn_order:
+                return None
+            
+            # Find current turn index
+            current_turn_index = -1
+            for i, combatant in enumerate(turn_order):
+                if combatant.get("is_current_turn", False):
+                    current_turn_index = i
+                    break
+            
+            if current_turn_index == -1:
+                return None
+            
+            # Look for next player in turn order
+            for i in range(current_turn_index + 1, len(turn_order)):
+                combatant = turn_order[i]
+                if combatant.get("is_player", False):
+                    return combatant
+            
+            # Loop around to beginning
+            for i in range(0, current_turn_index + 1):
+                combatant = turn_order[i]
+                if combatant.get("is_player", False):
+                    return combatant
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting next player combatant: {e}")
+            return None
+    
+    def get_npc_turn_sequence(self) -> List[str]:
+        """
+        Get sequence of NPCs who will take turns before next player
+        
+        Returns:
+            List of NPC names in turn order
+        """
+        try:
+            turn_order = self.get_turn_order()
+            if not turn_order:
+                return []
+            
+            # Find current turn position
+            current_turn_index = -1
+            for i, combatant in enumerate(turn_order):
+                if combatant.get("is_current_turn", False):
+                    current_turn_index = i
+                    break
+            
+            if current_turn_index == -1:
+                return []
+            
+            # Get all subsequent combatants until next player
+            npc_sequence = []
+            for i in range(current_turn_index + 1, len(turn_order)):
+                combatant = turn_order[i]
+                if not combatant.get("is_player", False):
+                    npc_sequence.append(combatant.get("name", "Unknown"))
+                else:
+                    # Found next player, stop collecting NPCs
+                    break
+            
+            # If we looped around, check from beginning
+            if not npc_sequence:
+                for i in range(0, len(turn_order)):
+                    combatant = turn_order[i]
+                    if combatant.get("is_current_turn", False):
+                        # Back to current turn, no more NPCs
+                        break
+                    if not combatant.get("is_player", False):
+                        npc_sequence.append(combatant.get("name", "Unknown"))
+                    else:
+                        # Found next player, stop collecting NPCs
+                        break
+            
+            return npc_sequence
+            
+        except Exception as e:
+            logger.error(f"Error getting NPC turn sequence: {e}")
+            return []
+    
     def get_service_stats(self) -> Dict[str, Any]:
         """
         Get service statistics

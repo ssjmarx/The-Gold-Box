@@ -322,10 +322,19 @@ class AIService:
             import json
             compact_json_context = json.dumps(processed_messages, indent=2)
             
+            # Generate dynamic combat-aware prompt
+            from .combat_prompt_generator import get_combat_prompt_generator
+            
+            combat_prompt_generator = get_combat_prompt_generator()
+            combat_context = self._extract_combat_context_from_messages(processed_messages)
+            combat_state = self._extract_combat_state_from_messages(processed_messages)
+            
+            dynamic_prompt = combat_prompt_generator.generate_prompt(combat_context, combat_state)
+            
             # Prepare messages for LLM with compact JSON context
             ai_messages = [
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Chat Context (Compact JSON Format):\n{compact_json_context}\n\nPlease respond to this conversation as an AI assistant for tabletop RPGs. If you need to generate game mechanics, use the compact JSON format specified in the system prompt."}
+                {"role": "user", "content": f"Chat Context (Compact JSON Format):\n{compact_json_context}\n\n{dynamic_prompt}"}
             ]
             
             # Prepare provider configuration
@@ -381,7 +390,7 @@ class AIService:
                         
                         # Check nested combat_context structure
                         nested_combat = combat_data.get('combat_context', {})
-                        if nested_combat.get('in_combat', False):
+                        if isinstance(nested_combat, dict) and nested_combat.get('in_combat', False):
                             logger.debug("Tactical LLM selected: in_combat=True from nested combat context")
                             return True
             
@@ -391,6 +400,50 @@ class AIService:
         except Exception as e:
             logger.warning(f"Error determining tactical LLM usage: {e}")
             return False
+    
+    def _extract_combat_context_from_messages(self, processed_messages: List[Dict]) -> Dict[str, Any]:
+        """
+        Extract combat context from processed messages
+        
+        Args:
+            processed_messages: List of processed messages from context processor
+            
+        Returns:
+            Combat context dictionary
+        """
+        try:
+            for msg in processed_messages:
+                if msg.get('type') == 'combat_context':
+                    return msg.get('combat_context', {})
+            return {}
+            
+        except Exception as e:
+            logger.warning(f"Error extracting combat context: {e}")
+            return {}
+    
+    def _extract_combat_state_from_messages(self, processed_messages: List[Dict]) -> Dict[str, Any]:
+        """
+        Extract raw combat state from processed messages
+        
+        Args:
+            processed_messages: List of processed messages from context processor
+            
+        Returns:
+            Raw combat state dictionary
+        """
+        try:
+            for msg in processed_messages:
+                if msg.get('type') == 'combat_context':
+                    combat_context = msg.get('combat_context', {})
+                    if isinstance(combat_context, dict):
+                        raw_state = combat_context.get('raw_state', {})
+                        if isinstance(raw_state, dict):
+                            return raw_state
+            return {}
+            
+        except Exception as e:
+            logger.warning(f"Error extracting combat state: {e}")
+            return {}
 
 def get_ai_service() -> 'AIService':
     """Get AI service instance from ServiceRegistry"""
