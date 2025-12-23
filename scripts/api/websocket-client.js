@@ -387,6 +387,9 @@ class GoldBoxWebSocketClient {
           messages: messages,
           context_count: options.contextCount || 15,  // Use proper default of 15
           scene_id: options.sceneId || null,
+          // Let backend handle session management entirely
+          // No ai_session_id - backend will manage sessions based on client_id
+          force_full_context: options.forceFullContext || false,
           ...options
         }
       };

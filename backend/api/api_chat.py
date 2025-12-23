@@ -108,12 +108,59 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         except Exception as e:
             logger.warning(f"Failed to reset dynamic cache: {e}")
         
+        # Step 0.5: Handle session management and delta filtering
+        from services.system_services.service_factory import get_ai_session_manager, get_message_delta_service
+        
+        ai_session_manager = get_ai_session_manager()
+        message_delta_service = get_message_delta_service()
+        
+        # Backend manages sessions entirely based on client_id
+        force_full_context = universal_settings.get('force_full_context', False)
+        
+        # Get provider config for session uniqueness
+        provider_config = get_provider_config(universal_settings, use_tactical=False)
+        provider = provider_config.get('provider')
+        model = provider_config.get('model')
+        
+        # Get or create AI session based on client_id + provider + model
+        session_id = ai_session_manager.create_or_get_session(client_id, None, provider, model)
+        logger.info(f"AI session for client {client_id}: {session_id} ({provider}/{model})")
+        
+        # Force full context if requested
+        if force_full_context:
+            logger.info(f"Force full context for session {session_id} - bypassing delta filtering")
+            message_delta_service.force_full_context(session_id)
+        
+        # Add session ID to universal settings for response delivery
+        universal_settings['ai_session_id'] = session_id
+        
         # Step 1: Collect chat messages via WebSocket
         logger.info(f"Collecting {context_count} chat messages via WebSocket for client {client_id}")
         api_messages = await collect_chat_messages(context_count, client_id)
         
+        # Step 1.5: Apply delta filtering to messages
+        if not force_full_context:
+            # Apply delta filtering to get only new messages since last AI call
+            filtered_messages = message_delta_service.apply_message_delta(session_id, api_messages)
+            
+            # Log delta statistics for debugging
+            delta_stats = message_delta_service.get_delta_stats(session_id, api_messages)
+            logger.info(f"Delta filtering for session {session_id}: {delta_stats['filtered_count']}/{delta_stats['original_count']} messages ({delta_stats['delta_ratio']:.1%} reduction)")
+            
+            # Use filtered messages for processing
+            messages_to_process = filtered_messages
+        else:
+            # Force full context - bypass delta filtering
+            logger.info(f"Force full context for session {session_id} - bypassing delta filtering")
+            if force_full_context:
+                # Clear session timestamp to ensure next call gets full context
+                message_delta_service.force_full_context(session_id)
+            
+            # Use all messages for processing
+            messages_to_process = api_messages
+        
         # Step 2: Convert to compact JSON using unified processor
-        compact_messages = unified_processor.process_api_messages(api_messages)
+        compact_messages = unified_processor.process_api_messages(messages_to_process)
         
         # Extract provider config from universal settings
         provider_config = get_provider_config(universal_settings, use_tactical=False)

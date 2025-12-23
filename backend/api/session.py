@@ -33,9 +33,10 @@ def create_session_router(global_config):
         """
         try:
             # Import service factory functions for consistent access patterns
-            from services.system_services.service_factory import get_session_manager
+            from services.system_services.service_factory import get_session_manager, get_ai_session_manager
             
             session_mgr = get_session_manager()
+            ai_session_mgr = get_ai_session_manager()
             
             # Get request body for parameters
             request_data = {}
@@ -92,6 +93,160 @@ def create_session_router(global_config):
             raise HTTPException(
                 status_code=500,
                 detail="Failed to initialize session"
+            )
+    
+    @router.post("/ai_session/init")
+    async def init_ai_session(request: Request):
+        """
+        Initialize or get AI session for conversation context
+        
+        Creates new AI session or continues existing one
+        Returns session ID for use in AI chat calls
+        Security is handled by UniversalSecurityMiddleware
+        """
+        try:
+            # Import service factory functions
+            from services.system_services.service_factory import get_ai_session_manager
+            
+            ai_session_mgr = get_ai_session_manager()
+            
+            # Get request body for parameters
+            request_data = {}
+            try:
+                request_data = await request.json()
+            except Exception:
+                request_data = {}
+            
+            # Get client information for session creation
+            client_host = request.client.host if request.client else "unknown"
+            client_id = request_data.get('client_id', client_host)
+            
+            # Get preferred session ID to continue existing conversation
+            preferred_session_id = request_data.get('session_id')
+            
+            # Create or get AI session
+            session_id = ai_session_mgr.create_or_get_session(client_id, preferred_session_id)
+            
+            # Get session information for response
+            session_info = ai_session_mgr.get_session_info(session_id)
+            
+            return {
+                'session_id': session_id,
+                'session_info': session_info,
+                'message': 'AI session initialized successfully'
+            }
+            
+        except Exception as e:
+            logger.error(f"AI session initialization error: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to initialize AI session"
+            )
+    
+    @router.get("/ai_session/status/{session_id}")
+    async def get_ai_session_status(request: Request, session_id: str):
+        """
+        Get status and information about AI session
+        
+        Returns session information for debugging/monitoring
+        Security is handled by UniversalSecurityMiddleware
+        """
+        try:
+            # Import service factory functions
+            from services.system_services.service_factory import get_ai_session_manager
+            
+            ai_session_mgr = get_ai_session_manager()
+            
+            # Get session information
+            session_info = ai_session_mgr.get_session_info(session_id)
+            
+            if not session_info:
+                raise HTTPException(
+                    status_code=404,
+                    detail="AI session not found or expired"
+                )
+            
+            return {
+                'session_info': session_info,
+                'message': 'AI session status retrieved successfully'
+            }
+            
+        except HTTPException:
+            # Re-raise HTTP exceptions
+            raise
+        except Exception as e:
+            logger.error(f"AI session status error: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to get AI session status"
+            )
+    
+    @router.post("/ai_session/clear/{session_id}")
+    async def clear_ai_session(request: Request, session_id: str):
+        """
+        Clear AI session timestamp to force full context on next call
+        
+        Clears the timestamp so next AI call gets full message context
+        Security is handled by UniversalSecurityMiddleware
+        """
+        try:
+            # Import service factory functions
+            from services.system_services.service_factory import get_ai_session_manager
+            
+            ai_session_mgr = get_ai_session_manager()
+            
+            # Clear session timestamp
+            success = ai_session_mgr.clear_session_timestamp(session_id)
+            
+            if not success:
+                raise HTTPException(
+                    status_code=404,
+                    detail="AI session not found or expired"
+                )
+            
+            return {
+                'session_id': session_id,
+                'success': success,
+                'message': 'AI session timestamp cleared successfully' if success else 'Failed to clear AI session timestamp'
+            }
+            
+        except HTTPException:
+            # Re-raise HTTP exceptions
+            raise
+        except Exception as e:
+            logger.error(f"AI session clear error: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to clear AI session"
+            )
+    
+    @router.get("/ai_session/stats")
+    async def get_ai_session_stats(request: Request):
+        """
+        Get statistics about all AI sessions
+        
+        Returns session statistics for monitoring/debugging
+        Security is handled by UniversalSecurityMiddleware
+        """
+        try:
+            # Import service factory functions
+            from services.system_services.service_factory import get_ai_session_manager
+            
+            ai_session_mgr = get_ai_session_manager()
+            
+            # Get session statistics
+            stats = ai_session_mgr.get_stats()
+            
+            return {
+                'stats': stats,
+                'message': 'AI session statistics retrieved successfully'
+            }
+            
+        except Exception as e:
+            logger.error(f"AI session stats error: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to get AI session statistics"
             )
     
     return router

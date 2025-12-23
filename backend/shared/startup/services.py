@@ -213,7 +213,7 @@ def initialize_websocket_manager():
                         
                         # Log actual message count for debugging
                         logger.debug(f"Retrieved {len(stored_messages)} messages from WebSocket collector (requested: {context_count})")
-                    
+                        
                         # Get frontend settings for processing (frontend is source of truth)
                         from services.system_services.frontend_settings_handler import get_all_frontend_settings
                         try:
@@ -235,6 +235,32 @@ def initialize_websocket_manager():
                         }
                         universal_settings = extract_universal_settings(request_data_for_settings, "websocket_chat")
                         
+                        # Step 0.5: Handle session management and delta filtering
+                        from services.system_services.service_factory import get_ai_session_manager, get_message_delta_service
+                        
+                        ai_session_manager = get_ai_session_manager()
+                        message_delta_service = get_message_delta_service()
+                        
+                        # Backend manages sessions entirely based on client_id
+                        force_full_context = universal_settings.get('force_full_context', False)
+                        
+                        # Get provider config for session uniqueness
+                        provider_config = get_provider_config(universal_settings, use_tactical=False)
+                        provider = provider_config.get('provider')
+                        model = provider_config.get('model')
+                        
+                        # Get or create AI session based on client_id + provider + model
+                        session_id = ai_session_manager.create_or_get_session(client_id, None, provider, model)
+                        logger.info(f"AI session for WebSocket client {client_id}: {session_id} ({provider}/{model})")
+                        
+                        # Force full context if requested
+                        if force_full_context:
+                            logger.info(f"Force full context for session {session_id} - bypassing delta filtering")
+                            message_delta_service.force_full_context(session_id)
+                        
+                        # Add session ID to universal settings for response delivery
+                        universal_settings['ai_session_id'] = session_id
+                        
                         # Get provider config
                         provider_config = get_provider_config(universal_settings, use_tactical=False)
                         
@@ -246,8 +272,29 @@ def initialize_websocket_manager():
                         ai_service = get_ai_service()
                         processor = get_unified_processor()
                         
+                        # Step 1.5: Apply delta filtering to messages
+                        if not force_full_context:
+                            # Apply delta filtering to get only new messages since last AI call
+                            filtered_messages = message_delta_service.apply_message_delta(session_id, stored_messages)
+                            
+                            # Log delta statistics for debugging
+                            delta_stats = message_delta_service.get_delta_stats(session_id, stored_messages)
+                            logger.info(f"Delta filtering for WebSocket session {session_id}: {delta_stats['filtered_count']}/{delta_stats['original_count']} messages ({delta_stats['delta_ratio']:.1%} reduction)")
+                            
+                            # Use filtered messages for processing
+                            messages_to_process = filtered_messages
+                        else:
+                            # Force full context - bypass delta filtering
+                            logger.info(f"Force full context for WebSocket session {session_id} - bypassing delta filtering")
+                            if force_full_context:
+                                # Clear session timestamp to ensure next call gets full context
+                                message_delta_service.force_full_context(session_id)
+                            
+                            # Use all messages for processing
+                            messages_to_process = stored_messages
+                        
                         # Convert raw HTML messages to compact JSON for AI
-                        compact_messages = self._convert_raw_html_to_compact(stored_messages)
+                        compact_messages = self._convert_raw_html_to_compact(messages_to_process)
                         
                         # Get fresh combat context from CombatEncounterService for AI (same as API chat endpoint)
                         try:
@@ -848,6 +895,38 @@ def get_global_services() -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to initialize chat card translator: {e}")
         raise StartupServicesException(f"Unexpected chat card translator error: {e}")
+    
+    # Initialize AI session manager
+    from services.ai_services.ai_session_manager import get_ai_session_manager
+    try:
+        ai_session_manager = get_ai_session_manager()
+        if not ServiceRegistry.register('ai_session_manager', ai_session_manager):
+            logger.error("Failed to register AI session manager")
+        else:
+            services['ai_session_manager'] = ai_session_manager
+            logger.info("✅ AI session manager initialized and registered")
+    except (ImportError, RuntimeError) as e:
+        logger.error(f"Failed to initialize AI session manager: {e}")
+        raise StartupServicesException(f"AI session manager initialization failed: {e}")
+    except Exception as e:
+        logger.error(f"Failed to initialize AI session manager: {e}")
+        raise StartupServicesException(f"Unexpected AI session manager error: {e}")
+    
+    # Initialize message delta service
+    from services.message_services.message_delta_service import get_message_delta_service
+    try:
+        message_delta_service = get_message_delta_service()
+        if not ServiceRegistry.register('message_delta_service', message_delta_service):
+            logger.error("Failed to register message delta service")
+        else:
+            services['message_delta_service'] = message_delta_service
+            logger.info("✅ Message delta service initialized and registered")
+    except (ImportError, RuntimeError) as e:
+        logger.error(f"Failed to initialize message delta service: {e}")
+        raise StartupServicesException(f"Message delta service initialization failed: {e}")
+    except Exception as e:
+        logger.error(f"Failed to initialize message delta service: {e}")
+        raise StartupServicesException(f"Unexpected message delta service error: {e}")
     
     # Initialize AI service - move after ServiceRegistry is ready
     # This will be initialized later in the startup sequence

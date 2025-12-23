@@ -452,3 +452,55 @@ def get_whisper_service() -> Any:
         )
     
     return ServiceRegistry.get('whisper_service')
+
+def get_ai_session_manager() -> Any:
+    """
+    Get AI session manager from ServiceRegistry.
+    
+    Returns:
+        AISessionManager instance from ServiceRegistry
+        
+    Raises:
+        RuntimeError: If ServiceRegistry is not ready or ai_session_manager is not registered
+    """
+    from .registry import ServiceRegistry
+    
+    if not ServiceRegistry.is_ready():
+        raise RuntimeError(
+            "ServiceRegistry is not ready. Services must be initialized during server startup. "
+            "Check that run_server_startup() completed successfully."
+        )
+    
+    if not ServiceRegistry.is_registered('ai_session_manager'):
+        raise RuntimeError(
+            "ai_session_manager is not registered in ServiceRegistry. "
+            "Check that ai_session_manager is properly registered during startup."
+        )
+    
+    return ServiceRegistry.get('ai_session_manager')
+
+def get_message_delta_service() -> Any:
+    """
+    Get message delta service from ServiceRegistry.
+    
+    Returns:
+        MessageDeltaService instance from ServiceRegistry
+        
+    Raises:
+        RuntimeError: If ServiceRegistry is not ready or message_delta_service is not registered
+    """
+    from .registry import ServiceRegistry
+    
+    if not ServiceRegistry.is_ready():
+        raise RuntimeError(
+            "ServiceRegistry is not ready. Services must be initialized during server startup. "
+            "Check that run_server_startup() completed successfully."
+        )
+    
+    if not ServiceRegistry.is_registered('message_delta_service'):
+        raise RuntimeError(
+            "message_delta_service is not registered in ServiceRegistry. "
+            "Check that message_delta_service is properly registered during startup."
+        )
+    
+    return ServiceRegistry.get('message_delta_service')
