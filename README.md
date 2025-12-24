@@ -64,13 +64,19 @@ The setup script will:
 ### 4. Use in Game
 Press the **"Take AI Turn"** button in the chat sidebar to send your conversation context to the AI and receive intelligent responses.
 
-## Support & Resources
+## Support
 
 - **GitHub Issues**: [Report Issues](https://github.com/ssjmarx/The-Gold-Box/issues)
 - **Detailed Usage Guide**: [USAGE.md](USAGE.md) - Advanced configuration and settings
 - **Dependencies**: [DEPENDENCIES.md](DEPENDENCIES.md) - Complete dependency list
 - **Changelog**: [CHANGELOG.md](CHANGELOG.md) - Version history and changes
 - **Backend Documentation**: [backend/README.md](backend/README.md) - Backend development documentation
+
+## Donations
+
+If you like the project and want to support future development, consider donating!
+
+[![Donation Button](https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://www.paypal.com/donate/?business=NW7VGF3US6V8G&no_recurring=0&item_name=If+you+like+this+project+and+want+to+support+future+development.&currency_code=USD)
 
 ## License
 
