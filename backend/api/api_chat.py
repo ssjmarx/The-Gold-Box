@@ -225,47 +225,22 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         except Exception as e:
             logger.error(f"Error getting combat context from service: {e}")
         
-        # Step 5: Convert compact messages to JSON string for AI
-        compact_json_context = json.dumps(compact_messages, indent=2)
+        # Step 5: Generate enhanced system prompt based on AI role using unified processor
+        ai_role = universal_settings.get('ai role', 'gm') if universal_settings else 'gm'
+        system_prompt = unified_processor.generate_enhanced_system_prompt(ai_role, compact_messages)
         
         # DEBUG: Show exactly what we're sending to AI
         logger.info("=== CHAT CONTEXT DEBUG ===")
         logger.info(f"Raw messages count from API: {len(api_messages)}")
         logger.info(f"Compact messages count after processing: {len(compact_messages)}")
         logger.info(f"Sample compact messages: {compact_messages[:3] if compact_messages else 'None'}")
-        logger.info(f"Full JSON context being sent to AI:\n{compact_json_context}")
+        logger.info(f"Full JSON context being sent to AI:\n{json.dumps(compact_messages, indent=2)}")
         logger.info("=== END CHAT CONTEXT DEBUG ===")
-        
-        # Step 6: Prepare enhanced AI messages with role-based prompts (from legacy context chat)
-        ai_role = universal_settings.get('ai role', 'gm') if universal_settings else 'gm'
-        
-        # Generate enhanced system prompt based on AI role using unified processor
-        system_prompt = unified_processor.generate_enhanced_system_prompt(ai_role, compact_messages)
-        
-        # Generate dynamic combat-aware prompt
-        from services.ai_services.combat_prompt_generator import get_combat_prompt_generator
-        
-        combat_prompt_generator = get_combat_prompt_generator()
-        combat_context = combat_context  # Already extracted above
-        combat_state = combat_state if combat_state else {}  # From APIChatRequest
-        
-        dynamic_prompt = combat_prompt_generator.generate_prompt(combat_context, combat_state)
-        
-        ai_messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": f"Chat Context (Compact JSON Format):\n{compact_json_context}\n\n{dynamic_prompt}"}
-        ]
         
         # Step 6: Call AI service with universal settings
         logger.info("=== AI SERVICE CALL DEBUG ===")
         logger.info(f"Calling AI service with {len(compact_messages)} compact messages")
         logger.info(f"Settings being passed to AI service: {universal_settings}")
-        
-        # DEBUG: Print entire prompt sent to AI service
-        logger.info("=== ENTIRE PROMPT SENT TO AI ===")
-        logger.info(f"SYSTEM PROMPT:\n{system_prompt}")
-        logger.info(f"USER CONTEXT:\n{compact_json_context}")
-        logger.info("=== END ENTIRE PROMPT ===")
         
         # Get services directly from service factory (no lazy loading needed)
         ai_service = get_ai_service()
@@ -273,7 +248,8 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         ai_response_data = await ai_service.process_compact_context(
             processed_messages=compact_messages,
             system_prompt=system_prompt,
-            settings=universal_settings
+            settings=universal_settings,
+            session_id=session_id  # Pass session_id for conversation history
         )
         
         ai_response = ai_response_data.get("response", "")
@@ -295,7 +271,7 @@ async def api_chat(http_request: Request, request: APIChatRequest):
                 # Create thinking whisper
                 whisper = whisper_service.create_thinking_whisper(
                     thinking=thinking,
-                    original_prompt=compact_json_context,
+                    original_prompt=json.dumps(compact_messages, indent=2),
                     metadata={"combat_active": combat_context.get('in_combat', False)}
                 )
                 

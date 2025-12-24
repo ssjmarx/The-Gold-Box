@@ -175,46 +175,12 @@ def initialize_websocket_manager():
                         # Log actual context count being used for debugging
                         logger.debug(f"Using context count: {context_count} (from message_data keys: {list(message_data.keys())})")
                         
-                        # Use new WebSocket message collector
+                        # Use new WebSocket message collector with delta filtering
                         from services.message_services.websocket_message_collector import (
-                            add_client_message, add_client_roll, get_combined_client_messages, clear_client_data
+                            add_client_message_with_delta, add_client_roll_with_delta, get_combined_client_messages, clear_client_data
                         )
                         
-                        # Clear existing messages for this client to prevent duplicates
-                        clear_client_data(client_id)
-                        
-                        # Add each message to WebSocket message collector for this client
-                        for msg in messages:
-                            if isinstance(msg, dict):
-                                # Simplified dice roll detection - delegate to unified processor
-                                msg_type = msg.get("type", "")
-                                content = msg.get("content", "")
-                                
-                                # Check if this is a dice roll message (basic type check only)
-                                is_dice_roll = (msg_type == "roll")
-                                
-                                if is_dice_roll:
-                                    # This is a dice roll - add to rolls collection
-                                    logger.debug(f"Detected dice roll: {content} (type: {msg_type})")
-                                    add_client_roll(client_id, msg)
-                                else:
-                                    # This is a regular chat message
-                                    add_client_message(client_id, msg)
-                            elif isinstance(msg, str):
-                                # Convert string messages to dict format
-                                add_client_message(client_id, {
-                                    "content": msg,
-                                    "type": "chat",
-                                    "timestamp": int(time.time() * 1000)
-                                })
-                        
-                        # Get stored messages from WebSocket message collector for processing
-                        stored_messages = get_combined_client_messages(client_id, context_count)
-                        
-                        # Log actual message count for debugging
-                        logger.debug(f"Retrieved {len(stored_messages)} messages from WebSocket collector (requested: {context_count})")
-                        
-                        # Get frontend settings for processing (frontend is source of truth)
+                        # Get frontend settings for processing first (frontend is source of truth)
                         from services.system_services.frontend_settings_handler import get_all_frontend_settings
                         try:
                             stored_settings = get_all_frontend_settings()
@@ -235,7 +201,10 @@ def initialize_websocket_manager():
                         }
                         universal_settings = extract_universal_settings(request_data_for_settings, "websocket_chat")
                         
-                        # Step 0.5: Handle session management and delta filtering
+                        # Don't clear client data - let delta service handle filtering
+                        # clear_client_data(client_id)
+                        
+                        # Get or create AI session first before using session_id
                         from services.system_services.service_factory import get_ai_session_manager, get_message_delta_service
                         
                         ai_session_manager = get_ai_session_manager()
@@ -258,11 +227,40 @@ def initialize_websocket_manager():
                             logger.info(f"Force full context for session {session_id} - bypassing delta filtering")
                             message_delta_service.force_full_context(session_id)
                         
+                        # Add each message to WebSocket message collector for this client with delta filtering
+                        for msg in messages:
+                            if isinstance(msg, dict):
+                                # Simplified dice roll detection - delegate to unified processor
+                                msg_type = msg.get("type", "")
+                                content = msg.get("content", "")
+                                
+                                # Check if this is a dice roll message (basic type check only)
+                                is_dice_roll = (msg_type == "roll")
+                                
+                                if is_dice_roll:
+                                    # This is a dice roll - add to rolls collection with delta filtering
+                                    logger.debug(f"Detected dice roll: {content} (type: {msg_type})")
+                                    add_client_roll_with_delta(client_id, msg, session_id)
+                                else:
+                                    # This is a regular chat message - add with delta filtering
+                                    add_client_message_with_delta(client_id, msg, session_id)
+                            elif isinstance(msg, str):
+                                # Convert string messages to dict format and add with delta filtering
+                                add_client_message_with_delta(client_id, {
+                                    "content": msg,
+                                    "type": "chat",
+                                    "timestamp": int(time.time() * 1000)
+                                }, session_id)
+                        
+                        # Get delta-filtered messages from WebSocket message collector for processing
+                        from services.message_services.websocket_message_collector import get_delta_filtered_client_messages
+                        stored_messages = get_delta_filtered_client_messages(client_id, session_id, context_count)
+                        
+                        # Log actual message count for debugging
+                        logger.debug(f"Retrieved {len(stored_messages)} messages from WebSocket collector (requested: {context_count})")
+                        
                         # Add session ID to universal settings for response delivery
                         universal_settings['ai_session_id'] = session_id
-                        
-                        # Get provider config
-                        provider_config = get_provider_config(universal_settings, use_tactical=False)
                         
                         # Add client ID to universal settings for response delivery
                         universal_settings['relay client id'] = client_id
@@ -272,29 +270,17 @@ def initialize_websocket_manager():
                         ai_service = get_ai_service()
                         processor = get_unified_processor()
                         
-                        # Step 1.5: Apply delta filtering to messages
-                        if not force_full_context:
-                            # Apply delta filtering to get only new messages since last AI call
-                            filtered_messages = message_delta_service.apply_message_delta(session_id, stored_messages)
-                            
-                            # Log delta statistics for debugging
-                            delta_stats = message_delta_service.get_delta_stats(session_id, stored_messages)
-                            logger.info(f"Delta filtering for WebSocket session {session_id}: {delta_stats['filtered_count']}/{delta_stats['original_count']} messages ({delta_stats['delta_ratio']:.1%} reduction)")
-                            
-                            # Use filtered messages for processing
-                            messages_to_process = filtered_messages
-                        else:
-                            # Force full context - bypass delta filtering
-                            logger.info(f"Force full context for WebSocket session {session_id} - bypassing delta filtering")
-                            if force_full_context:
-                                # Clear session timestamp to ensure next call gets full context
-                                message_delta_service.force_full_context(session_id)
-                            
-                            # Use all messages for processing
-                            messages_to_process = stored_messages
+                        # Step 1.5: Convert raw HTML messages to compact JSON for AI service
+                        compact_stored_messages = self._convert_raw_html_to_compact(stored_messages)
                         
-                        # Convert raw HTML messages to compact JSON for AI
-                        compact_messages = self._convert_raw_html_to_compact(messages_to_process)
+                        # Delta filtering already logged by get_delta_filtered_client_messages()
+                        # Force full context if requested
+                        if force_full_context:
+                            logger.info(f"Force full context for WebSocket session {session_id} - bypassing delta filtering")
+                            message_delta_service.force_full_context(session_id)
+                        
+                        # Use compact messages (AI service will handle conversation history)
+                        compact_messages = compact_stored_messages
                         
                         # Get fresh combat context from CombatEncounterService for AI (same as API chat endpoint)
                         try:
@@ -346,11 +332,12 @@ def initialize_websocket_manager():
                             content = msg.get('content', '')
                             logger.info(f"Message {i+1} ({role}):\n{content}")
                         
-                        # Call AI service directly
+                        # Call AI service directly with session_id for conversation history
                         ai_response_data = await ai_service.process_compact_context(
                             processed_messages=compact_messages,
                             system_prompt=system_prompt,
-                            settings=universal_settings
+                            settings=universal_settings,
+                            session_id=session_id  # Pass session_id for conversation history
                         )
                         
                         ai_response = ai_response_data.get("response", "")
@@ -359,6 +346,7 @@ def initialize_websocket_manager():
                         api_formatted = processor.process_ai_response(ai_response, compact_messages)
                         
                         # Send processed messages to Foundry via WebSocket
+                        # AI response is already stored by ai_service.process_compact_context()
                         if api_formatted and api_formatted.get("success", False):
                             client_id_for_ws = universal_settings.get('relay client id')
                             if client_id_for_ws:
@@ -385,6 +373,33 @@ def initialize_websocket_manager():
                 except Exception as e:
                     logger.error(f"Unexpected WebSocket error for {client_id}: {e}")
                     raise MessageProcessingException(f"Unexpected WebSocket error for {client_id}: {e}")
+            
+            async def _store_ai_response_in_history(self, session_id: str, ai_response: str, ai_service, processor):
+                """Store AI response in conversation history using the same logic as AI service"""
+                try:
+                    # Use the same logic as AI service to store in conversation history
+                    # This ensures consistency between what's sent to frontend and what's stored in history
+                    
+                    # Store the raw AI response in OpenAI format for conversation history
+                    history_message = {
+                        "role": "assistant",
+                        "content": ai_response,
+                        "timestamp": int(time.time() * 1000)
+                    }
+                    
+                    # Store using AI session manager
+                    from services.system_services.service_factory import get_ai_session_manager
+                    ai_session_manager = get_ai_session_manager()
+                    success = ai_session_manager.add_conversation_message(session_id, history_message)
+                    
+                    if success:
+                        logger.info(f"AI response stored in conversation history for session {session_id}")
+                    else:
+                        logger.warning(f"Failed to store AI response in conversation history for session {session_id}")
+                        
+                except Exception as e:
+                    logger.error(f"Error storing AI response in conversation history: {e}")
+                    # Don't fail the entire operation if history storage fails
             
             def _convert_raw_html_to_compact(self, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 """Convert raw HTML messages from WebSocket to compact JSON format"""
@@ -480,11 +495,20 @@ def initialize_websocket_manager():
                         })
                         return
                     
-                    # Use WebSocket message collector
-                    from services.message_services.websocket_message_collector import add_client_message
+                    # Use WebSocket message collector with delta filtering
+                    from services.message_services.websocket_message_collector import add_client_message_with_delta
                     
-                    # Add chat message to collector
-                    success = add_client_message(client_id, message_data)
+                    # Get session ID for delta filtering (create temporary session if needed)
+                    from services.system_services.service_factory import get_ai_session_manager, get_message_delta_service
+                    ai_session_manager = get_ai_session_manager()
+                    message_delta_service = get_message_delta_service()
+                    
+                    # Get or create temporary session for individual message handling
+                    temp_session_id = f"temp_{client_id}_{int(time.time())}"
+                    session_id = ai_session_manager.create_or_get_session(client_id, None, "unknown", "unknown")
+                    
+                    # Add chat message to collector with delta filtering
+                    success = add_client_message_with_delta(client_id, message_data, session_id)
                     if not success:
                         await self.send_to_client(client_id, {
                             "type": "error",
@@ -522,11 +546,20 @@ def initialize_websocket_manager():
                         })
                         return
                     
-                    # Use WebSocket message collector
-                    from services.message_services.websocket_message_collector import add_client_roll
+                    # Use WebSocket message collector with delta filtering
+                    from services.message_services.websocket_message_collector import add_client_roll_with_delta
                     
-                    # Add dice roll to collector
-                    success = add_client_roll(client_id, roll_data)
+                    # Get session ID for delta filtering (create temporary session if needed)
+                    from services.system_services.service_factory import get_ai_session_manager, get_message_delta_service
+                    ai_session_manager = get_ai_session_manager()
+                    message_delta_service = get_message_delta_service()
+                    
+                    # Get or create temporary session for individual message handling
+                    temp_session_id = f"temp_{client_id}_{int(time.time())}"
+                    session_id = ai_session_manager.create_or_get_session(client_id, None, "unknown", "unknown")
+                    
+                    # Add dice roll to collector with delta filtering
+                    success = add_client_roll_with_delta(client_id, roll_data, session_id)
                     if not success:
                         await self.send_to_client(client_id, {
                             "type": "error",
@@ -603,7 +636,7 @@ def initialize_websocket_manager():
                 from shared.core.unified_message_processor import get_unified_processor
                 
                 content = message.get("content", "")
-                original_timestamp = message.get("timestamp", int(time.time() * 1000))
+                original_timestamp = message.get("timestamp")
                 
                 # Skip empty messages
                 if not content or not content.strip():
@@ -613,9 +646,13 @@ def initialize_websocket_manager():
                 processor = get_unified_processor()
                 parsed = processor.html_to_compact_json(content)
                 
-                # Override with original timestamp
+                # Override with original timestamp if provided, otherwise use current time
                 if 'ts' in parsed:
-                    parsed['ts'] = original_timestamp
+                    if original_timestamp is not None:
+                        parsed['ts'] = original_timestamp
+                else:
+                    # Generate timestamp from message if not provided
+                    parsed['ts'] = int(time.time() * 1000)
                 
                 return parsed
             
@@ -818,14 +855,14 @@ def get_global_services() -> Dict[str, Any]:
     try:
         json_optimizer = JSONOptimizer()
         if not ServiceRegistry.register('json_optimizer', json_optimizer):
-            logger.error("Failed to register JSON optimizer")
+            logger.error("Failed to register json optimizer")
         else:
             services['json_optimizer'] = json_optimizer
     except (ImportError, RuntimeError) as e:
-        logger.error(f"Failed to initialize JSON optimizer: {e}")
+        logger.error(f"Failed to initialize json optimizer: {e}")
         raise StartupServicesException(f"JSON optimizer initialization failed: {e}")
     except Exception as e:
-        logger.error(f"Failed to initialize JSON optimizer: {e}")
+        logger.error(f"Failed to initialize json optimizer: {e}")
         raise StartupServicesException(f"Unexpected JSON optimizer error: {e}")
     
     # Initialize combat encounter service directly to avoid ServiceFactory circular dependency
@@ -929,7 +966,7 @@ def get_global_services() -> Dict[str, Any]:
         raise StartupServicesException(f"Unexpected message delta service error: {e}")
     
     # Initialize AI service - move after ServiceRegistry is ready
-    # This will be initialized later in the startup sequence
+    # This will be initialized later in startup sequence
     services['ai_service'] = None  # Placeholder, will be set after registry is ready
     
     # Start WebSocket chat handler

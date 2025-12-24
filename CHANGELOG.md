@@ -5,6 +5,76 @@ All notable changes to The Gold Box project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0/).
 
+## [0.3.6] - 2025-12-24
+
+### Major Release: Full Conversation History Support
+
+#### Conversation History Management
+- **Enhanced AI Session Manager** - Complete conversation history storage in OpenAI format for AI compatibility
+- **Token-Based Memory Management** - Configurable token limits with intelligent pruning (default: 5000 tokens)
+- **Smart Context Assembly** - Combines conversation history with delta-filtered new messages for optimal AI responses
+- **Automatic Memory Cleanup** - Configurable time-based and count-based limits with automatic expiration
+
+#### Memory Configuration
+- **User-Configurable Limits** - Backend supports memorySettings for token, message count, and time limits
+- **Default Token Limit** - 5000 tokens (configurable via maxHistoryTokens)
+- **Message Count Limits** - Optional maxHistoryMessages setting (default: 50 messages)
+- **Time-Based Expiration** - Optional maxHistoryHours setting (default: 24 hours)
+- **Settings Validation** - FrontendSettingsHandler validates memory settings structure
+
+#### Enhanced Delta Service
+- **get_enhanced_context() Method** - Combines conversation history with new delta-filtered messages
+- **Improved Timestamp Normalization** - Supports both 'ts' (compact format) and 'timestamp' (legacy format)
+- **Critical Timestamp Fix** - No longer overwrites AI response timestamps with user message timestamps
+- **Better Context Logging** - Detailed logging of history + new message counts
+
+#### AI Service Integration
+- **Direct History Access** - AI Service calls get_conversation_history() with token pruning
+- **Conversation Message Storage** - Both user messages and AI responses stored in history
+- **Timestamp Management** - Session timestamp updated only when AI responses are stored
+- **OpenAI Format Messages** - Messages stored in standard OpenAI format for provider compatibility
+
+#### Session Management Enhancements
+- **add_conversation_message()** - Store messages in conversation history
+- **get_conversation_history()** - Retrieve history with configurable limits
+- **prune_by_tokens()** - Remove oldest messages when token limit exceeded
+- **clear_conversation_history()** - Clear history for session
+- **get_session_info()** - Get session statistics including history metrics
+
+#### Backend Services Updated
+- **AISessionManager** - Added conversation history storage and retrieval methods
+- **MessageDeltaService** - Enhanced with get_enhanced_context() and improved timestamp handling
+- **FrontendSettingsHandler** - Added validation for memorySettings structure
+- **AIService** - Integrated conversation history with process_compact_context()
+
+#### Technical Improvements
+- **Token Estimation** - Rough estimation (~4 characters per token) for memory management
+- **System Message Preservation** - System messages preserved during token pruning
+- **Automatic Cleanup** - Auto-cleanup triggered during session operations
+- **Memory Statistics** - Session info includes conversation history metrics
+
+#### Backend Configuration
+- **Default Memory Limits** - 50 messages, 24 hours, 5000 tokens (configurable)
+- **Session Timeout** - 2 weeks (20160 minutes) unchanged
+- **Cleanup Interval** - 10 minutes for automatic session and history cleanup
+
+#### API Changes
+- **Session Management** - Sessions now track conversation history alongside timestamps
+- **Context Assembly** - AI receives full conversation context within token limits
+- **Memory Efficiency** - Delta filtering still applies to new messages for token savings
+
+#### Future Enhancements
+- Frontend UI for memory configuration
+- User-accessible clear history functionality
+- Memory usage statistics display
+- Session monitoring dashboard
+
+#### Migration Notes
+- **Automatic Upgrade** - Existing installations will automatically support conversation history
+- **No Settings Changes Required** - Default memory limits apply automatically
+- **Backward Compatible** - Delta filtering and session management work as before
+- **Enhanced AI Responses** - AI now has full conversation context within token limits
+
 ## [0.3.5] - 2025-12-18
 
 ### Major AI Enhancement Release

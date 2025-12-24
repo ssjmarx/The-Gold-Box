@@ -43,6 +43,45 @@ class MessageDeltaService:
         
         logger.info("MessageDeltaService initialized with AI session manager integration")
     
+    def get_enhanced_context(self, session_id: str, new_messages: List[Dict[str, Any]], 
+                           max_history_messages: Optional[int] = None, 
+                           max_history_hours: Optional[int] = None) -> List[Dict[str, Any]]:
+        """
+        Get enhanced context combining conversation history with new delta-filtered messages
+        
+        Args:
+            session_id: Session identifier for history tracking
+            new_messages: List of new messages to apply delta filtering to
+            max_history_messages: Maximum history messages to include (None for default)
+            max_history_hours: Maximum age in hours for history messages (None for default)
+            
+        Returns:
+            Combined context with conversation history + new messages
+        """
+        if not new_messages:
+            logger.debug(f"No new messages for session {session_id}, returning conversation history only")
+            return self.ai_session_manager.get_conversation_history(
+                session_id, max_messages=max_history_messages, max_hours=max_history_hours
+            )
+        
+        # Ensure auto-cleanup happens
+        self.ai_session_manager.auto_cleanup()
+        
+        # Get conversation history
+        conversation_history = self.ai_session_manager.get_conversation_history(
+            session_id, max_messages=max_history_messages, max_hours=max_history_hours
+        )
+        
+        # Apply delta filtering to new messages
+        delta_filtered_messages = self.apply_message_delta(session_id, new_messages)
+        
+        # Combine conversation history with new messages
+        full_context = conversation_history + delta_filtered_messages
+        
+        logger.info(f"Session {session_id} enhanced context: {len(conversation_history)} history + {len(delta_filtered_messages)} new = {len(full_context)} total messages")
+        
+        return full_context
+    
     def apply_message_delta(self, session_id: str, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Apply delta filtering to messages based on session timestamps
@@ -78,31 +117,28 @@ class MessageDeltaService:
             
             return messages
         
+        # Normalize stored timestamp to milliseconds for comparison
+        # (it might be stored in seconds if from older code)
+        normalized_last_timestamp = self._normalize_timestamp(last_timestamp)
+        
         # Filter messages newer than stored timestamp (normalize both for comparison)
         new_messages = []
         for msg in messages:
-            msg_timestamp = msg.get('timestamp')
+            # Check both 'ts' (compact format) and 'timestamp' (legacy format) fields
+            msg_timestamp = msg.get('ts') or msg.get('timestamp')
             if msg_timestamp is not None:
                 normalized_timestamp = self._normalize_timestamp(msg_timestamp)
-                if normalized_timestamp is not None and normalized_timestamp > last_timestamp:
+                # Use >= instead of > to exclude messages with same timestamp as last AI response
+                if normalized_timestamp is not None and normalized_last_timestamp is not None and normalized_timestamp > normalized_last_timestamp:
                     new_messages.append(msg)
             else:
                 # Include messages without timestamps (they're always considered "new")
                 new_messages.append(msg)
         
-        # Update timestamp to newest message if we have new messages
-        if new_messages:
-            newest_timestamp = self._get_newest_message_timestamp(new_messages)
-            if newest_timestamp is not None:
-                success = self.ai_session_manager.update_session_timestamp(session_id, newest_timestamp)
-                if success:
-                    logger.info(f"Session {session_id} delta: {len(new_messages)}/{len(messages)} new messages, updated timestamp to {newest_timestamp}")
-                else:
-                    logger.warning(f"Failed to update timestamp for session {session_id}")
-            else:
-                logger.warning(f"No valid timestamps found in new messages for session {session_id}")
-        else:
-            logger.debug(f"Session {session_id}: No new messages since timestamp {last_timestamp}")
+        # Note: Timestamp should only be updated when AI responses are stored in AI service
+        # NOT when user messages come in via delta filtering
+        # This prevents overwriting AI response timestamp with newer user message timestamp
+        logger.debug(f"Session {session_id}: {len(new_messages)}/{len(messages)} new messages since timestamp {last_timestamp}")
         
         return new_messages
     
@@ -140,13 +176,17 @@ class MessageDeltaService:
                 'is_new_session': True
             }
         
+        # Normalize stored timestamp to milliseconds for comparison
+        normalized_last_timestamp = self._normalize_timestamp(last_timestamp)
+        
         # Count messages newer than timestamp (using normalized timestamps)
         new_count = 0
         for msg in original_messages:
-            msg_timestamp = msg.get('timestamp')
+            # Check both 'ts' (compact format) and 'timestamp' (legacy format) fields
+            msg_timestamp = msg.get('ts') or msg.get('timestamp')
             if msg_timestamp is not None:
                 normalized_timestamp = self._normalize_timestamp(msg_timestamp)
-                if normalized_timestamp is not None and normalized_timestamp > last_timestamp:
+                if normalized_timestamp is not None and normalized_last_timestamp is not None and normalized_timestamp > normalized_last_timestamp:
                     new_count += 1
             else:
                 # Messages without timestamps are always considered "new"
@@ -198,7 +238,8 @@ class MessageDeltaService:
         # Extract and normalize timestamps
         normalized_timestamps = []
         for msg in messages:
-            timestamp = msg.get('timestamp')
+            # Check both 'ts' (compact format) and 'timestamp' (legacy format) fields
+            timestamp = msg.get('ts') or msg.get('timestamp')
             if timestamp is not None:
                 # Convert timestamp to milliseconds (Unix epoch in milliseconds)
                 normalized = self._normalize_timestamp(timestamp)
@@ -225,17 +266,17 @@ class MessageDeltaService:
             if isinstance(timestamp, str):
                 timestamp = int(timestamp)
             
-            # Check if timestamp is in microseconds (very large number)
-            # Unix timestamps in microseconds would be > 10^12 (year 2001+)
-            if timestamp > 10**12:  # 1 trillion = year 2001 in microseconds
+            # Check if timestamp is in microseconds (very large number, > 10^15)
+            # Unix timestamps in microseconds would be > 10^15 (year 1970+)
+            if timestamp > 10**15:  # 1 quadrillion = year 1970 in microseconds
                 # Convert from microseconds to milliseconds
                 normalized = timestamp // 1000
                 logger.debug(f"Converted microsecond timestamp {timestamp} to millisecond timestamp {normalized}")
                 return normalized
             
-            # Check if timestamp is in seconds (reasonable range for seconds)
-            # Unix timestamps in seconds would be around 10^9 (year 2001+)
-            elif timestamp < 10**10:  # 10 billion = year 2286 in seconds
+            # Check if timestamp is in seconds (reasonable range for seconds, < 10^12)
+            # Unix timestamps in seconds would be around 10^9 (year 2001+) to 10^11 (year 5138)
+            elif timestamp < 10**12:  # 1 trillion = year 2001 in milliseconds
                 # Convert from seconds to milliseconds
                 normalized = timestamp * 1000
                 logger.debug(f"Converted second timestamp {timestamp} to millisecond timestamp {normalized}")

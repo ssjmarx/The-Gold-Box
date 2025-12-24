@@ -249,4 +249,93 @@ def create_session_router(global_config):
                 detail="Failed to get AI session statistics"
             )
     
+    @router.get("/ai_session/history/{session_id}")
+    async def get_conversation_history(request: Request, session_id: str):
+        """
+        Get conversation history for an AI session
+        
+        Returns conversation messages with optional limits
+        Security is handled by UniversalSecurityMiddleware
+        """
+        try:
+            # Import service factory functions
+            from services.system_services.service_factory import get_ai_session_manager
+            
+            ai_session_mgr = get_ai_session_manager()
+            
+            # Get query parameters for limits
+            max_messages = request.query_params.get('max_messages')
+            max_hours = request.query_params.get('max_hours')
+            
+            # Convert to proper types if provided
+            if max_messages is not None:
+                try:
+                    max_messages = int(max_messages)
+                except ValueError:
+                    max_messages = None
+            
+            if max_hours is not None:
+                try:
+                    max_hours = int(max_hours)
+                except ValueError:
+                    max_hours = None
+            
+            # Get conversation history
+            history = ai_session_mgr.get_conversation_history(session_id, max_messages, max_hours)
+            
+            return {
+                'session_id': session_id,
+                'conversation_history': history,
+                'message_count': len(history),
+                'max_messages': max_messages,
+                'max_hours': max_hours,
+                'message': 'Conversation history retrieved successfully'
+            }
+            
+        except Exception as e:
+            logger.error(f"Conversation history error: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to get conversation history"
+            )
+    
+    @router.delete("/ai_session/history/{session_id}")
+    async def clear_conversation_history(request: Request, session_id: str):
+        """
+        Clear conversation history for an AI session
+        
+        Removes all conversation messages from session
+        Security is handled by UniversalSecurityMiddleware
+        """
+        try:
+            # Import service factory functions
+            from services.system_services.service_factory import get_ai_session_manager
+            
+            ai_session_mgr = get_ai_session_manager()
+            
+            # Clear conversation history
+            success = ai_session_mgr.clear_conversation_history(session_id)
+            
+            if not success:
+                raise HTTPException(
+                    status_code=404,
+                    detail="AI session not found or expired"
+                )
+            
+            return {
+                'session_id': session_id,
+                'success': success,
+                'message': 'Conversation history cleared successfully' if success else 'Failed to clear conversation history'
+            }
+            
+        except HTTPException:
+            # Re-raise HTTP exceptions
+            raise
+        except Exception as e:
+            logger.error(f"Clear conversation history error: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to clear conversation history"
+            )
+    
     return router

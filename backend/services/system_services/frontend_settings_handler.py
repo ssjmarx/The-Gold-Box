@@ -184,6 +184,7 @@ class FrontendSettingsHandler:
             'general llm base url': (str, None, None, ''),
             'general llm version': (str, None, None, 'v1'),
             'general llm custom headers': (str, None, None, '{}'),
+            'memorySettings': (dict, None, None, {}),
         }
         
         for setting, (type_func, min_val, max_val, default) in optional_settings.items():
@@ -210,7 +211,51 @@ class FrontendSettingsHandler:
         # Copy other settings through (for extensibility)
         for key, value in settings.items():
             if key not in validated and not key.startswith('_'):
-                validated[key] = value
+                # Special validation for memorySettings
+                if key == 'memorySettings':
+                    if isinstance(value, dict):
+                        # Validate memorySettings structure
+                        memory_validated = {}
+                        if 'maxHistoryTokens' in value:
+                            try:
+                                max_tokens = int(value['maxHistoryTokens'])
+                                if max_tokens > 0:
+                                    memory_validated['maxHistoryTokens'] = max_tokens
+                                else:
+                                    validation_errors.append("maxHistoryTokens must be greater than 0")
+                            except (ValueError, TypeError):
+                                validation_errors.append("maxHistoryTokens must be a valid integer")
+                        
+                        if 'maxHistoryMessages' in value:
+                            try:
+                                max_messages = int(value['maxHistoryMessages'])
+                                if max_messages > 0:
+                                    memory_validated['maxHistoryMessages'] = max_messages
+                                else:
+                                    validation_errors.append("maxHistoryMessages must be greater than 0")
+                            except (ValueError, TypeError):
+                                validation_errors.append("maxHistoryMessages must be a valid integer")
+                        
+                        if 'maxHistoryHours' in value:
+                            try:
+                                max_hours = int(value['maxHistoryHours'])
+                                if max_hours > 0:
+                                    memory_validated['maxHistoryHours'] = max_hours
+                                else:
+                                    validation_errors.append("maxHistoryHours must be greater than 0")
+                            except (ValueError, TypeError):
+                                validation_errors.append("maxHistoryHours must be a valid integer")
+                        
+                        # Set default maxHistoryTokens if not provided
+                        if 'maxHistoryTokens' not in memory_validated:
+                            memory_validated['maxHistoryTokens'] = 5000  # Default 5k tokens
+                        
+                        validated[key] = memory_validated
+                    else:
+                        validation_errors.append("memorySettings must be a dictionary")
+                        validated[key] = {'maxHistoryTokens': 5000}  # Default fallback
+                else:
+                    validated[key] = value
         
         if validation_errors:
             logger.warning(f"Frontend settings validation errors: {validation_errors}")

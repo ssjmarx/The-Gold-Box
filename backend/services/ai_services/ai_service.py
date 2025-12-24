@@ -7,6 +7,7 @@ Provides unified interface for both simple_chat and process_chat endpoints
 """
 
 import os
+import time
 import asyncio
 import logging
 import litellm
@@ -270,14 +271,15 @@ class AIService:
             # Wrap unexpected exceptions
             raise ProviderException(f"Error processing message context: {str(e)}")
     
-    async def process_compact_context(self, processed_messages: List[Dict], system_prompt: str, settings: Dict[str, Any]) -> Dict[str, Any]:
+    async def process_compact_context(self, processed_messages: List[Dict], system_prompt: str, settings: Dict[str, Any], session_id: Optional[str] = None) -> Dict[str, Any]:
         """
-        Process compact JSON context for process chat endpoint
+        Process compact JSON context for process chat endpoint with conversation history support
         
         Args:
-            processed_messages: List of compact JSON messages from processor
+            processed_messages: List of compact JSON messages from processor (NEW FOUNDRY MESSAGES ONLY)
             system_prompt: System prompt for AI
             settings: Frontend settings including provider info
+            session_id: Optional session ID for conversation history
             
         Returns:
             Response dictionary with success/error info
@@ -287,7 +289,7 @@ class AIService:
             ValidationException: When compact context is invalid
         """
         try:
-            # Check if in combat to determine tactical vs general LLM
+            # Check if in combat to determine tactical vs general LLM (use processed_messages for this)
             use_tactical = self._should_use_tactical_llm(processed_messages)
             
             # Use universal settings to get provider config
@@ -312,17 +314,77 @@ class AIService:
                     model = 'default'
             
             # Validate inputs
-            if not processed_messages or not isinstance(processed_messages, list):
-                raise ValidationException("Processed messages must be a non-empty list")
-            
             if not system_prompt or not isinstance(system_prompt, str):
                 raise ValidationException("System prompt must be a non-empty string")
             
-            # Convert processed messages to JSON string for AI context
-            import json
-            compact_json_context = json.dumps(processed_messages, indent=2)
+            # Build AI message list using conversation history
+            ai_messages = []
             
-            # Generate dynamic combat-aware prompt
+            if session_id:
+                from ..ai_services.ai_session_manager import get_ai_session_manager
+                from ..message_services.message_delta_service import get_message_delta_service
+                from ..ai_services.ai_session_manager import estimate_tokens
+                
+                ai_session_manager = get_ai_session_manager()
+                delta_service = get_message_delta_service()
+                
+                # Get token limit from settings (default 5000)
+                max_history_tokens = settings.get('memorySettings', {}).get('maxHistoryTokens', 5000)
+                
+                # Get conversation history in OpenAI format with token pruning
+                conversation_history = ai_session_manager.get_conversation_history(
+                    session_id, max_tokens=max_history_tokens
+                )
+                
+                # Add conversation history to AI messages (excluding any existing system message)
+                for msg in conversation_history:
+                    if msg.get('role') != 'system':
+                        ai_messages.append(msg)
+                
+                # Store new user messages (compact JSON converted to OpenAI format)
+                if processed_messages:
+                    # Convert compact JSON context to user message
+                    import json
+                    compact_json_context = json.dumps(processed_messages, indent=2)
+                    
+                    # Get timestamp from newest message in processed_messages for proper delta tracking
+                    newest_timestamp = None
+                    for msg in processed_messages:
+                        msg_ts = msg.get('ts') or msg.get('timestamp')
+                        if msg_ts and (newest_timestamp is None or msg_ts > newest_timestamp):
+                            newest_timestamp = msg_ts
+                    
+                    # Use newest message timestamp if available, otherwise use current time
+                    user_timestamp = newest_timestamp if newest_timestamp else int(time.time() * 1000)
+                    
+                    user_message = {
+                        "role": "user",
+                        "content": f"Chat Context (Compact JSON Format):\n{compact_json_context}",
+                        "timestamp": user_timestamp
+                    }
+                    
+                    # Add to AI messages
+                    ai_messages.append(user_message)
+                    
+                    # Store in conversation history immediately
+                    success = ai_session_manager.add_conversation_message(session_id, user_message)
+                    if success:
+                        logger.debug(f"Stored user message in conversation history for session {session_id} with timestamp {user_timestamp}")
+                    else:
+                        logger.warning(f"Failed to store user message in conversation history for session {session_id}")
+                
+                logger.info(f"Using conversation history for session {session_id}: {len(conversation_history)} history + {len(processed_messages)} new = {len(ai_messages)} total messages")
+            else:
+                # No session_id - fallback to single message with compact context
+                import json
+                compact_json_context = json.dumps(processed_messages, indent=2)
+                
+                ai_messages = [
+                    {"role": "user", "content": f"Chat Context (Compact JSON Format):\n{compact_json_context}"}
+                ]
+                logger.debug("No session_id provided, using single message without history")
+            
+            # Generate dynamic combat-aware prompt from processed_messages
             from .combat_prompt_generator import get_combat_prompt_generator
             
             combat_prompt_generator = get_combat_prompt_generator()
@@ -331,11 +393,12 @@ class AIService:
             
             dynamic_prompt = combat_prompt_generator.generate_prompt(combat_context, combat_state)
             
-            # Prepare messages for LLM with compact JSON context
-            ai_messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Chat Context (Compact JSON Format):\n{compact_json_context}\n\n{dynamic_prompt}"}
-            ]
+            # Add system prompt at the beginning
+            ai_messages.insert(0, {"role": "system", "content": system_prompt})
+            
+            # Add dynamic prompt to last user message
+            if ai_messages and ai_messages[-1].get('role') == 'user':
+                ai_messages[-1]['content'] += f"\n\n{dynamic_prompt}"
             
             # Prepare provider configuration
             provider_config = {
@@ -356,7 +419,36 @@ class AIService:
                     raise ValidationException(f"Invalid custom headers JSON: {e}")
             
             # Make AI call
-            return await self.call_ai_provider(ai_messages, provider_config)
+            response = await self.call_ai_provider(ai_messages, provider_config)
+            
+            # Store AI response in conversation history if session_id provided
+            if session_id and response.get('success'):
+                ai_response_content = response.get('response', '')
+                if ai_response_content:
+                    from ..ai_services.ai_session_manager import get_ai_session_manager
+                    ai_session_manager = get_ai_session_manager()
+                    
+                    ai_message = {
+                        "role": "assistant",
+                        "content": ai_response_content,
+                        "timestamp": int(time.time() * 1000)
+                    }
+                    
+                    success = ai_session_manager.add_conversation_message(session_id, ai_message)
+                    if success:
+                        logger.info(f"Stored AI response in conversation history for session {session_id}")
+                        
+                        # Update delta timestamp to prevent re-gathering this AI response
+                        # Use the AI response timestamp directly (when it was created)
+                        success = ai_session_manager.update_session_timestamp(session_id, ai_message['timestamp'])
+                        if success:
+                            logger.debug(f"Updated delta timestamp for session {session_id} to {ai_message['timestamp']} to exclude AI response from next retrieval")
+                        else:
+                            logger.warning(f"Failed to update delta timestamp for session {session_id}")
+                    else:
+                        logger.warning(f"Failed to store AI response in conversation history for session {session_id}")
+            
+            return response
             
         except (ProviderException, APIKeyException, TimeoutException, ValidationException):
             # Re-raise our custom exceptions directly
