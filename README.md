@@ -70,7 +70,6 @@ Press the **"Take AI Turn"** button in the chat sidebar to send your conversatio
 - **Detailed Usage Guide**: [USAGE.md](USAGE.md) - Advanced configuration and settings
 - **Dependencies**: [DEPENDENCIES.md](DEPENDENCIES.md) - Complete dependency list
 - **Changelog**: [CHANGELOG.md](CHANGELOG.md) - Version history and changes
-- **Backend Documentation**: [backend/README.md](backend/README.md) - Backend development documentation
 
 ## Donations
 
