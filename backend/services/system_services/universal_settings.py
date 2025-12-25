@@ -126,13 +126,13 @@ class UniversalSettings:
             'default': '{}',
             'description': 'Custom headers JSON string for tactical LLM'
         },
-        'maximum message context': {
-            'type': int, 
-            'required': False, 
-            'default': 50,
-            'min': 1,
-            'max': 100,
-            'description': 'Maximum number of messages to include in context'
+        'max history tokens': {
+            'type': int,
+            'required': False,
+            'default': 5000,
+            'min': 1000,
+            'max': 32000,
+            'description': 'Maximum tokens to keep in conversation history before cleaning up oldest messages'
         },
         'chat processing mode': {
             'type': str, 
@@ -177,6 +177,12 @@ class UniversalSettings:
             'required': False, 
             'default': True,
             'description': 'Automatically use tactical LLM during combat'
+        },
+        'disable function calling': {
+            'type': bool,
+            'required': False,
+            'default': False,
+            'description': 'Disable AI tool usage (get_messages, post_messages). Only enable if your AI provider does not support function calling.'
         }
     }
     
@@ -200,7 +206,7 @@ class UniversalSettings:
                 # Check if settings are nested under 'settings' key or are the request data itself
                 if 'settings' in request_data:
                     settings = request_data.get('settings', {})
-                elif any(key.startswith('general') or key.startswith('tactical') or key in ['maximum message context', 'chat processing mode', 'ai role', 'relay client id', 'backend password'] for key in request_data.keys()):
+                elif any(key.startswith('general') or key.startswith('tactical') or key in ['max history tokens', 'chat processing mode', 'ai role', 'relay client id', 'backend password', 'disable function calling'] for key in request_data.keys()):
                     # Settings are directly in request data (not nested)
                     settings = request_data
                 else:
@@ -295,6 +301,23 @@ class UniversalSettings:
                         return schema['default'], f"Cannot convert {field_name} to string"
                 else:
                     validated = value.strip() if hasattr(value, 'strip') else value
+            elif expected_type == bool:
+                # Handle boolean type - accept bool, string, or numeric values
+                if isinstance(value, bool):
+                    validated = value
+                elif isinstance(value, str):
+                    # Convert string to bool
+                    lower_val = value.strip().lower()
+                    if lower_val in ('true', 'yes', '1', 'on', 'enabled'):
+                        validated = True
+                    elif lower_val in ('false', 'no', '0', 'off', 'disabled'):
+                        validated = False
+                    else:
+                        return schema['default'], f"Cannot convert {field_name} '{value}' to boolean"
+                elif isinstance(value, (int, float)):
+                    validated = bool(value)
+                else:
+                    return schema['default'], f"Invalid type for {field_name}: {type(value)}"
             elif expected_type == int:
                 if isinstance(value, str):
                     try:

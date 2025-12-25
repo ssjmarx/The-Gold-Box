@@ -97,8 +97,7 @@ class FrontendSettingsHandler:
             self._frontend_settings = validated_settings
             self._last_updated = datetime.now()
             
-            logger.info(f"Received settings from frontend{f' (client {client_id})' if client_id else ''}: {len(validated_settings)} settings")
-            logger.debug(f"Frontend settings keys: {list(validated_settings.keys())}")
+            logger.debug(f"Received settings from frontend{f' (client {client_id})' if client_id else ''}: {len(validated_settings)} settings")
             
             return True
             

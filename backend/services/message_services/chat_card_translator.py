@@ -343,8 +343,8 @@ class ChatCardTranslator:
         abbreviations_count = len(value_dict)
         fields_saved = original_field_count - optimized_field_count
         
-        if fields_saved > 0 or abbreviations_count > 0:
-            self.logger.info(f"Post-processing: saved {fields_saved} fields, created {abbreviations_count} abbreviations")
+        # if fields_saved > 0 or abbreviations_count > 0:
+        #     self.logger.info(f"Post-processing: saved {fields_saved} fields, created {abbreviations_count} abbreviations")
         
         return result
     
@@ -421,7 +421,7 @@ class ChatCardTranslator:
             if analysis.get('confidence_score'):
                 compact_data['cs'] = round(analysis['confidence_score'], 2)
             
-            self.logger.info(f"Converted {len(fields)} fields to compact format for {target_card_type}")
+            # self.logger.info(f"Converted {len(fields)} fields to compact format for {target_card_type}")
             return compact_data
             
         except Exception as e:
@@ -498,7 +498,7 @@ class ChatCardTranslator:
             if 'ct' in compact_data:
                 websocket_data['content']['cardType'] = compact_data['ct']
             
-            self.logger.info(f"Converted compact data to WebSocket format for {target_card_type}")
+            # self.logger.info(f"Converted compact data to WebSocket format for {target_card_type}")
             return websocket_data
             
         except Exception as e:

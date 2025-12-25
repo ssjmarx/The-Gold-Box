@@ -303,7 +303,7 @@ class WebSocketMessageCollector:
             # Log delta statistics for debugging
             if self.delta_service:
                 stats = self.get_delta_stats(client_id, session_id)
-                logger.info(f"Delta filtering for session {session_id}: {stats['filtered_count']}/{stats['original_count']} new messages (delta ratio: {stats['delta_ratio']:.1%})")
+                # logger.info(f"Delta filtering for session {session_id}: {stats['filtered_count']}/{stats['original_count']} new messages (delta ratio: {stats['delta_ratio']:.1%})")
             
             return messages
             

@@ -471,6 +471,21 @@ class UnifiedMessageProcessor:
         
         compact = {"t": self.TYPE_CODES[msg_type]}
         
+        # Extract timestamp if present
+        if "timestamp" in api_msg:
+            ts = api_msg["timestamp"]
+            # Convert to milliseconds if it's a datetime string
+            if isinstance(ts, str):
+                try:
+                    from datetime import datetime
+                    dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                    compact["ts"] = int(dt.timestamp() * 1000)
+                except:
+                    pass
+            elif isinstance(ts, (int, float)):
+                # Already a number, ensure it's in milliseconds
+                compact["ts"] = int(ts * 1000) if ts < 10000000000 else int(ts)
+        
         # Handle content
         if "content" in api_msg:
             content = api_msg["content"]
@@ -489,7 +504,7 @@ class UnifiedMessageProcessor:
             
             compact["c"] = content
         
-        # Handle speaker with proper name parsing
+        # Handle speaker from "user" field (relay server format)
         if "user" in api_msg:
             user_info = api_msg["user"]
             if isinstance(user_info, dict):
@@ -500,15 +515,34 @@ class UnifiedMessageProcessor:
                 if author:
                     compact["a"] = author
         
+        # Handle speaker from "author" field (HTML parser format)
+        elif "author" in api_msg:
+            author_info = api_msg["author"]
+            if isinstance(author_info, dict):
+                speaker = author_info.get("name", "")
+                if speaker:
+                    compact["s"] = speaker
+                    # Note: author field in compact format (a) is used differently
+                    # It's for subtitle/character name, not author name
+        
         return compact
     
     def _detect_message_type(self, api_msg: Dict[str, Any]) -> str:
         """Detect message type from API message"""
-        content = api_msg.get("content", "")
+        # Check explicit type field first (highest priority)
+        explicit_type = api_msg.get("type", "")
+        if explicit_type in ["dice-roll", "chat-card", "chat-message"]:
+            return explicit_type
         
-        if "roll" in api_msg or "dice-roll" in content:
+        # Check for roll indicators in the message
+        if "roll" in api_msg or "formula" in api_msg or "rollTotal" in api_msg or "roll" in api_msg:
             return "dice-roll"
-        elif "chat-card" in content or "activation-card" in content:
+        
+        # Check content for dice-roll
+        content = api_msg.get("content", "")
+        if "dice-roll" in content.lower() or "dice-roll" in content:
+            return "dice-roll"
+        elif "chat-card" in content.lower() or "activation-card" in content:
             return "chat-card"
         else:
             return "chat-message"
@@ -697,73 +731,15 @@ class UnifiedMessageProcessor:
                     # If combat_context field exists directly, use the entire message as combat data
                     # This happens when combat_msg is the combat_context data itself
                     combat_data = combat_msg
-                # Log what we found
-                logger.info(f"Combat context data found: {combat_data}")
-                combat_context_info = f"""
-
-CURRENT COMBAT STATUS:
-- In Combat: {combat_data.get('in_combat', False)}
-- Combat ID: {combat_data.get('combat_id', 'Unknown')}
-- Round: {combat_data.get('round', 'Unknown')}
-- Current Turn: {combat_data.get('turn', 'Unknown')}
-- Combatants: {len(combat_data.get('combatants', []))} participants
-
-Turn Order:
-"""
-                # Add turn order information
-                combatants = combat_data.get('combatants', [])
-                if combatants:
-                    for i, combatant in enumerate(combatants, 1):
-                        current_marker = " ← CURRENT TURN" if combatant.get('is_current_turn', False) else ""
-                        combatant_info = f"  {i}. {combatant.get('name', 'Unknown')} (Initiative: {combatant.get('initiative', 'Unknown')}{current_marker})"
-                        combat_context_info += combatant_info + "\n"
                 
-                # Add current turn tactical context
-                current_combatant = next((c for c in combatants if c.get('is_current_turn', False)), None)
-                if current_combatant:
-                    combat_context_info += f"""
+                combat_context_info += f"""
 
-CURRENT TACTICAL SITUATION:
-- Acting Combatant: {current_combatant.get('name', 'Unknown')}
-- Is Player Character: {current_combatant.get('is_player', False)}
-- Initiative Position: {current_combatant.get('initiative', 'Unknown')}
+In Combat: {combat_data.get('in_combat', False)}, Round: {combat_data.get('round', 0)}, Turn: {combat_data.get('turn', 0)}
+
 """
         
-        # Build enhanced system prompt with dynamic field discovery
-        system_prompt = f"""You are an AI assistant for tabletop RPG games, with role {ai_role}. {role_specific_prompt}{combat_context_info}
-
-Data from chat and environment is formatted as follows:
-
-Type Codes:
-{', '.join(context_codes) if context_codes else 'No specific type codes detected'}
-
-Field Abbreviations:
-{', '.join(context_abbreviations) if context_abbreviations else 'No specific abbreviations detected'}
-
-Message Schemas:
-{'; '.join(context_schemas) if context_schemas else 'No specific schemas detected'}"""
-        
-        # Add dynamic field definitions if cache is active
-        if is_cache_active():
-            try:
-                cache = get_current_cache()
-                if cache:
-                    dynamic_fields = cache.get_schema_definitions()
-                    if dynamic_fields:
-                        system_prompt += f"\n\nDYNAMIC FIELD DEFINITIONS:\n{dynamic_fields}"
-                        logger.info(f"Added {len(dynamic_fields.split())} dynamic field definitions to system prompt")
-            except Exception as e:
-                logger.warning(f"Failed to add dynamic field definitions: {e}")
-        
-        # DEBUG: Log what we're including
-        logger.info(f"=== SYSTEM PROMPT DEBUG ===")
-        logger.info(f"Combat context detected: {has_combat}")
-        logger.info(f"Combat context info length: {len(combat_context_info)} characters")
-        logger.info(f"Has 'CURRENT COMBAT STATUS' in prompt: {'CURRENT COMBAT STATUS' in system_prompt}")
-        logger.info(f"Has 'Turn Order' in prompt: {'Turn Order' in system_prompt}")
-        logger.info(f"Full system prompt length: {len(system_prompt)} characters")
-        logger.info(f"System prompt preview:\n{system_prompt[:500]}...")
-        logger.info("=== END SYSTEM PROMPT DEBUG ===")
+        # Build enhanced system prompt (without dynamic field definitions)
+        system_prompt = f"""You are an AI assistant for tabletop RPG games, with role {ai_role}. {role_specific_prompt}{combat_context_info}"""
         
         return system_prompt
     

@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+"""
+AI Tool Definitions for The Gold Box
+Define tool schemas using OpenAI function calling format
+"""
+
+def get_tool_definitions() -> list:
+    """
+    Get tool definitions in OpenAI function calling format
+    
+    Returns:
+        List of tool definition dictionaries
+    """
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "get_messages",
+                "description": "Retrieve recent chat messages from Foundry chat for context. Use once at the start of a turn to get new messages.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "count": {
+                            "type": "integer",
+                            "description": "Number of recent messages to retrieve",
+                            "minimum": 1,
+                            "maximum": 50,
+                            "default": 15
+                        }
+                    },
+                    "required": ["count"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "post_messages",
+                "description": "Send one or more chat messages or chat cards to Foundry as your response. Messages can be chat text, or structured chat cards with Foundry-specific formatting. This function accepts markdown styling.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "messages": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "content": {
+                                        "type": "string",
+                                        "description": "Message content (required)"
+                                    },
+                                    "type": {
+                                        "type": "string",
+                                        "description": "Message type (chat-message, dice-roll, chat-card, etc.)",
+                                        "default": "chat-message"
+                                    },
+                                    "flavor": {
+                                        "type": "string",
+                                        "description": "Flavor text for the message"
+                                    },
+                                    "speaker": {
+                                        "type": "object",
+                                        "properties": {
+                                            "name": {"type": "string"},
+                                            "alias": {"type": "string"},
+                                            "scene": {"type": "string"},
+                                            "actor": {"type": "string"},
+                                            "token": {"type": "string"}
+                                        }
+                                    },
+                                    "flags": {
+                                        "type": "object",
+                                        "description": "Foundry flags object"
+                                    },
+                                    "whisper": {
+                                        "type": "array",
+                                        "items": {"type": "string"},
+                                        "description": "Array of recipient IDs for whispers"
+                                    },
+                                    "compact_format": {
+                                        "type": "object",
+                                        "description": "Alternative: compact JSON format message"
+                                    }
+                                },
+                                "required": ["content"]
+                            }
+                        }
+                    },
+                    "required": ["messages"]
+                }
+            }
+        }
+    ]

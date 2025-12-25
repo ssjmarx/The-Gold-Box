@@ -109,6 +109,9 @@ class GoldBoxAPI {
       button.innerHTML = this.settingsManager ? this.settingsManager.getButtonText() : 'Take AI Turn';
       button.style.opacity = '1';
       button.style.cursor = 'pointer';
+      
+      // Reset delta counters when AI turn completes
+      window.FrontendDeltaService?.resetDeltaCounts();
     }
   }
 }
@@ -390,6 +393,21 @@ class GoldBoxModule {
     
     // Use SettingsManager to register all settings
     this.settingsManager.registerAllSettings();
+    
+    // Register hook for subtitle override (Phase 4.3)
+    Hooks.on('renderChatMessageHTML', (chatMessage, html, data) => {
+      // Only modify messages from The Gold Box AI
+      if (chatMessage.flags?.['gold-box']?.isAIMessage) {
+        // Find subtitle element in name-stacked structure
+        const nameStacked = html.querySelector('.name-stacked');
+        if (nameStacked) {
+          const subtitle = nameStacked.querySelector('.subtitle');
+          if (subtitle) {
+            subtitle.textContent = 'The Gold Box AI';
+          }
+        }
+      }
+    });
 
     // Add click handler for discovery button (after SettingsManager has registered button)
     Hooks.on('renderSettingsConfig', (app, html, data) => {

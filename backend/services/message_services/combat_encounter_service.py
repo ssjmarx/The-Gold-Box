@@ -58,8 +58,8 @@ class CombatEncounterService:
                 "last_updated": int(time.time() * 1000)
             })
             
-            logger.info(f"Combat state updated: in_combat={self.combat_state['in_combat']}, "
-                       f"combatants={len(self.combat_state['combatants'])}")
+            # logger.info(f"Combat state updated: in_combat={self.combat_state['in_combat']}, "
+            #            f"combatants={len(self.combat_state['combatants'])}")
             return True
             
         except Exception as e:

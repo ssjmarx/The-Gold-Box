@@ -21,7 +21,7 @@ class CombatPromptGenerator:
     def __init__(self):
         """Initialize combat prompt generator"""
         self.logger = logging.getLogger(__name__)
-        self.logger.info("CombatPromptGenerator initialized")
+        # self.logger.info("CombatPromptGenerator initialized")
     
     def generate_prompt(self, combat_context: Dict[str, Any], combat_state: Dict[str, Any]) -> str:
         """

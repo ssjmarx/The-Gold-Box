@@ -81,4 +81,4 @@ If you like the project and want to support future development, consider donatin
 
 This project is licensed under **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License**. See [LICENSE](LICENSE) file for details.
 
-**Current Version: 0.3.6** - Full conversation history support with intelligent token management
+**Current Version: 0.3.7** - AI-native function calling with multi-turn tool execution

@@ -190,6 +190,9 @@ class GoldBoxUIManager {
       button.innerHTML = this.settingsManager.getButtonText();
       button.style.opacity = '1';
       button.style.cursor = 'pointer';
+      
+      // Reset delta counters when AI turn completes
+      window.FrontendDeltaService?.resetDeltaCounts();
     }
   }
 
@@ -317,6 +320,27 @@ class GoldBoxUIManager {
   }
 
   /**
+   * Parse markdown-style content to HTML for Foundry
+   * Converts **bold** to <h4> headings and preserves newlines
+   */
+  parseMarkdownToHTML(content) {
+    // Preserve newlines by converting to <br> tags first
+    let html = content.replace(/\n/g, '<br>');
+    
+    // Convert **text** to <h4>text</h4> (headings)
+    html = html.replace(/\*\*(.*?)\*\*/g, '<h4>$1</h4>');
+    
+    // Convert *text* to <strong>text</strong> (bold)
+    html = html.replace(/(?<!\*)\*(?!\*)\*(.*?)\*(?!\*)/g, '<strong>$1</strong>');
+    
+    // Preserve line breaks between sections
+    html = html.replace(/(<\/h4>)(<br>)/g, '$1');
+    html = html.replace(/(<br>)(<h4>)/g, '$1');
+    
+    return html;
+  }
+
+  /**
    * Display individual chat message from WebSocket response
    */
   displayChatMessage(msgData) {
@@ -326,14 +350,22 @@ class GoldBoxUIManager {
       // Always use "The Gold Box" as the speaker to clearly label AI-generated content
       const content = msgData.content || '';
       
+      // Parse markdown-style formatting to HTML
+      const htmlContent = this.parseMarkdownToHTML(content);
+      
       // Create chat message in Foundry (using current API)
       ChatMessage.create({
         user: game.user.id,
-        content: content,
+        content: htmlContent,
         speaker: {
           alias: 'The Gold Box' // Always show as The Gold Box to avoid confusion
         },
-        style: CONST.CHAT_MESSAGE_STYLES.IC // In-character message (current API)
+        style: CONST.CHAT_MESSAGE_STYLES.IC, // In-character message (current API)
+        flags: {
+          'gold-box': {
+            isAIMessage: true  // Flag for hook to identify our messages
+          }
+        }
       });
       
     } catch (error) {
@@ -374,7 +406,12 @@ class GoldBoxUIManager {
         },
         content: roll.formula,
         rolls: [roll], // Current API: define rolls directly (roll is already evaluated)
-        sound: CONFIG.sounds.dice
+        sound: CONFIG.sounds.dice,
+        flags: {
+          'gold-box': {
+            isAIMessage: true  // Flag for hook to identify our messages
+          }
+        }
         // Removed deprecated style: CONST.CHAT_MESSAGE_STYLES.ROLL
       });
       
@@ -425,7 +462,12 @@ class GoldBoxUIManager {
           alias: 'The Gold Box'
         },
         content: cardContent,
-        style: CONST.CHAT_MESSAGE_STYLES.OTHER // Current API: use style instead of type
+        style: CONST.CHAT_MESSAGE_STYLES.OTHER, // Current API: use style instead of type
+        flags: {
+          'gold-box': {
+            isAIMessage: true  // Flag for hook to identify our messages
+          }
+        }
       });
       
     } catch (error) {

@@ -113,7 +113,7 @@ class AISessionManager:
             'conversation_history': []  # Store full conversation history
         }
         
-        logger.info(f"Created new AI session {new_session_id} for client {client_id} with {provider}/{model}")
+        # logger.info(f"Created new AI session {new_session_id} for client {client_id} with {provider}/{model}")
         return new_session_id
     
     def update_session_timestamp(self, session_id: str, message_timestamp: int) -> bool:
@@ -318,7 +318,70 @@ class AISessionManager:
         session_data['conversation_history'].append(message)
         session_data['last_activity'] = current_time
         
-        logger.debug(f"Added message to conversation history for session {session_id}")
+        # Print debug output for this message (once when added)
+        role = message.get('role', 'unknown')
+        content = message.get('content', '')
+        tool_calls = message.get('tool_calls', [])
+        tool_call_id = message.get('tool_call_id', '')
+        
+        logger.info(f"===== ADDING MESSAGE TO CONVERSATION =====")
+        logger.info(f"Session: {session_id}")
+        logger.info(f"Role: {role}")
+        
+        if tool_calls:
+            # Log tool calls summary
+            tool_names = [tc.get('function', {}).get('name', 'unknown') for tc in tool_calls]
+            logger.info(f"Tool calls: {len(tool_calls)} - {tool_names}")
+            for tc in tool_calls:
+                # Format tool call details with decoded arguments
+                func = tc.get('function', {})
+                tool_id = tc.get('id', 'unknown')
+                func_name = func.get('name', 'unknown')
+                func_args = func.get('arguments', '{}')
+                
+                # Parse and decode arguments JSON with recursive decoding
+                try:
+                    import json
+                    decoded_args = self._decode_content_for_display(func_args)
+                    args_dict = json.loads(decoded_args)
+                    # Recursively decode all nested strings
+                    decoded_dict = self._decode_json_recursively(args_dict)
+                    formatted_args = json.dumps(decoded_dict, indent=4, ensure_ascii=False)
+                except:
+                    formatted_args = self._decode_content_for_display(func_args)
+                
+                logger.info(f"  Tool call details:")
+                logger.info(f"    id: {tool_id}")
+                logger.info(f"    type: function")
+                logger.info(f"    function:")
+                logger.info(f"      name: {func_name}")
+                logger.info(f"      arguments: {formatted_args}")
+        elif role == 'tool':
+            # Log tool results (full content with newlines rendered)
+            logger.info(f"Tool call ID: {tool_call_id}")
+            logger.info(f"Content length: {len(content)}")
+            # Parse and format JSON content for better readability
+            try:
+                import json
+                # Parse to JSON to get proper structure
+                parsed = json.loads(content)
+                # Recursively decode all nested strings
+                decoded_obj = self._decode_json_recursively(parsed)
+                # Re-dump with proper formatting
+                formatted_json = json.dumps(decoded_obj, indent=6, ensure_ascii=False)
+                logger.info(f"Tool result content:\n{formatted_json}")
+            except:
+                # If JSON parsing fails, use decode method
+                decoded_content = self._decode_content_for_display(content)
+                logger.info(f"Tool result content:\n{decoded_content}")
+        else:
+            # Log full content for system/user/assistant messages with newlines rendered
+            # Decode escape sequences and render newlines properly in log
+            decoded_content = self._decode_content_for_display(content)
+            logger.info(f"  {decoded_content}")
+        
+        logger.info(f"===== END ADDING MESSAGE =====")
+        
         return True
     
     def get_conversation_history(self, session_id: str, max_messages: Optional[int] = None, max_hours: Optional[int] = None, max_tokens: Optional[int] = None) -> list:
@@ -511,6 +574,87 @@ class AISessionManager:
             
             # Update session data
             session_data['conversation_history'] = conversation_history
+    
+    def _decode_json_recursively(self, obj):
+        """
+        Recursively decode JSON strings within a JSON structure
+        
+        Args:
+            obj: JSON object (dict, list, or primitive type)
+            
+        Returns:
+            Decoded JSON object with all string values properly formatted
+        """
+        import json
+        
+        if isinstance(obj, dict):
+            return {k: self._decode_json_recursively(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._decode_json_recursively(item) for item in obj]
+        elif isinstance(obj, str):
+            # Try to parse string as JSON
+            try:
+                parsed = json.loads(obj)
+                # If successfully parsed, recursively process it
+                if isinstance(parsed, (dict, list)):
+                    return self._decode_json_recursively(parsed)
+            except (json.JSONDecodeError, ValueError):
+                # Not valid JSON, just decode escape sequences
+                pass
+            
+            # Decode escape sequences
+            decoded = obj.replace('\\n', '\n')
+            decoded = decoded.replace('\\r', '\r')
+            decoded = decoded.replace('\\t', '\t')
+            decoded = decoded.replace('\\"', '"')
+            decoded = decoded.replace('\\\\', '\\')
+            return decoded
+        else:
+            # Return primitive types as-is
+            return obj
+    
+    def _decode_content_for_display(self, content: str) -> str:
+        """
+        Decode content for display, handling JSON strings with escape sequences
+        
+        Args:
+            content: Content string that may contain JSON escape sequences
+            
+        Returns:
+            Decoded content with proper newlines and other special characters
+        """
+        try:
+            import json
+            
+            # Try to parse as JSON if it looks like a JSON string
+            if content.startswith('{') or content.startswith('['):
+                try:
+                    # Parse and recursively decode all nested strings
+                    parsed = json.loads(content)
+                    if isinstance(parsed, (dict, list)):
+                        decoded_obj = self._decode_json_recursively(parsed)
+                        return json.dumps(decoded_obj, indent=2, ensure_ascii=False)
+                except json.JSONDecodeError:
+                    # Not valid JSON, continue with string decoding
+                    pass
+            
+            # Decode escape sequences in the string
+            # Replace common escape sequences with their actual characters
+            decoded = content
+            
+            # Handle escaped newlines and other characters
+            decoded = decoded.replace('\\n', '\n')
+            decoded = decoded.replace('\\r', '\r')
+            decoded = decoded.replace('\\t', '\t')
+            decoded = decoded.replace('\\"', '"')
+            decoded = decoded.replace('\\\\', '\\')
+            
+            return decoded
+            
+        except Exception as e:
+            # If decoding fails, return original content
+            logger.debug(f"Content decoding failed: {e}, returning original")
+            return content
 
 
 # Global instance for application-wide use

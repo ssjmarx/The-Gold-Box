@@ -28,6 +28,7 @@ class APIChatRequest(BaseModel):
     context_count: Optional[int] = Field(15, description="Number of recent messages to retrieve", ge=1, le=50)
     settings: Optional[Dict[str, Any]] = Field(None, description="Frontend settings including provider info and client ID")
     combat_state: Optional[Dict[str, Any]] = Field(None, description="Combat state from frontend")
+    enable_function_calling: Optional[bool] = Field(True, description="Enable AI function calling for this request (default: enabled)")
     # Removed: relayClientId - now included in unified settings (Phase 2 fix)
 
 class APIChatResponse(BaseModel):
@@ -102,9 +103,7 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         
         # Step 0.5: Reset dynamic cache for new AI turn
         try:
-            cache = reset_cache()
-            if cache:
-                logger.info("Dynamic chat card translation cache reset for new AI turn")
+            reset_cache()
         except Exception as e:
             logger.warning(f"Failed to reset dynamic cache: {e}")
         
@@ -124,18 +123,15 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         
         # Get or create AI session based on client_id + provider + model
         session_id = ai_session_manager.create_or_get_session(client_id, None, provider, model)
-        logger.info(f"AI session for client {client_id}: {session_id} ({provider}/{model})")
         
         # Force full context if requested
         if force_full_context:
-            logger.info(f"Force full context for session {session_id} - bypassing delta filtering")
             message_delta_service.force_full_context(session_id)
         
         # Add session ID to universal settings for response delivery
         universal_settings['ai_session_id'] = session_id
         
-        # Step 1: Collect chat messages via WebSocket
-        logger.info(f"Collecting {context_count} chat messages via WebSocket for client {client_id}")
+        # Step1: Collect chat messages via WebSocket
         api_messages = await collect_chat_messages(context_count, client_id)
         
         # Step 1.5: Apply delta filtering to messages
@@ -145,16 +141,13 @@ async def api_chat(http_request: Request, request: APIChatRequest):
             
             # Log delta statistics for debugging
             delta_stats = message_delta_service.get_delta_stats(session_id, api_messages)
-            logger.info(f"Delta filtering for session {session_id}: {delta_stats['filtered_count']}/{delta_stats['original_count']} messages ({delta_stats['delta_ratio']:.1%} reduction)")
+            # logger.info(f"Delta filtering: {delta_stats['filtered_count']}/{delta_stats['original_count']} messages ({delta_stats['delta_ratio']:.1%} new)")
             
             # Use filtered messages for processing
             messages_to_process = filtered_messages
         else:
             # Force full context - bypass delta filtering
-            logger.info(f"Force full context for session {session_id} - bypassing delta filtering")
-            if force_full_context:
-                # Clear session timestamp to ensure next call gets full context
-                message_delta_service.force_full_context(session_id)
+            message_delta_service.force_full_context(session_id)
             
             # Use all messages for processing
             messages_to_process = api_messages
@@ -229,27 +222,28 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         ai_role = universal_settings.get('ai role', 'gm') if universal_settings else 'gm'
         system_prompt = unified_processor.generate_enhanced_system_prompt(ai_role, compact_messages)
         
-        # DEBUG: Show exactly what we're sending to AI
-        logger.info("=== CHAT CONTEXT DEBUG ===")
-        logger.info(f"Raw messages count from API: {len(api_messages)}")
-        logger.info(f"Compact messages count after processing: {len(compact_messages)}")
-        logger.info(f"Sample compact messages: {compact_messages[:3] if compact_messages else 'None'}")
-        logger.info(f"Full JSON context being sent to AI:\n{json.dumps(compact_messages, indent=2)}")
-        logger.info("=== END CHAT CONTEXT DEBUG ===")
+        # Step 5.5: For function calling mode, strip chat context from system prompt
+        # Function calling mode should only send system prompt + role instructions + combat context
+        # AI will use get_messages tool to retrieve chat context
+        disable_function_calling = universal_settings.get('disable function calling', False)
+        enable_function_calling = not disable_function_calling
         
-        # Step 6: Call AI service with universal settings
-        logger.info("=== AI SERVICE CALL DEBUG ===")
-        logger.info(f"Calling AI service with {len(compact_messages)} compact messages")
-        logger.info(f"Settings being passed to AI service: {universal_settings}")
+        if enable_function_calling:
+            # Generate system prompt without chat context messages
+            # Only include system prompt + role instructions + combat context
+            # AI will use get_messages tool to retrieve chat messages
+            combat_context_messages = [msg for msg in compact_messages if msg.get('type') == 'combat_context']
+            system_prompt = unified_processor.generate_enhanced_system_prompt(ai_role, combat_context_messages)
+        # Standard mode includes chat context in system prompt (no special handling needed)
         
-        # Get services directly from service factory (no lazy loading needed)
-        ai_service = get_ai_service()
-        
-        ai_response_data = await ai_service.process_compact_context(
-            processed_messages=compact_messages,
+        # Step 6: Use shared function for AI processing (function calling or standard)
+        # This logic is shared with WebSocket handler to avoid duplication
+        ai_response_data = await process_with_function_calling_or_standard(
+            universal_settings=universal_settings,
+            compact_messages=compact_messages,
             system_prompt=system_prompt,
-            settings=universal_settings,
-            session_id=session_id  # Pass session_id for conversation history
+            session_id=session_id,
+            client_id=client_id
         )
         
         ai_response = ai_response_data.get("response", "")
@@ -287,11 +281,6 @@ async def api_chat(http_request: Request, request: APIChatRequest):
             except Exception as e:
                 logger.error(f"Error sending thinking whisper: {e}")
                 # Don't fail the entire request if whisper sending fails
-        
-        # DEBUG: Show exactly what AI returned before processing
-        logger.info("=== RAW AI RESPONSE BEFORE PROCESSING ===")
-        logger.info(f"Raw AI Response: {ai_response}")
-        logger.info("=== END RAW AI RESPONSE ===")
         
         # Step 7: Process AI response back to API format and send to Foundry
         api_formatted = unified_processor.process_ai_response(ai_response, compact_messages)
@@ -352,6 +341,160 @@ async def api_chat(http_request: Request, request: APIChatRequest):
             success=False,
             error=f"Internal server error: {str(e)}"
         )
+
+async def process_with_function_calling_or_standard(
+    universal_settings: Dict[str, Any],
+    compact_messages: List[Dict],
+    system_prompt: str,
+    session_id: str,
+    client_id: str
+) -> Dict[str, Any]:
+    """
+    Process AI request using either function calling or standard mode based on settings.
+    
+    This shared function is used by both HTTP API endpoint and WebSocket handler.
+    
+    Args:
+        universal_settings: Settings dictionary containing 'disable function calling' flag
+        compact_messages: Compact JSON messages for context
+        system_prompt: System prompt for AI
+        session_id: AI session ID for conversation history
+        client_id: Client ID for WebSocket communication (transient)
+        
+    Returns:
+        Dictionary with AI response data
+    """
+    # Check if function calling is enabled (disabled only if "disable function calling" setting is true)
+    disable_function_calling = universal_settings.get('disable function calling', False)
+    enable_function_calling = not disable_function_calling
+    
+    if enable_function_calling:
+        # === FUNCTION CALLING MODE ===
+        # logger.info(f"Function calling mode: {len(compact_messages)} compact messages available")
+        
+        # Get tool definitions
+        from services.ai_tools.ai_tool_definitions import get_tool_definitions
+        tools = get_tool_definitions()
+        
+        # Get AI orchestrator from service factory
+        from services.system_services.service_factory import get_ai_orchestrator
+        ai_orchestrator = get_ai_orchestrator()
+        
+        # Get provider config from universal settings
+        from services.system_services.universal_settings import get_provider_config
+        provider_config = get_provider_config(universal_settings, use_tactical=False)
+        
+        # Build initial messages for function calling loop
+        # Function calling mode: Only system prompt (AI will use get_messages tool)
+        # Standard mode: System prompt + chat context
+        import json
+        
+        if enable_function_calling:
+            # FUNCTION CALLING MODE: System prompt + simple user instruction
+            # AI will use get_messages tool to retrieve chat messages
+            # User message needed to trigger AI response
+            
+            # Get delta counts from request
+            message_delta = universal_settings.get('message_delta', {})
+            new_count = message_delta.get('new_messages', 0)
+            deleted_count = message_delta.get('deleted_messages', 0)
+            
+            # Build delta display and append to system_prompt
+            delta_display = f"""
+
+Changes since last prompt: [New Messages: {new_count}, Deleted Messages: {deleted_count}]
+"""
+            
+            # Add delta to system prompt
+            system_prompt_with_delta = system_prompt + delta_display
+            
+            # Get AI role from settings to make message role-aware
+            ai_role = universal_settings.get('ai role', 'gm').lower()
+            
+            # Map role to appropriate user message
+            role_messages = {
+                'gm': 'Take your turn as Game Master.',
+                "gm's assistant": 'Take your turn as GM\'s Assistant.',
+                'player': 'Take your turn as Player.'
+            }
+            
+            user_message = role_messages.get(ai_role, 'Take your turn as Game Master.')
+            
+            initial_messages = [
+                {"role": "system", "content": system_prompt_with_delta},
+                {"role": "user", "content": user_message}
+            ]
+            
+            # Debug logging: Show complete initial_messages array (everything sent to AI)
+            # Decode escape sequences in content strings for better readability
+            decoded_messages = _decode_messages_for_display(initial_messages)
+            logger.info(f"===== SENDING INITIAL MESSAGES TO AI =====")
+            logger.info(f"Delta Counts: New={new_count}, Deleted={deleted_count}")
+            logger.info(f"Complete initial_messages array:\n{json.dumps(decoded_messages, indent=2, ensure_ascii=False)}")
+            logger.info(f"===== END SENDING INITIAL MESSAGES =====")
+        else:
+            # STANDARD MODE: System prompt + chat context
+            compact_json_context = json.dumps(compact_messages, indent=2)
+            initial_messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Chat Context (Compact JSON Format):\n{compact_json_context}"}
+            ]
+        
+        # Execute function calling loop
+        # Note: client_id is passed as transient parameter for message collection
+        ai_response_data = await ai_orchestrator.execute_function_call_loop(
+            initial_messages=initial_messages,
+            tools=tools,
+            config=provider_config,
+            session_id=session_id,
+            client_id=client_id,  # Transient parameter from WebSocket
+            max_iterations=10  # Safety limit
+        )
+        
+        logger.info(f"AI Orchestrator completed function calling loop: {ai_response_data.get('iterations', 0)} iterations")
+        return ai_response_data
+        
+    else:
+        # === STANDARD AI SERVICE CALL (LEGACY MODE) ===
+        # logger.info(f"Standard mode: {len(compact_messages)} compact messages")
+        
+        # Get services directly from service factory (no lazy loading needed)
+        from services.system_services.service_factory import get_ai_service
+        ai_service = get_ai_service()
+        
+        ai_response_data = await ai_service.process_compact_context(
+            processed_messages=compact_messages,
+            system_prompt=system_prompt,
+            settings=universal_settings,
+            session_id=session_id  # Pass session_id for conversation history
+        )
+        
+        return ai_response_data
+
+def _decode_messages_for_display(messages):
+    """
+    Decode escape sequences in message content strings for better debug readability
+    
+    Args:
+        messages: List of message dictionaries (OpenAI format)
+        
+    Returns:
+        Decoded messages with content strings properly formatted
+    """
+    decoded_messages = []
+    for msg in messages:
+        decoded_msg = msg.copy()
+        if 'content' in decoded_msg and isinstance(decoded_msg['content'], str):
+            # Decode escape sequences
+            content = decoded_msg['content']
+            content = content.replace('\\n', '\n')
+            content = content.replace('\\r', '\r')
+            content = content.replace('\\t', '\t')
+            content = content.replace('\\"', '"')
+            content = content.replace('\\\\', '\\')
+            decoded_msg['content'] = content
+        decoded_messages.append(decoded_msg)
+    return decoded_messages
 
 async def _send_messages_to_websocket(api_formatted_data, client_id):
     """Send processed messages to Foundry via WebSocket (new implementation)"""

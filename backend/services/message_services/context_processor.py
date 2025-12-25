@@ -129,7 +129,7 @@ class ContextProcessor:
                     if attr_name not in all_attributes:
                         all_attributes[attr_name] = attr_value
         
-        self.logger.info(f"Extracted {len(all_attributes)} unique attributes from tokens")
+        # self.logger.info(f"Extracted {len(all_attributes)} unique attributes from tokens")
         return all_attributes
     
     async def _collect_chat_history(self, client_id: str, count: int) -> List[Dict[str, Any]]:

@@ -5,6 +5,131 @@ All notable changes to The Gold Box project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0/).
 
+## [0.3.7] - 2025-12-25
+
+### Major Release: AI-Native Function Calling
+
+#### Function Calling Architecture
+- **AI-Native Tool Usage** - AI now uses tools to gather context and post responses instead of parsing free-form responses
+- **Multi-Turn Function Calling Workflow** - AI can call multiple functions per turn, with each call and result appended to conversation history
+- **Automatic Tool Execution Loop** - Backend manages function call loop until AI signals completion
+- **OpenAI Function Calling Format** - Industry-standard format compatible with LiteLLM and multiple providers
+- **Max Iterations Safeguard** - Configurable safety limit (default: 10 iterations) with graceful continuation
+
+#### Tool Definitions
+- **get_messages Tool** - AI retrieves recent chat messages from Foundry on-demand
+  - Fresh data collection without delta filtering
+  - Configurable message count (1-50, default: 15)
+  - Returns compact JSON with type codes, abbreviations, schemas, and dynamic field definitions
+  - No caching - always returns fresh data based on AI's count parameter
+  
+- **post_messages Tool** - AI sends chat messages or chat cards to Foundry
+  - Accepts both compact JSON and full Foundry API format
+  - Supports multiple messages in single call
+  - Automatic format conversion as needed
+
+#### AI Service Enhancements
+- **AIOrchestrator Service** - New service dedicated to managing function call workflow
+- **Function Calling Support in AIService** - Added `tools` parameter to `call_ai_provider()` for LiteLLM integration
+- **Tool Call Parsing** - Handles multiple `tool_calls` per response from AI providers
+- **Conversation History Integration** - All tool calls and results stored in conversation history via AISessionManager
+
+#### Service Factory Integration
+- **Tool Definitions Registration** - Tool schemas registered in ServiceRegistry during startup
+- **AI Tool Executor Service** - New service for executing individual tools
+- **AI Orchestrator Factory Function** - `get_ai_orchestrator()` for consistent service access
+- **Tool Executor Factory Function** - `get_ai_tool_executor()` for consistent service access
+- **Service Lifecycle Management** - Proper registration order during server startup
+
+#### API Endpoint Updates
+- **Dual Mode Operation** - `/api/api_chat` supports both function calling mode and backward compatibility mode
+- **Function Calling Mode Flow**:
+  - Initial prompt sends only system prompt + role instructions (no message context)
+  - AI decides to call get_messages tool to gather context
+  - Backend manages tool execution loop internally
+  - AI signals completion via `finish_reason = "stop"` or empty `tool_calls` array
+- **Completion Signals** - Response includes `ai_turn_complete` and `reached_limit` flags for frontend
+- **Graceful Continuation** - When max iterations reached, work preserved and user can continue
+
+#### Frontend Delta Tracking
+- **Frontend Delta Service** - New service tracks new/deleted messages since last AI turn
+- **Foundry Hooks Integration** - Hooks on `createChatMessage` and `deleteChatMessage` for real-time tracking
+- **Delta Display in System Prompt** - AI informed of message changes: `[New Messages: X, Deleted Messages: Y]`
+- **Counter Reset on Completion** - Delta counts reset when AI turn completes
+- **Function Calling Mode Only** - Delta tracking for function calling mode; standard mode uses backend delta service
+
+#### Settings Management
+- **Enable Function Calling Toggle** - Frontend setting to enable/disable function calling (default: enabled)
+  - Allows users to disable for providers that don't support function calling
+  - Backward compatibility mode available when disabled
+- **maxHistoryTokens Setting** - Replaced "Maximum Message Context" with token-based limit
+  - Controls conversation history size (default: 5000 tokens)
+  - Integrated with AISessionManager for automatic pruning
+- **Memory Settings Group** - Centralized memory configuration with validation
+
+#### Frontend Message Handling
+- **Foundry Hook for Subtitle Override** - `renderChatMessageHTML` hook sets subtitle to "The Gold Box AI"
+- **isAIMessage Flag** - All AI-generated messages include flag for hook identification
+- **Speaker Name Preservation** - AI-provided speaker name shown as title, "The Gold Box AI" as subtitle
+- **Native Foundry Rendering** - Does not break dice rolls or chat card rendering
+
+#### WebSocket Progress Messages
+- **New Message Types** - `TYPE_TOOL_CALL` and `TYPE_TOOL_RESULT` for progress feedback
+- **Real-time Updates** - Frontend receives notifications of tool execution
+- **Debugging Support** - Tool results sent to frontend for logging and debugging
+
+#### Architectural Improvements
+- **Single Source of Truth** - All services accessed via ServiceFactory pattern
+- **Separation of Concerns**:
+  - AIService: Focus on API calls to providers
+  - AIOrchestrator: Manage tool calling workflow
+  - AIToolExecutor: Execute individual tools
+- **Client ID Flow** - Transient client_id explicitly passed through API → Orchestrator → Executor → MessageCollector
+- **OpenAI vs Compact JSON Format** - Clear distinction: conversation history uses OpenAI format, tool results contain compact JSON data
+
+#### Error Handling
+- **Tool Execution Errors** - Failures returned as error results in conversation for AI to handle
+- **Max Iterations Recovery** - Graceful continuation without losing work
+- **Invalid Tool Arguments** - Validation with descriptive error messages
+- **Network Timeout Handling** - Proper timeout handling during tool execution
+
+#### Testing & Validation
+- **Unit Tests for Tools** - get_messages and post_messages with various parameters
+- **Function Call Loop Tests** - Single and multiple tool calls, max iterations, conversation history
+- **Integration Tests** - Full workflow from initial prompt to completion
+- **Backward Compatibility Tests** - Verify old behavior when function calling disabled
+- **Performance Tests** - Token usage, response time, large conversation histories
+
+#### Breaking Changes
+- **Initial Prompt Format** - Function calling mode sends system + role only (no message context initially)
+- **Tool-Based Context Retrieval** - AI must call get_messages tool instead of receiving pre-collected context
+- **Settings Migration** - "Maximum Message Context" replaced with "maxHistoryTokens" (defaults to 5000 tokens)
+
+#### Migration Notes
+- **Automatic Upgrade** - Existing installations will automatically use function calling mode
+- **Provider Compatibility** - Most modern providers support function calling; older providers can use backward compatibility mode
+- **Settings Update** - "maxHistoryTokens" automatically set to 5000 tokens (approximately equivalent to previous 15 messages)
+- **No Data Loss** - Conversation history and session management work as before
+
+#### New Files
+- `backend/services/ai_tools/__init__.py`
+- `backend/services/ai_tools/ai_tool_definitions.py`
+- `backend/services/ai_tools/ai_tool_executor.py`
+- `backend/services/ai_services/ai_orchestrator.py`
+- `scripts/services/frontend-delta-service.js`
+
+#### Modified Files
+- `backend/services/ai_services/ai_service.py` - Added tools parameter support
+- `backend/services/ai_services/ai_session_manager.py` - Token limit integration
+- `backend/api/api_chat.py` - Dual mode operation, function calling integration
+- `backend/services/system_services/service_factory.py` - Added get_ai_orchestrator() and get_ai_tool_executor()
+- `backend/shared/startup/startup.py` - Tool services registration
+- `scripts/api/backend-communicator.js` - Frontend handling of completion signals
+- `scripts/api/websocket-client.js` - Delta tracking integration
+- `scripts/shared/ui-manager.js` - Added isAIMessage flag to all ChatMessage.create() calls
+- `scripts/gold-box.js` - Foundry renderChatMessageHTML hook registration
+- `backend/shared/core/message_protocol.py` - New tool call message types
+
 ## [0.3.6] - 2025-12-24
 
 ### Major Release: Full Conversation History Support

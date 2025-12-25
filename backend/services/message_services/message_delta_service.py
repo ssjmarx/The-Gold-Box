@@ -109,7 +109,8 @@ class MessageDeltaService:
             if newest_timestamp is not None:
                 success = self.ai_session_manager.update_session_timestamp(session_id, newest_timestamp)
                 if success:
-                    logger.info(f"New session {session_id} - sending {len(messages)} messages, saved timestamp {newest_timestamp}")
+                    # logger.info(f"New session {session_id} - sending {len(messages)} messages, saved timestamp {newest_timestamp}")
+                    pass
                 else:
                     logger.warning(f"Failed to save timestamp for new session {session_id}")
             else:
@@ -138,8 +139,8 @@ class MessageDeltaService:
         # Note: Timestamp should only be updated when AI responses are stored in AI service
         # NOT when user messages come in via delta filtering
         # This prevents overwriting AI response timestamp with newer user message timestamp
-        logger.debug(f"Session {session_id}: {len(new_messages)}/{len(messages)} new messages since timestamp {last_timestamp}")
-        
+        # logger.debug(f"Session {session_id}: {len(new_messages)}/{len(messages)} new messages since timestamp {last_timestamp}")
+
         return new_messages
     
     def get_delta_stats(self, session_id: str, original_messages: List[Dict[str, Any]]) -> Dict[str, Any]:

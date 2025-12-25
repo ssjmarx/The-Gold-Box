@@ -34,16 +34,17 @@ class AIService:
         """
         self.provider_manager = provider_manager
     
-    async def call_ai_provider(self, messages: List[Dict[str, str]], config: Dict[str, Any]) -> Dict[str, Any]:
+    async def call_ai_provider(self, messages: List[Dict[str, str]], config: Dict[str, Any], tools: Optional[List[Dict]] = None) -> Dict[str, Any]:
         """
         Make AI call using LiteLLM with unified configuration
         
         Args:
             messages: List of messages in chat format [{'role': 'system', 'content': '...'}, ...]
             config: Provider configuration from universal settings (pre-validated)
+            tools: Optional list of tool definitions in OpenAI format for function calling
             
         Returns:
-            Dictionary with response data and metadata
+            Dictionary with response data and metadata, including tool_calls if present
             
         Raises:
             ProviderException: When provider configuration fails
@@ -98,6 +99,20 @@ class AIService:
                 "stream": False  # Stream internally but wait for complete response
             }
             
+            # Add tools if provided (function calling)
+            if tools:
+                completion_params["tools"] = tools
+                # Log tools being sent to AI
+                logger.info(f"Tools available to AI: {len(tools)} tools")
+                for tool in tools:
+                    tool_name = tool.get('function', {}).get('name', 'unknown')
+                    logger.info(f"  - {tool_name}")
+                
+            # Log summary of messages being sent to AI (detailed logs now in add_conversation_message)
+            logger.info(f"===== SENDING TO AI =====")
+            logger.info(f"LiteLLM Call: model={model}, messages={len(messages)}")
+            logger.info(f"===== END SENDING TO AI =====")
+            
             # Apply custom configuration if provided
             if config.get('base_url'):
                 completion_params['api_base'] = config['base_url']
@@ -119,12 +134,30 @@ class AIService:
                 # Provider API responded!
                 choice = response.choices[0]
                 
-                # Extracts content
-                content = ""
+                # Log summary of response from AI (detailed logs will be in add_conversation_message)
+                logger.info(f"===== RECEIVED FROM AI =====")
+                logger.info(f"LiteLLM Response: finish_reason={getattr(choice, 'finish_reason', 'unknown')}")
                 
-                # Handle both content and reasoning_content fields
+                if hasattr(choice.message, 'tool_calls') and choice.message.tool_calls:
+                    tool_names = [tc.function.name for tc in choice.message.tool_calls]
+                    logger.info(f"  tool_calls: {len(choice.message.tool_calls)} - {tool_names}")
+                
+                if choice.message and choice.message.content:
+                    logger.info(f"  content length: {len(choice.message.content)} characters")
+                logger.info(f"===== END RECEIVED FROM AI =====")
+                
+                # Extracts content and tool calls
+                content = ""
+                tool_calls = None
+                
+                # Handle both content and tool_calls
                 if hasattr(choice, 'message') and choice.message:
                     content = choice.message.content or ""
+                    
+                    # Check for tool_calls (function calling)
+                    if hasattr(choice.message, 'tool_calls') and choice.message.tool_calls:
+                        tool_calls = choice.message.tool_calls
+                        logger.info(f"AI requested {len(tool_calls)} tool call(s)")
                     
                     # If content is empty, check for reasoning_content (but we'll ignore it per requirements)
                     if not content and hasattr(choice.message, 'reasoning_content') and choice.message.reasoning_content:
@@ -149,13 +182,16 @@ class AIService:
                     'model': model,
                     'finish_reason': getattr(choice, 'finish_reason', 'unknown'),
                     'usage': getattr(response, 'usage', None),
-                    'has_thinking': bool(thinking)
+                    'has_thinking': bool(thinking),
+                    'has_tool_calls': bool(tool_calls)
                 }
                 
                 return {
                     'success': True,
                     'response': content,
                     'thinking': thinking,
+                    'tool_calls': tool_calls,
+                    'has_tool_calls': bool(tool_calls),
                     'metadata': metadata,
                     'tokens_used': getattr(response.usage, 'total_tokens', 0) if response.usage else 0,
                     'response_object': response
@@ -329,7 +365,7 @@ class AIService:
                 delta_service = get_message_delta_service()
                 
                 # Get token limit from settings (default 5000)
-                max_history_tokens = settings.get('memorySettings', {}).get('maxHistoryTokens', 5000)
+                max_history_tokens = settings.get('max history tokens', 5000)
                 
                 # Get conversation history in OpenAI format with token pruning
                 conversation_history = ai_session_manager.get_conversation_history(
@@ -512,6 +548,87 @@ class AIService:
         except Exception as e:
             logger.warning(f"Error extracting combat context: {e}")
             return {}
+    
+    def _decode_json_recursively(self, obj):
+        """
+        Recursively decode JSON strings within a JSON structure
+        
+        Args:
+            obj: JSON object (dict, list, or primitive type)
+            
+        Returns:
+            Decoded JSON object with all string values properly formatted
+        """
+        import json
+        
+        if isinstance(obj, dict):
+            return {k: self._decode_json_recursively(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [self._decode_json_recursively(item) for item in obj]
+        elif isinstance(obj, str):
+            # Try to parse string as JSON
+            try:
+                parsed = json.loads(obj)
+                # If successfully parsed, recursively process it
+                if isinstance(parsed, (dict, list)):
+                    return self._decode_json_recursively(parsed)
+            except (json.JSONDecodeError, ValueError):
+                # Not valid JSON, just decode escape sequences
+                pass
+            
+            # Decode escape sequences
+            decoded = obj.replace('\\n', '\n')
+            decoded = decoded.replace('\\r', '\r')
+            decoded = decoded.replace('\\t', '\t')
+            decoded = decoded.replace('\\"', '"')
+            decoded = decoded.replace('\\\\', '\\')
+            return decoded
+        else:
+            # Return primitive types as-is
+            return obj
+    
+    def _decode_content_for_display(self, content: str) -> str:
+        """
+        Decode content for display, handling JSON strings with escape sequences
+        
+        Args:
+            content: Content string that may contain JSON escape sequences
+            
+        Returns:
+            Decoded content with proper newlines and other special characters
+        """
+        try:
+            import json
+            
+            # Try to parse as JSON if it looks like a JSON string
+            if content.startswith('{') or content.startswith('['):
+                try:
+                    # Parse and recursively decode all nested strings
+                    parsed = json.loads(content)
+                    if isinstance(parsed, (dict, list)):
+                        decoded_obj = self._decode_json_recursively(parsed)
+                        return json.dumps(decoded_obj, indent=2, ensure_ascii=False)
+                except json.JSONDecodeError:
+                    # Not valid JSON, continue with string decoding
+                    pass
+            
+            # Decode escape sequences in the string
+            # Replace common escape sequences with their actual characters
+            decoded = content
+            
+            # Handle escaped newlines and other characters
+            decoded = decoded.replace('\\n', '\n')
+            decoded = decoded.replace('\\r', '\r')
+            decoded = decoded.replace('\\t', '\t')
+            decoded = decoded.replace('\\"', '"')
+            decoded = decoded.replace('\\\\', '\\')
+            
+            return decoded
+            
+        except Exception as e:
+            # If decoding fails, return original content
+            logger.debug(f"Content decoding failed: {e}, returning original")
+            return content
     
     def _extract_combat_state_from_messages(self, processed_messages: List[Dict]) -> Dict[str, Any]:
         """

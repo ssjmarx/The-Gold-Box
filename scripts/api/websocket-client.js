@@ -381,6 +381,24 @@ class GoldBoxWebSocketClient {
    */
   async sendChatRequest(messages, options = {}) {
     try {
+      // Get delta counts before sending request
+      const deltaCounts = window.FrontendDeltaService?.getDeltaCounts() || {
+        newMessages: 0,
+        deletedMessages: 0
+      };
+
+      console.log('Gold Box WebSocket: Sending chat_request with delta:', JSON.stringify(deltaCounts));
+      console.log('Gold Box WebSocket: Full message data being sent:', JSON.stringify({
+        type: 'chat_request',
+        data: {
+          messages_count: messages.length,
+          context_count: options.contextCount || 15,
+          scene_id: options.sceneId || null,
+          force_full_context: options.forceFullContext || false,
+          message_delta: deltaCounts
+        }
+      }));
+
       const message = {
         type: 'chat_request',
         data: {
@@ -390,6 +408,7 @@ class GoldBoxWebSocketClient {
           // Let backend handle session management entirely
           // No ai_session_id - backend will manage sessions based on client_id
           force_full_context: options.forceFullContext || false,
+          message_delta: deltaCounts,  // Add delta counts for function calling mode
           ...options
         }
       };

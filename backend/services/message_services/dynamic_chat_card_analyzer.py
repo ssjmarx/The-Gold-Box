@@ -166,7 +166,7 @@ class DynamicChatCardAnalyzer:
         # Remove duplicates and merge field information
         merged_fields = self._merge_duplicate_fields(fields)
         
-        self.logger.info(f"Extracted {len(merged_fields)} unique fields from chat card")
+        # self.logger.info(f"Extracted {len(merged_fields)} unique fields from chat card")
         return merged_fields
     
     def classify_card_type_universal(self, soup: BeautifulSoup) -> str:

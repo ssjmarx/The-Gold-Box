@@ -504,3 +504,55 @@ def get_message_delta_service() -> Any:
         )
     
     return ServiceRegistry.get('message_delta_service')
+
+def get_ai_orchestrator() -> Any:
+    """
+    Get AI orchestrator from ServiceRegistry.
+    
+    Returns:
+        AIOrchestrator instance from ServiceRegistry
+        
+    Raises:
+        RuntimeError: If ServiceRegistry is not ready or ai_orchestrator is not registered
+    """
+    from .registry import ServiceRegistry
+    
+    if not ServiceRegistry.is_ready():
+        raise RuntimeError(
+            "ServiceRegistry is not ready. Services must be initialized during server startup. "
+            "Check that run_server_startup() completed successfully."
+        )
+    
+    if not ServiceRegistry.is_registered('ai_orchestrator'):
+        raise RuntimeError(
+            "ai_orchestrator is not registered in ServiceRegistry. "
+            "Check that ai_orchestrator is properly registered during startup."
+        )
+    
+    return ServiceRegistry.get('ai_orchestrator')
+
+def get_ai_tool_executor() -> Any:
+    """
+    Get AI tool executor from ServiceRegistry.
+    
+    Returns:
+        AIToolExecutor instance from ServiceRegistry
+        
+    Raises:
+        RuntimeError: If ServiceRegistry is not ready or ai_tool_executor is not registered
+    """
+    from .registry import ServiceRegistry
+    
+    if not ServiceRegistry.is_ready():
+        raise RuntimeError(
+            "ServiceRegistry is not ready. Services must be initialized during server startup. "
+            "Check that run_server_startup() completed successfully."
+        )
+    
+    if not ServiceRegistry.is_registered('ai_tool_executor'):
+        raise RuntimeError(
+            "ai_tool_executor is not registered in ServiceRegistry. "
+            "Check that ai_tool_executor is properly registered during startup."
+        )
+    
+    return ServiceRegistry.get('ai_tool_executor')

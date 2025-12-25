@@ -33,9 +33,10 @@ class SettingsManager {
     // Register all settings
     this.registerBackendStatus();
     this.registerBackendPassword();
-    this.registerMaxMessageContext();
+    this.registerMaxHistoryTokens();
     this.registerAIResponseTimeout();
     this.registerAIRole();
+    this.registerDisableFunctionCalling();
     this.registerGeneralLLMSettings();
     this.registerTacticalLLMSettings();
     this.registerSettingsConfigHooks();
@@ -78,16 +79,16 @@ class SettingsManager {
   }
 
   /**
-   * Register maximum message context setting
+   * Register max history tokens setting
    */
-  registerMaxMessageContext() {
-    game.settings.register(this.moduleName, 'maxMessageContext', {
-      name: "Maximum Message Context",
-      hint: "Number of recent chat messages to send to AI for context (default: 15)",
+  registerMaxHistoryTokens() {
+    game.settings.register(this.moduleName, 'maxHistoryTokens', {
+      name: "Max History Tokens",
+      hint: "Maximum tokens to keep in conversation history before cleaning up oldest messages (default: 5000)",
       scope: "world",
       config: true,
       type: Number,
-      default: 15
+      default: 5000
     });
   }
 
@@ -122,6 +123,20 @@ class SettingsManager {
         "player": "Player"
       },
       default: "dm"
+    });
+  }
+
+  /**
+   * Register Disable Function Calling setting
+   */
+  registerDisableFunctionCalling() {
+    game.settings.register(this.moduleName, 'disableFunctionCalling', {
+      name: "Disable AI Function Calling",
+      hint: "Disable AI tool usage (get_messages, post_messages). Only check this if your AI provider doesn't support function calling. Default: unchecked (function calling enabled).",
+      scope: "world",
+      config: true,
+      type: Boolean,
+      default: false
     });
   }
 
@@ -169,15 +184,6 @@ class SettingsManager {
       default: "v1"
     });
 
-    // General LLM Timeout
-    game.settings.register(this.moduleName, 'generalLlmTimeout', {
-      name: "General LLM - Timeout (seconds)",
-      hint: "Request timeout for General LLM in seconds (default: 30)",
-      scope: "world",
-      config: true,
-      type: Number,
-      default: 30
-    });
 
     // General LLM Max Retries
     game.settings.register(this.moduleName, 'generalLlmMaxRetries', {
@@ -244,15 +250,6 @@ class SettingsManager {
       default: "v1"
     });
 
-    // Tactical LLM Timeout
-    game.settings.register(this.moduleName, 'tacticalLlmTimeout', {
-      name: "Tactical LLM - Timeout (seconds)",
-      hint: "Request timeout for Tactical LLM in seconds (default: 30)",
-      scope: "world",
-      config: true,
-      type: Number,
-      default: 30
-    });
 
     // Tactical LLM Max Retries
     game.settings.register(this.moduleName, 'tacticalLlmMaxRetries', {
@@ -354,22 +351,22 @@ class SettingsManager {
     if (typeof game !== 'undefined' && game.settings) {
       console.log("SETTINGS DEBUG: Game and game.settings available");
       const settings = {
-        'maximum message context': this.getSetting('maxMessageContext', 15),
+        'max history tokens': this.getSetting('maxHistoryTokens', 5000),
         'chat processing mode': 'api', // Always use API mode now
         'ai role': this.getSetting('aiRole', 'dm'),
+        'disable function calling': this.getSetting('disableFunctionCalling', false),
         'general llm provider': this.getSetting('generalLlmProvider', ''),
         'general llm base url': this.getSetting('generalLlmBaseUrl', ''),
         'general llm model': this.getSetting('generalLlmModel', ''),
         'general llm version': this.getSetting('generalLlmVersion', 'v1'),
         'general llm timeout': this.getSetting('aiResponseTimeout', 60),
-        'general llm max retries': this.getSetting('generalLlmMaxRetries', 3),
+        'general llm max retries': this.getSetting('generalLlmMaxRetries',3),
         'general llm custom headers': this.getSetting('generalLlmCustomHeaders', ''),
         'tactical llm provider': this.getSetting('tacticalLlmProvider', ''),
         'tactical llm base url': this.getSetting('tacticalLlmBaseUrl', ''),
         'tactical llm model': this.getSetting('tacticalLlmModel', ''),
         'tactical llm version': this.getSetting('tacticalLlmVersion', 'v1'),
-        'tactical llm timeout': this.getSetting('tacticalLlmTimeout', 30),
-        'tactical llm max retries': this.getSetting('tacticalLlmMaxRetries', 3),
+        'tactical llm max retries': this.getSetting('tacticalLlmMaxRetries',3),
         'tactical llm custom headers': this.getSetting('tacticalLlmCustomHeaders', ''),
         'backend password': this.getSetting('backendPassword', '')
       };

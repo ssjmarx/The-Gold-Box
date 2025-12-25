@@ -74,7 +74,7 @@ class ChatCardTranslationCache:
         Returns:
             Tuple of (field_to_code, code_to_field) mappings
         """
-        self.logger.info(f"Generating codes for {card_type} with {len(fields)} fields")
+        # self.logger.info(f"Generating codes for {card_type} with {len(fields)} fields")
         
         # Create or get card type mapping
         if card_type not in self.card_mappings:
@@ -112,7 +112,7 @@ class ChatCardTranslationCache:
         card_mapping.last_used = time.time()
         card_mapping.total_fields = len(card_mapping.field_mappings)
         
-        self.logger.info(f"Generated {len(field_to_code)} codes for {card_type}")
+        # self.logger.info(f"Generated {len(field_to_code)} codes for {card_type}")
         return field_to_code, code_to_field
     
     def get_cached_mapping(self, card_type: str) -> Optional[CardTypeMapping]:

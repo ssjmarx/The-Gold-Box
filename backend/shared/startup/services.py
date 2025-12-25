@@ -150,7 +150,8 @@ def initialize_websocket_manager():
                                 combat_service = get_combat_encounter_service()
                                 update_success = combat_service.update_combat_state(combat_state)
                                 if update_success:
-                                    logger.info(f"CombatEncounterService updated with combat state from WebSocket: {combat_state}")
+                                    # logger.info(f"CombatEncounterService updated with combat state from WebSocket: {combat_state}")
+                                    pass
                                 else:
                                     logger.warning(f"Failed to update CombatEncounterService with combat state from WebSocket: {combat_state}")
                             except Exception as e:
@@ -220,7 +221,7 @@ def initialize_websocket_manager():
                         
                         # Get or create AI session based on client_id + provider + model
                         session_id = ai_session_manager.create_or_get_session(client_id, None, provider, model)
-                        logger.info(f"AI session for WebSocket client {client_id}: {session_id} ({provider}/{model})")
+                        # logger.info(f"AI session for WebSocket client {client_id}: {session_id} ({provider}/{model})")
                         
                         # Force full context if requested
                         if force_full_context:
@@ -298,7 +299,7 @@ def initialize_websocket_manager():
                             compact_messages = [msg for msg in compact_messages if msg.get('type') != 'combat_context']
                             compact_messages.append(combat_context_message)
                             
-                            logger.info(f"Fresh combat context from service for WebSocket: in_combat={combat_context.get('in_combat', False)}")
+                            # logger.info(f"Fresh combat context from service for WebSocket: in_combat={combat_context.get('in_combat', False)}")
                             
                         except Exception as e:
                             logger.error(f"Error getting combat context from service for WebSocket: {e}")
@@ -320,24 +321,35 @@ def initialize_websocket_manager():
                         
                         dynamic_prompt = combat_prompt_generator.generate_prompt(combat_context, combat_state)
                         
-                        # Prepare AI messages
+                        # Prepare AI messages (old logic - NOT sent to AI when function calling is enabled)
                         ai_messages = [
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": f"Chat Context (Compact JSON Format):\n{compact_json_context}\n\n{dynamic_prompt}"}
                         ]
                         
-                        # Log messages with proper newlines for readability
-                        for i, msg in enumerate(ai_messages):
-                            role = msg.get('role', 'unknown')
-                            content = msg.get('content', '')
-                            logger.info(f"Message {i+1} ({role}):\n{content}")
+                        # Import shared function for AI processing (function calling or standard)
+                        from api.api_chat import process_with_function_calling_or_standard
                         
-                        # Call AI service directly with session_id for conversation history
-                        ai_response_data = await ai_service.process_compact_context(
-                            processed_messages=compact_messages,
+                        # Extract message_delta from WebSocket request data for function calling mode
+                        # Log all keys in message_data for debugging
+                        logger.debug(f"WebSocket message_data keys: {list(message_data.keys())}")
+                        logger.debug(f"WebSocket message_data content: {json.dumps({k: v for k, v in message_data.items() if k not in ['messages']}, indent=2)}")
+                        
+                        message_delta = message_data.get("message_delta", {})
+                        if message_delta:
+                            universal_settings['message_delta'] = message_delta
+                            logger.info(f"Frontend delta counts received: New={message_delta.get('new_messages', 0)}, Deleted={message_delta.get('deleted_messages', 0)}")
+                        else:
+                            logger.warning(f"No message_delta found in WebSocket request. Available keys: {list(message_data.keys())}")
+                        
+                        # Use shared function for AI processing (function calling or standard)
+                        # This logic is shared with HTTP API endpoint to avoid duplication
+                        ai_response_data = await process_with_function_calling_or_standard(
+                            universal_settings=universal_settings,
+                            compact_messages=compact_messages,
                             system_prompt=system_prompt,
-                            settings=universal_settings,
-                            session_id=session_id  # Pass session_id for conversation history
+                            session_id=session_id,
+                            client_id=client_id
                         )
                         
                         ai_response = ai_response_data.get("response", "")
@@ -450,7 +462,7 @@ def initialize_websocket_manager():
                                     "timestamp": time.time()
                                 }
                             })
-                            logger.info(f"Settings sync completed from client {client_id}")
+                            logger.debug(f"Settings sync completed from client {client_id}")
                         else:
                             await self.send_to_client(client_id, {
                                 "type": "error",
@@ -795,8 +807,10 @@ def get_global_services() -> Dict[str, Any]:
         client_manager = ClientManager()
         if not ServiceRegistry.register('client_manager', client_manager):
             logger.error("Failed to register client manager")
+            raise StartupServicesException("Client manager registration failed")
         else:
             services['client_manager'] = client_manager
+            logger.info("✅ Client manager initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize client manager: {e}")
         raise StartupServicesException(f"Client manager initialization failed: {e}")
@@ -808,11 +822,15 @@ def get_global_services() -> Dict[str, Any]:
     from services.message_services.websocket_message_collector import get_websocket_message_collector
     try:
         websocket_message_collector = get_websocket_message_collector()
+        # Register with BOTH names for compatibility with get_message_collector()
         if not ServiceRegistry.register('websocket_message_collector', websocket_message_collector):
             logger.error("Failed to register websocket message collector")
+        elif not ServiceRegistry.register('message_collector', websocket_message_collector):
+            logger.error("Failed to register message_collector")
         else:
             services['websocket_message_collector'] = websocket_message_collector
-            logger.info("✅ WebSocket message collector initialized and registered")
+            services['message_collector'] = websocket_message_collector
+            logger.info("✅ WebSocket message collector initialized and registered (as both websocket_message_collector and message_collector)")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize websocket message collector: {e}")
         raise StartupServicesException(f"WebSocket message collector initialization failed: {e}")
@@ -964,6 +982,38 @@ def get_global_services() -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to initialize message delta service: {e}")
         raise StartupServicesException(f"Unexpected message delta service error: {e}")
+    
+    # Initialize AI tool executor for function calling
+    from services.ai_tools.ai_tool_executor import get_ai_tool_executor
+    try:
+        ai_tool_executor = get_ai_tool_executor()
+        if not ServiceRegistry.register('ai_tool_executor', ai_tool_executor):
+            logger.error("Failed to register AI tool executor")
+        else:
+            services['ai_tool_executor'] = ai_tool_executor
+            logger.info("✅ AI tool executor initialized and registered")
+    except (ImportError, RuntimeError) as e:
+        logger.error(f"Failed to initialize AI tool executor: {e}")
+        raise StartupServicesException(f"AI tool executor initialization failed: {e}")
+    except Exception as e:
+        logger.error(f"Failed to initialize AI tool executor: {e}")
+        raise StartupServicesException(f"Unexpected AI tool executor error: {e}")
+    
+    # Initialize AI orchestrator for function calling workflow
+    from services.ai_services.ai_orchestrator import get_ai_orchestrator
+    try:
+        ai_orchestrator = get_ai_orchestrator()
+        if not ServiceRegistry.register('ai_orchestrator', ai_orchestrator):
+            logger.error("Failed to register AI orchestrator")
+        else:
+            services['ai_orchestrator'] = ai_orchestrator
+            logger.info("✅ AI orchestrator initialized and registered")
+    except (ImportError, RuntimeError) as e:
+        logger.error(f"Failed to initialize AI orchestrator: {e}")
+        raise StartupServicesException(f"AI orchestrator initialization failed: {e}")
+    except Exception as e:
+        logger.error(f"Failed to initialize AI orchestrator: {e}")
+        raise StartupServicesException(f"Unexpected AI orchestrator error: {e}")
     
     # Initialize AI service - move after ServiceRegistry is ready
     # This will be initialized later in startup sequence
