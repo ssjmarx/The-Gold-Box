@@ -15,12 +15,12 @@ def get_tool_definitions() -> list:
         {
             "type": "function",
             "function": {
-                "name": "get_messages",
-                "description": "Retrieve recent chat messages from Foundry chat for context. Use once at the start of a turn to get new messages.",
+                "name": "get_message_history",
+                "description": "Retrieves the most recent chat messages from Foundry chat for context. Use once at the start of a turn to get new messages.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "count": {
+                        "limit": {
                             "type": "integer",
                             "description": "Number of recent messages to retrieve",
                             "minimum": 1,
@@ -28,65 +28,78 @@ def get_tool_definitions() -> list:
                             "default": 15
                         }
                     },
-                    "required": ["count"]
+                    "required": ["limit"]
                 }
             }
         },
         {
             "type": "function",
             "function": {
-                "name": "post_messages",
-                "description": "Send one or more chat messages or chat cards to Foundry as your response. Messages can be chat text, or structured chat cards with Foundry-specific formatting. This function accepts markdown styling.",
+                "name": "post_message",
+                "description": "Posts a new message to the chat. Messages can be chat text, or structured chat cards with Foundry-specific formatting. This function accepts markdown styling.",
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "messages": {
+                        "content": {
+                            "type": "string",
+                            "description": "Message content"
+                        },
+                        "speaker_name": {
+                            "type": "string",
+                            "description": "Speaker name (optional)"
+                        },
+                        "flavor": {
+                            "type": "string",
+                            "description": "Flavor text (optional)"
+                        },
+                        "type": {
+                            "type": "string",
+                            "description": "Message type: ic, ooc, or emote",
+                            "enum": ["ic", "ooc", "emote"]
+                        }
+                    },
+                    "required": ["content"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "roll_dice",
+                "description": "Roll one or more Foundry-formatted dice formulas",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "rolls": {
                             "type": "array",
                             "items": {
                                 "type": "object",
                                 "properties": {
-                                    "content": {
+                                    "formula": {
                                         "type": "string",
-                                        "description": "Message content (required)"
-                                    },
-                                    "type": {
-                                        "type": "string",
-                                        "description": "Message type (chat-message, dice-roll, chat-card, etc.)",
-                                        "default": "chat-message"
+                                        "description": "Foundry dice formula (e.g., '1d20+5', '2d6+2')"
                                     },
                                     "flavor": {
                                         "type": "string",
-                                        "description": "Flavor text for the message"
-                                    },
-                                    "speaker": {
-                                        "type": "object",
-                                        "properties": {
-                                            "name": {"type": "string"},
-                                            "alias": {"type": "string"},
-                                            "scene": {"type": "string"},
-                                            "actor": {"type": "string"},
-                                            "token": {"type": "string"}
-                                        }
-                                    },
-                                    "flags": {
-                                        "type": "object",
-                                        "description": "Foundry flags object"
-                                    },
-                                    "whisper": {
-                                        "type": "array",
-                                        "items": {"type": "string"},
-                                        "description": "Array of recipient IDs for whispers"
-                                    },
-                                    "compact_format": {
-                                        "type": "object",
-                                        "description": "Alternative: compact JSON format message"
+                                        "description": "Flavor text for the roll (optional)"
                                     }
                                 },
-                                "required": ["content"]
+                                "required": ["formula"]
                             }
                         }
                     },
-                    "required": ["messages"]
+                    "required": ["rolls"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_encounter",
+                "description": "Gets the current combat state. Returns a standard 'no active encounter' response if out of combat.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {}
                 }
             }
         }

@@ -50,23 +50,27 @@ class AIToolExecutor:
         """
         
         # Route to specific tool executor
-        if tool_name == 'get_messages':
-            return await self.execute_get_messages(tool_args, client_id)
-        elif tool_name == 'post_messages':
-            return await self.execute_post_messages(tool_args, client_id)
+        if tool_name == 'get_message_history':
+            return await self.execute_get_message_history(tool_args, client_id)
+        elif tool_name == 'post_message':
+            return await self.execute_post_message(tool_args, client_id)
+        elif tool_name == 'roll_dice':
+            return await self.execute_roll_dice(tool_args, client_id)
+        elif tool_name == 'get_encounter':
+            return await self.execute_get_encounter(tool_args, client_id)
         else:
             raise ValueError(f"Unknown tool: {tool_name}")
     
-    async def execute_get_messages(
+    async def execute_get_message_history(
         self,
         args: Dict[str, Any],
         client_id: str
     ) -> Dict[str, Any]:
         """
-        Execute get_messages tool - returns compact JSON format (same as non-tool AI chat)
+        Execute get_message_history tool - returns compact JSON format (same as non-tool AI chat)
         
         Args:
-            args: Tool arguments (must contain 'count')
+            args: Tool arguments (must contain 'limit')
             client_id: Client ID for message collection
         
         Returns:
@@ -74,9 +78,9 @@ class AIToolExecutor:
         """
         try:
             # Validate arguments
-            count = args.get('count', 15)
-            if not isinstance(count, int) or count < 1 or count > 50:
-                raise ValueError("count must be an integer between 1 and 50")
+            limit = args.get('limit', 15)
+            if not isinstance(limit, int) or limit < 1 or limit > 50:
+                raise ValueError("limit must be an integer between 1 and 50")
             
             # Get services via ServiceFactory (single source of truth)
             from ..system_services.service_factory import get_message_collector
@@ -90,7 +94,7 @@ class AIToolExecutor:
             # This uses exact same message gathering pipeline as standard mode
             messages = message_collector.get_combined_messages(
                 client_id, 
-                count,
+                limit,
                 session_id=None  # Disable delta filtering
             )
             
@@ -140,37 +144,61 @@ class AIToolExecutor:
             }
             
             # Log summary
-            logger.info(f"get_messages executed: {len(compact_messages)} messages collected for client {client_id}")
+            logger.info(f"get_message_history executed: {len(compact_messages)} messages collected for client {client_id}")
             
             return result
             
         except Exception as e:
-            logger.error(f"get_messages execution failed: {e}")
+            logger.error(f"get_message_history execution failed: {e}")
             return {
                 "success": False,
                 "error": str(e)
             }
     
-    async def execute_post_messages(
+    async def execute_post_message(
         self,
         args: Dict[str, Any],
         client_id: str
     ) -> Dict[str, Any]:
         """
-        Execute post_messages tool
+        Execute post_message tool - with dice-roll detection
         
         Args:
-            args: Tool arguments (must contain 'messages' array)
+            args: Tool arguments (must contain 'content')
             client_id: Client ID for WebSocket communication
         
         Returns:
-            Dict with success status and message results
+            Dict with success status
         """
         try:
             # Validate arguments
-            messages = args.get('messages', [])
-            if not isinstance(messages, list) or not messages:
-                raise ValueError("messages must be a non-empty array")
+            content = args.get('content', '')
+            if not content:
+                raise ValueError("content is required")
+            
+            # Check if content is a dice roll (AI trying to create roll via post_message)
+            # Pattern detection: dice formulas, roll keywords, etc.
+            import re
+            dice_pattern = r'\d+d\d+[\+\-]\d+|\d+d\d+'
+            
+            is_dice_roll = re.search(dice_pattern, content) is not None
+            is_roll_keyword = any(keyword in content.lower() for keyword in ['roll ', 'rolls', 'attack roll', 'damage'])
+            
+            if is_dice_roll or is_roll_keyword:
+                # AI is trying to create a dice roll - translate to roll_dice call
+                logger.warning(f"AI attempting dice roll via post_message, translating to roll_dice")
+                
+                # Extract formula from content
+                formula_match = re.search(r'(\d+d\d+[\+\-]\d+|\d+d\d+)', content)
+                if formula_match:
+                    formula = formula_match.group(1)
+                    flavor = content.replace(formula, '').strip()
+                    
+                    # Call roll_dice instead
+                    return await self.execute_roll_dice(
+                        {'rolls': [{'formula': formula, 'flavor': flavor}]},
+                        client_id
+                    )
             
             # Get services via ServiceFactory (single source of truth)
             from ..system_services.service_factory import get_websocket_manager
@@ -179,59 +207,162 @@ class AIToolExecutor:
             websocket_manager = get_websocket_manager()
             unified_processor = get_unified_processor()
             
-            results = []
+            # Build message object
+            msg_data = {
+                'content': content,
+                'type': args.get('type', 'chat-message')
+            }
             
-            # Log all messages being sent to Foundry before sending
-            # logger.info(f"post_messages: Sending {len(messages)} messages to Foundry for client {client_id}")
-            # for i, msg_data in enumerate(messages):
-            #     logger.info(f"  Message {i+1}/{len(messages)}: {msg_data}")
+            # Add optional fields
+            if 'speaker_name' in args:
+                msg_data['author'] = {'name': args['speaker_name']}
+            if 'flavor' in args:
+                msg_data['flavor'] = args['flavor']
             
-            for msg_data in messages:
-                try:
-                    # Detect format and convert appropriately
-                    if 'compact_format' in msg_data:
-                        # Compact format - convert to API format
-                        api_msg = unified_processor.compact_to_api_format(msg_data['compact_format'])
-                    else:
-                        # Ensure message has a type field (default to chat-message if missing)
-                        if 'type' not in msg_data:
-                            msg_data['type'] = 'chat-message'
-                        # Already API format or simple message
-                        api_msg = msg_data
-                    
-                    # Send via WebSocket to frontend
-                    ws_message = {
-                        "type": "chat_response",
-                        "data": {
-                            "message": api_msg,
-                            "timestamp": datetime.now().isoformat()
-                        }
-                    }
-                    
-                    success = await websocket_manager.send_to_client(client_id, ws_message)
-                    results.append({
-                        "id": msg_data.get('id', 'unknown'),
-                        "success": success
-                    })
-                    
-                except Exception as e:
-                    logger.error(f"Failed to send individual message: {e}")
-                    results.append({
-                        "id": msg_data.get('id', 'unknown'),
-                        "success": False,
-                        "error": str(e)
-                    })
+            # Ensure message has a type field
+            if 'type' not in msg_data:
+                msg_data['type'] = 'chat-message'
             
-            logger.info(f"post_messages executed: {len(results)}/{len(messages)} messages sent for client {client_id}")
+            # Send via WebSocket to frontend
+            ws_message = {
+                "type": "chat_response",
+                "data": {
+                    "message": msg_data,
+                    "timestamp": datetime.now().isoformat()
+                }
+            }
+            
+            success = await websocket_manager.send_to_client(client_id, ws_message)
+            
+            logger.info(f"post_message executed: {'success' if success else 'failed'} for client {client_id}")
             
             return {
-                "success": True,
-                "sent_count": len([r for r in results if r.get('success')]),
-                "results": results
+                "success": success
             }
             
         except Exception as e:
-            logger.error(f"post_messages execution failed: {e}")
+            logger.error(f"post_message execution failed: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def execute_roll_dice(
+        self,
+        args: Dict[str, Any],
+        client_id: str
+    ) -> Dict[str, Any]:
+        """
+        Execute roll_dice tool - requests dice rolls from frontend
+        
+        Args:
+            args: Tool arguments (must contain 'rolls' array)
+            client_id: Client ID for WebSocket communication
+        
+        Returns:
+            Dict with pending roll status (results come back via frontend)
+        """
+        try:
+            # Validate arguments
+            rolls = args.get('rolls', [])
+            if not isinstance(rolls, list) or not rolls:
+                raise ValueError("rolls must be a non-empty array")
+            
+            for roll in rolls:
+                if not isinstance(roll, dict) or 'formula' not in roll:
+                    raise ValueError("Each roll must be a dict with 'formula' field")
+            
+            # Get WebSocket manager
+            from ..system_services.service_factory import get_websocket_manager
+            websocket_manager = get_websocket_manager()
+            
+            # Send dice roll requests to frontend
+            results = []
+            for roll in rolls:
+                formula = roll.get('formula', '')
+                flavor = roll.get('flavor', '')
+                
+                ws_message = {
+                    "type": "dice_roll_request",
+                    "data": {
+                        "formula": formula,
+                        "flavor": flavor,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                }
+                
+                success = await websocket_manager.send_to_client(client_id, ws_message)
+                results.append({
+                    "formula": formula,
+                    "success": success
+                })
+            
+            logger.info(f"roll_dice executed: {len(results)} dice roll requests sent to frontend for client {client_id}")
+            
+            return {
+                "success": True,
+                "message": f"Dice roll requests sent. Results will be available in next chat context.",
+                "requests": results
+            }
+            
+        except Exception as e:
+            logger.error(f"roll_dice execution failed: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def execute_get_encounter(
+        self,
+        args: Dict[str, Any],
+        client_id: str
+    ) -> Dict[str, Any]:
+        """
+        Execute get_encounter tool - retrieves current combat state
+        
+        Args:
+            args: Tool arguments (none required)
+            client_id: Client ID for context (not used but kept for consistency)
+        
+        Returns:
+            Dict with combat state or 'no active encounter' message
+        """
+        try:
+            # Get combat encounter service
+            from ..system_services.service_factory import get_combat_encounter_service
+            combat_service = get_combat_encounter_service()
+            
+            # Get current combat context
+            combat_context = combat_service.get_combat_context()
+            
+            # Check if combat is active
+            if combat_context.get('in_combat', False):
+                # Combat is active - return full encounter data
+                encounter_data = {
+                    "success": True,
+                    "in_combat": True,
+                    "encounter_id": combat_context.get('combat_id'),
+                    "round": combat_context.get('round', 0),
+                    "turn": combat_context.get('turn', 0),
+                    "combatants": combat_context.get('combatants', []),
+                    "current_turn_actor": combat_context.get('current_turn_actor')
+                }
+                
+                logger.info(f"get_encounter: Active encounter {encounter_data['encounter_id']}, Round {encounter_data['round']}, Turn {encounter_data['turn']}")
+                
+                return encounter_data
+            else:
+                # No active encounter
+                logger.info("get_encounter: No active encounter")
+                
+                return {
+                    "success": True,
+                    "in_combat": False,
+                    "message": "No active encounter"
+                }
+            
+        except Exception as e:
+            logger.error(f"get_encounter execution failed: {e}")
             return {
                 "success": False,
                 "error": str(e)

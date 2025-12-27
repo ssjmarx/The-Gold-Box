@@ -646,13 +646,19 @@ class UnifiedMessageProcessor:
         
         return sanitized
     
-    def generate_enhanced_system_prompt(self, ai_role: str, compact_messages: List[Dict[str, Any]]) -> str:
+    def generate_enhanced_system_prompt(
+        self,
+        ai_role: str,
+        compact_messages: List[Dict[str, Any]],
+        world_state_overview: Optional[Dict[str, Any]] = None
+    ) -> str:
         """
         Generate enhanced system prompt based on AI role and message context
         
         Args:
             ai_role: AI role ('gm', 'gm assistant', 'player')
             compact_messages: List of compact messages for context
+            world_state_overview: Optional World State Overview for new sessions
             
         Returns:
             Enhanced system prompt string
@@ -701,6 +707,16 @@ class UnifiedMessageProcessor:
         if has_abbreviations:
             context_abbreviations.append('value_dict: {"@v1": "full_value1", "@v2": "full_value2", ...} - resolves abbreviations in cards')
         
+        # Add World State Overview for new sessions
+        wso_section = ""
+        if world_state_overview:
+            wso_section = f"""
+
+World State Overview:
+{json.dumps(world_state_overview, indent=2)}
+
+"""
+        
         # Get AI role specific prompt content
         role_prompts = {
             'gm': 'You are assigned as a full gamemaster. Your role is to describe scene, describe NPC actions, and create dice rolls whenever NPCs do anything that requires one. Keep generating descriptions, actions, and dice rolls until every NPC in the scene has gone, and then turn action back over to the players.',
@@ -739,7 +755,7 @@ In Combat: {combat_data.get('in_combat', False)}, Round: {combat_data.get('round
 """
         
         # Build enhanced system prompt (without dynamic field definitions)
-        system_prompt = f"""You are an AI assistant for tabletop RPG games, with role {ai_role}. {role_specific_prompt}{combat_context_info}"""
+        system_prompt = f"""You are an AI assistant for tabletop RPG games, with role {ai_role}. {role_specific_prompt}{wso_section}{combat_context_info}"""
         
         return system_prompt
     

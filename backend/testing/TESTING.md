@@ -736,6 +736,36 @@ GOLD_BOX_ADMIN_PASSWORD=swag bash -c \
 - [ ] Visual test editor UI
 - [ ] Test coverage reporting
 
+## Recent Enhancements (v0.3.9)
+
+### AI Function Updates
+- Renamed `get_messages` → `get_message_history` (parameter renamed from `count` to `limit`)
+- Renamed `post_messages` → `post_message` (now handles single message instead of array)
+- Added `roll_dice` function - Roll Foundry-formatted dice formulas via frontend
+- Added `get_encounter` function - Retrieve current combat state
+- Added dice roll detection in `post_message` - Automatically translates dice rolls to `roll_dice` calls
+
+### Delta Tracking Updates
+- Changed delta format from camelCase to PascalCase (NewMessages, DeletedMessages)
+- Added `NewDiceRolls` - Array of dice rolls since last AI turn
+- Added `EncounterStarted` - Object with encounter info when combat begins
+- Added `EncounterEnded` - Boolean when combat ends
+- Added `CurrentTurnActor` - String name of actor whose turn it currently is
+
+### World State Overview (WSO)
+- New sessions receive comprehensive World State Overview in initial prompt
+- Existing sessions only get delta updates (more efficient)
+- WSO includes: session_info, active_scene, party_compendium, active_encounter, compendium_index
+- Automatic session detection based on conversation history
+
+### Frontend Data Requirements
+The frontend must implement webhook handlers to collect and send the following data:
+- Scene info via WebSocket (type: "scene_info")
+- Party info via WebSocket (type: "party_info")
+- Delta data tracking (NewDiceRolls, EncounterStarted, EncounterEnded, CurrentTurnActor)
+- Dice roll requests via WebSocket (type: "dice_roll_request")
+- Dice roll results via WebSocket (type: "dice_roll_result")
+
 ## Recent Enhancements (v0.3.6)
 
 ### Multi-Command Execution

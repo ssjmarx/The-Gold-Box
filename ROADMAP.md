@@ -329,3 +329,87 @@ The `World State Overview` is now expanded:
 No changes to the `World State Overview` are needed, as the AI now has a complete suite of tools to query and manipulate the world as needed.
 
 This phased approach ensures that each patch delivers a cohesive set of features, building a robust and powerful AI assistant layer by layer.
+
+## Phase 2: Professionalization & Beta Prep 
+
+With the feature suite complete, this phase focuses on developer experience, code quality, automation, and stability. These updates are not user-facing features, but they ensure the project is robust enough for collaboration and public use. 
+
+### Patch 0.4.1: The Automation Update 
+
+Goal: Eliminate manual release processes and ensure code integrity through automated testing and pipelines. 
+
+     CI/CD Pipeline:
+         Implement GitHub Actions workflows (ci.yml) to run automated tests on every Pull Request.
+         Integrate existing test scripts (test_rest_api.py, test_harness.py) into the pipeline.
+         
+     Release Automation:
+         Enhance the Release workflow (release.yml) to communicate with the Foundry VTT Developer API automatically when a version tag (e.g., v0.4.1) is pushed.
+         Secure API keys using GitHub Secrets.
+         
+     Branch Protection:
+         Enforce "Require status checks to pass before merging" on the main branch.
+         Enable "Require pull request reviews before merging" to facilitate better code quality control.
+         
+     
+
+### Patch 0.4.2: The Hygiene Update 
+
+Goal: Reduce technical debt and standardize code quality across the project. 
+
+     Linting & Formatting:
+         Introduce ESLint and Prettier for the frontend.
+         Introduce Pylint or Flake8 and Black for the Python backend.
+         Configure CI to fail builds if linting standards are not met.
+         
+     Dead Code Removal:
+         Integrate vulture (Python) to identify unused code/modules.
+         Conduct a manual cleanup pass to remove unused frontend functions identified by static analysis.
+         
+     Documentation Cleanup:
+         Review and update inline comments.
+         Ensure all core functions have clear docstrings describing parameters and return types.
+         
+     
+
+### Patch 0.4.3: The Modernization Update 
+
+Goal: Increase type safety and developer velocity by introducing TypeScript to the frontend. 
+
+     Build Chain Setup:
+         Configure the TypeScript compiler and a bundler (e.g., Vite) for the Foundry module.
+         Enable allowJs: true to allow JavaScript and TypeScript to coexist during the transition.
+         
+     Type Definitions:
+         Integrate foundry-vtt-types for autocomplete and API safety.
+         
+     Gradual Migration:
+         Migrate high-complexity frontend modules (e.g., the Main HUD, Combat Tracker integration) to TypeScript.
+         Apply JSDoc type hints to remaining JavaScript modules to bridge the gap.
+         
+     Refactoring Safety:
+         Verify that the TypeScript compilation step is included in the CI pipeline to catch type errors before merge.
+         
+     
+
+### Patch 0.5.0: Beta Release (The Open House) 
+
+Goal: Polish the user experience and formalize the project for public consumption and contributors. 
+
+     Documentation Overhaul:
+         Create a comprehensive README.md with installation instructions, configuration guides, and a quick-start tutorial.
+         Write a CONTRIBUTING.md document explaining the git workflow, how to set up the dev environment, and coding standards (TS/Python linting).
+         Add CHANGELOG.md to track user-facing changes per version.
+         
+     Security Audit:
+         Review API key storage and encryption mechanisms.
+         Ensure no sensitive credentials are hardcoded.
+         
+     Bug Bash & Stability:
+         Focus effort on fixing issues reported during the automated testing phases.
+         Polish error messages in the UI to be user-friendly rather than technical.
+         
+     Release Candidates:
+         Deploy v0.5.0-rc1 to a limited audience for final testing.
+         Proceed to full v0.5.0 Beta release.
+         
+     

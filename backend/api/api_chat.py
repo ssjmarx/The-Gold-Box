@@ -218,9 +218,31 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         except Exception as e:
             logger.error(f"Error getting combat context from service: {e}")
         
+        # Step 4.9: Determine new session vs existing session
+        # Check if this is a new session (no conversation history yet)
+        conversation_history = ai_session_manager.get_conversation_history(session_id)
+        is_new_session = len(conversation_history) == 0
+        
+        # Generate World State Overview for new sessions only
+        world_state_overview = None
+        if is_new_session:
+            from services.ai_services.world_state_generator import get_world_state_generator
+            wso_generator = get_world_state_generator()
+            world_state_overview = wso_generator.generate_world_state_overview(
+                client_id,
+                universal_settings
+            )
+            logger.info(f"New session detected - generated World State Overview for session {session_id}")
+        else:
+            logger.info(f"Existing session - skipping World State Overview for session {session_id}")
+        
         # Step 5: Generate enhanced system prompt based on AI role using unified processor
         ai_role = universal_settings.get('ai role', 'gm') if universal_settings else 'gm'
-        system_prompt = unified_processor.generate_enhanced_system_prompt(ai_role, compact_messages)
+        system_prompt = unified_processor.generate_enhanced_system_prompt(
+            ai_role,
+            compact_messages,
+            world_state_overview=world_state_overview
+        )
         
         # Step 5.5: For function calling mode, strip chat context from system prompt
         # Function calling mode should only send system prompt + role instructions + combat context
@@ -396,13 +418,36 @@ async def process_with_function_calling_or_standard(
             
             # Get delta counts from request
             message_delta = universal_settings.get('message_delta', {})
-            new_count = message_delta.get('new_messages', 0)
-            deleted_count = message_delta.get('deleted_messages', 0)
+            new_count = message_delta.get('NewMessages', 0)
+            deleted_count = message_delta.get('DeletedMessages', 0)
             
-            # Build delta display and append to system_prompt
+            # Extract new delta fields
+            new_dice_rolls = message_delta.get('NewDiceRolls', [])
+            encounter_started = message_delta.get('EncounterStarted')
+            encounter_ended = message_delta.get('EncounterEnded')
+            current_turn_actor = message_delta.get('CurrentTurnActor')
+            
+            # Build delta display - only include non-zero/non-None values
+            delta_parts = []
+            delta_parts.append(f'"NewMessages": {new_count}')
+            delta_parts.append(f'"DeletedMessages": {deleted_count}')
+            
+            if new_dice_rolls:
+                delta_parts.append(f'"NewDiceRolls": {json.dumps(new_dice_rolls)}')
+            
+            if encounter_started:
+                delta_parts.append(f'"EncounterStarted": {json.dumps(encounter_started)}')
+            
+            if encounter_ended:
+                delta_parts.append(f'"EncounterEnded": {encounter_ended}')
+            
+            if current_turn_actor:
+                delta_parts.append(f'"CurrentTurnActor": "{current_turn_actor}"')
+            
             delta_display = f"""
 
-Changes since last prompt: [New Messages: {new_count}, Deleted Messages: {deleted_count}]
+Recent changes to the game:
+{{{', '.join(delta_parts)}}}
 """
             
             # Add delta to system prompt
