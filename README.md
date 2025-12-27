@@ -1,6 +1,6 @@
 # The Gold Box
 
-An AI-powered Foundry VTT module that provides intelligent TTRPG assistance through a sophisticated Python backend. Currently chat-only, this plugin is being developed with the eventual goal of enabling fully single-player play of any adventure module in any TTRPG system supported by Foundry.
+An AI-powered Foundry VTT module that provides intelligent TTRPG assistance through a sophisticated Python backend.
 
 ## Acknowledgments
 
@@ -15,12 +15,10 @@ This project would not be possible without the following:
 ## Features
 
 - **AI-Powered TTRPG Assistant**: Intelligent responses that remember conversation history and context
-- **Dynamic Chat Card Translation**: Game-agnostic field discovery and dynamic code generation for any Foundry module
 - **Combat-Aware AI**: Context-aware instructions based on combat state with turn order awareness
 - **Multi-Provider Support**: Connect to 70+ AI providers including OpenAI, Anthropic, GLM, and more
 - **Secure Backend**: Encrypted API key storage with comprehensive security framework
 - **Advanced Processing**: Token-efficient delta filtering and intelligent conversation history management
-- **Testing Harness**: Comprehensive testing system to validate AI functions without calling real AI services
 
 ## Quick Start
 
