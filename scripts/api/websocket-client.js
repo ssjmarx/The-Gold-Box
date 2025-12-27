@@ -215,6 +215,18 @@ class GoldBoxWebSocketClient {
           this.handleChatResponse(message);
           break;
 
+        case 'test_session_start':
+          this.handleTestSessionStart(message);
+          break;
+
+        case 'test_session_end':
+          this.handleTestSessionEnd(message);
+          break;
+
+        case 'test_chat_response':
+          this.handleTestChatResponse(message);
+          break;
+
         case 'error':
           console.error('WebSocket error from server:', message.data);
           this.onError?.(message.data);
@@ -260,6 +272,190 @@ class GoldBoxWebSocketClient {
       }
     } catch (error) {
       console.error('Error handling chat response:', error);
+    }
+  }
+
+  /**
+   * Handle test session start message
+   */
+  handleTestSessionStart(message) {
+    try {
+      console.log('Test session started:', message.data);
+      
+      const testData = message.data;
+      
+      // Notify that we're in testing mode
+      ui.notifications?.info(`Testing session ${testData.test_session_id} started`);
+      
+      // Trigger normal AI turn flow to collect messages
+      // This ensures messages are collected from Foundry chat properly
+      // Check multiple locations for the goldBox instance and wait for initialization
+      let goldBoxInstance = window.goldBox || (typeof game !== 'undefined' && game.goldBox);
+      
+      // If module instance not found, wait a bit and try again (initialization may be in progress)
+      if (!goldBoxInstance) {
+        console.warn('Gold Box: Module instance not immediately available, waiting for initialization...');
+        
+        // Try up to 5 times with 100ms delay between attempts
+        let attempts = 0;
+        const maxAttempts = 5;
+        
+        const checkInterval = setInterval(() => {
+          attempts++;
+          goldBoxInstance = window.goldBox || (typeof game !== 'undefined' && game.goldBox);
+          
+          if (goldBoxInstance) {
+            clearInterval(checkInterval);
+            this.activateTestMode(goldBoxInstance, testData);
+          } else if (attempts >= maxAttempts) {
+            clearInterval(checkInterval);
+            console.error('Gold Box: Module instance still not available after waiting');
+            ui.notifications?.error('Failed to start test session - module not loaded');
+          }
+        }, 100);
+      } else {
+        // Module instance found, activate test mode immediately
+        this.activateTestMode(goldBoxInstance, testData);
+      }
+      
+    } catch (error) {
+      console.error('Error handling test session start:', error);
+    }
+  }
+
+  /**
+   * Activate test mode on the module instance
+   */
+  activateTestMode(goldBoxInstance, testData) {
+    try {
+      // Store test mode info globally so backend knows we're in test mode
+      goldBoxInstance.testMode = {
+        active: true,
+        testSessionId: testData.test_session_id,
+        aiRole: testData.ai_role
+      };
+      
+      console.log('Gold Box: Test mode activated - triggering AI turn flow');
+      console.log('Gold Box: Test session ID:', testData.test_session_id);
+      console.log('Gold Box: AI Role:', testData.ai_role);
+      
+      // Trigger the normal AI turn button flow which will collect messages
+      goldBoxInstance.onTakeAITurn();
+    } catch (error) {
+      console.error('Gold Box: Error activating test mode:', error);
+      ui.notifications?.error('Failed to activate test mode: ' + error.message);
+    }
+  }
+
+  /**
+   * Handle test chat response message
+   */
+  handleTestChatResponse(message) {
+    try {
+      console.log('Test chat response received:', message.data);
+      
+      const testData = message.data;
+      
+      // Display test session info to user
+      const initialPrompt = testData.initial_prompt || 'No initial prompt';
+      ui.notifications?.info(`Test mode active: ${testData.message || 'Ready for testing commands'}`);
+      
+      // Optionally log the initial prompt to chat
+      if (game.messages) {
+        const whisperContent = `
+          <div class="gold-box-test-mode">
+            <strong>Test Session Started</strong><br>
+            Session ID: ${testData.test_session_id}<br>
+            <em>${testData.message}</em>
+          </div>
+        `;
+        
+        ChatMessage.create({
+          speaker: { alias: 'The Gold Box Testing' },
+          content: whisperContent,
+          whisper: game.users.filter(u => u.isGM).map(u => u.id),
+          type: CONST.CHAT_MESSAGE_TYPES.WHISPER
+        });
+      }
+      
+    } catch (error) {
+      console.error('Error handling test chat response:', error);
+    }
+  }
+
+  /**
+   * Handle test session end message
+   */
+  handleTestSessionEnd(message) {
+    try {
+      console.log('Test session ended:', message.data);
+      
+      const testData = message.data;
+      
+      // Get goldBox instance
+      let goldBoxInstance = window.goldBox || (typeof game !== 'undefined' && game.goldBox);
+      
+      if (goldBoxInstance && goldBoxInstance.testMode) {
+        // Clean up test mode state
+        goldBoxInstance.testMode = {
+          active: false,
+          testSessionId: null,
+          aiRole: null
+        };
+        
+        console.log('Gold Box: Test mode deactivated');
+        
+        // Re-enable AI turn button
+        if (goldBoxInstance._aiTurnButton) {
+          goldBoxInstance._aiTurnButton.disabled = false;
+          console.log('Gold Box: AI turn button re-enabled');
+        }
+      }
+      
+      // Handle WebSocket reset (default behavior)
+      if (testData.reset_connection !== false) {
+        console.log('Gold Box: WebSocket reset requested');
+        
+        // Notify user about reconnect
+        ui.notifications?.info('Testing session ended - reconnecting...');
+        
+        // Disconnect and reconnect with new client ID
+        console.log('Gold Box: Disconnecting WebSocket...');
+        this.disconnect();
+        
+        // Wait 1 second, then reconnect with new client ID
+        setTimeout(() => {
+          console.log('Gold Box: Generating new client ID...');
+          this.clientId = this.generateClientId();
+          console.log('Gold Box: New client ID:', this.clientId);
+          console.log('Gold Box: Reconnecting...');
+          this.connect();
+        }, 1000);
+      } else {
+        // No reset, just notify
+        ui.notifications?.info(`Testing session ${testData.test_session_id} ended`);
+      }
+      
+      // Optionally log to chat
+      if (game.messages) {
+        const whisperContent = `
+          <div class="gold-box-test-mode">
+            <strong>Test Session Ended</strong><br>
+            Session ID: ${testData.test_session_id}<br>
+            ${testData.reset_connection !== false ? '<em>WebSocket connection reset</em>' : ''}
+          </div>
+        `;
+        
+        ChatMessage.create({
+          speaker: { alias: 'The Gold Box Testing' },
+          content: whisperContent,
+          whisper: game.users.filter(u => u.isGM).map(u => u.id),
+          type: CONST.CHAT_MESSAGE_TYPES.WHISPER
+        });
+      }
+      
+    } catch (error) {
+      console.error('Error handling test session end:', error);
     }
   }
 

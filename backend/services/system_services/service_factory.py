@@ -556,3 +556,81 @@ def get_ai_tool_executor() -> Any:
         )
     
     return ServiceRegistry.get('ai_tool_executor')
+
+def get_testing_session_manager() -> Any:
+    """
+    Get testing session manager from ServiceRegistry.
+    
+    Returns:
+        TestingSessionManager instance from ServiceRegistry
+        
+    Raises:
+        RuntimeError: If ServiceRegistry is not ready or testing_session_manager is not registered
+    """
+    from .registry import ServiceRegistry
+    
+    if not ServiceRegistry.is_ready():
+        raise RuntimeError(
+            "ServiceRegistry is not ready. Services must be initialized during server startup. "
+            "Check that run_server_startup() completed successfully."
+        )
+    
+    if not ServiceRegistry.is_registered('testing_session_manager'):
+        raise RuntimeError(
+            "testing_session_manager is not registered in ServiceRegistry. "
+            "Check that testing_session_manager is properly registered during startup."
+        )
+    
+    return ServiceRegistry.get('testing_session_manager')
+
+def get_testing_harness() -> Any:
+    """
+    Get testing harness from ServiceRegistry.
+    
+    Returns:
+        TestingHarness instance from ServiceRegistry
+        
+    Raises:
+        RuntimeError: If ServiceRegistry is not ready or testing_harness is not registered
+    """
+    from .registry import ServiceRegistry
+    
+    if not ServiceRegistry.is_ready():
+        raise RuntimeError(
+            "ServiceRegistry is not ready. Services must be initialized during server startup. "
+            "Check that run_server_startup() completed successfully."
+        )
+    
+    if not ServiceRegistry.is_registered('testing_harness'):
+        raise RuntimeError(
+            "testing_harness is not registered in ServiceRegistry. "
+            "Check that testing_harness is properly registered during startup."
+        )
+    
+    return ServiceRegistry.get('testing_harness')
+
+def get_testing_command_processor() -> Any:
+    """
+    Get testing command processor from ServiceRegistry.
+    
+    Returns:
+        TestingCommandProcessor instance from ServiceRegistry
+        
+    Raises:
+        RuntimeError: If ServiceRegistry is not ready or testing_command_processor is not registered
+    """
+    from .registry import ServiceRegistry
+    
+    if not ServiceRegistry.is_ready():
+        raise RuntimeError(
+            "ServiceRegistry is not ready. Services must be initialized during server startup. "
+            "Check that run_server_startup() completed successfully."
+        )
+    
+    if not ServiceRegistry.is_registered('testing_command_processor'):
+        raise RuntimeError(
+            "testing_command_processor is not registered in ServiceRegistry. "
+            "Check that testing_command_processor is properly registered during startup."
+        )
+    
+    return ServiceRegistry.get('testing_command_processor')

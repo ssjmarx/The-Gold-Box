@@ -121,8 +121,19 @@ def initialize_websocket_manager():
                         await self._handle_combat_context(client_id, message)
                         return
                     
-                    # Handle chat requests using existing logic from original file
+                    # Handle chat requests - check for active test session first
                     if message_type == "chat_request":
+                        # Check if there's an active test session for this client
+                        from services.system_services.service_factory import get_testing_session_manager
+                        testing_session_manager = get_testing_session_manager()
+                        active_test_session = testing_session_manager.get_session_by_client(client_id)
+                        
+                        if active_test_session:
+                            # Route to testing harness instead of AI service
+                            await self._handle_test_chat_request(client_id, message, active_test_session)
+                            return
+                        
+                        # No active test session - use normal AI service logic
                         # Import full message processing logic from original file
                         from shared.core.message_protocol import MessageProtocol
                         from services.message_services.message_collector import add_client_message, add_client_roll, get_combined_client_messages, clear_client_data
@@ -668,6 +679,84 @@ def initialize_websocket_manager():
                 
                 return parsed
             
+            async def _handle_test_chat_request(self, client_id: str, message: Dict[str, Any], active_test_session: Dict[str, Any]):
+                """Handle chat_request when there's an active test session - route to testing harness"""
+                try:
+                    from services.system_services.service_factory import get_testing_harness, get_testing_command_processor, get_testing_session_manager
+                    from shared.core.message_protocol import MessageProtocol
+                    from services.message_services.websocket_message_collector import add_client_message_with_delta
+                    
+                    test_session_id = active_test_session['test_session_id']
+                    
+                    # Extract message data
+                    message_data = MessageProtocol.extract_message_data(message)
+                    if not message_data:
+                        await self.send_to_client(client_id, {
+                            "type": "error",
+                            "data": {
+                                "error": "Invalid chat request data",
+                                "timestamp": time.time()
+                            }
+                        })
+                        return
+                    
+                    # IMPORTANT: Store the messages in WebSocket message collector
+                    # This ensures get_messages can retrieve them later
+                    # Same logic as normal chat_request handling
+                    from services.system_services.service_factory import get_ai_session_manager
+                    ai_session_manager = get_ai_session_manager()
+                    
+                    # Get or create session for message storage
+                    # Use test session ID as session_id for consistency
+                    session_id = ai_session_manager.create_or_get_session(client_id, None, "test", "test")
+                    
+                    # Store all messages from chat_request
+                    messages = message_data.get("messages", [])
+                    for msg in messages:
+                        if isinstance(msg, dict):
+                            # Add message to collector with delta filtering
+                            add_client_message_with_delta(client_id, msg, session_id)
+                            logger.debug(f"Stored message in test mode for client {client_id}")
+                        elif isinstance(msg, str):
+                            # Convert string messages to dict format
+                            add_client_message_with_delta(client_id, {
+                                "content": msg,
+                                "type": "chat",
+                                "timestamp": int(time.time() * 1000)
+                            }, session_id)
+                    
+                    logger.info(f"Stored {len(messages)} messages in WebSocket collector for test session {test_session_id}")
+                    
+                    # Extract universal settings from the test session
+                    universal_settings = active_test_session.get('universal_settings', {})
+                    
+                    # For testing, we want to trigger the initial prompt response
+                    # This simulates what AI would receive
+                    initial_prompt = active_test_session.get('initial_prompt', '')
+                    
+                    if initial_prompt:
+                        # Send initial prompt as AI response (testing mode)
+                        await self.send_to_client(client_id, {
+                            "type": "test_chat_response",
+                            "data": {
+                                "test_session_id": test_session_id,
+                                "initial_prompt": initial_prompt,
+                                "message": "Testing session started. Send commands via test endpoint.",
+                                "timestamp": time.time()
+                            }
+                        })
+                        logger.info(f"Sent test chat response for session {test_session_id} to client {client_id}")
+                    
+                except Exception as e:
+                    logger.error(f"Error handling test chat request for {client_id}: {e}")
+                    await self.send_to_client(client_id, {
+                        "type": "error",
+                        "data": {
+                            "error": f"Test chat request failed: {str(e)}",
+                            "timestamp": time.time()
+                        }
+                    })
+            
         
         
         websocket_manager = WebSocketConnectionManager()
@@ -1015,6 +1104,54 @@ def get_global_services() -> Dict[str, Any]:
         logger.error(f"Failed to initialize AI orchestrator: {e}")
         raise StartupServicesException(f"Unexpected AI orchestrator error: {e}")
     
+    # Initialize testing session manager
+    from services.system_services.testing_session_manager import get_testing_session_manager
+    try:
+        testing_session_manager = get_testing_session_manager()
+        if not ServiceRegistry.register('testing_session_manager', testing_session_manager):
+            logger.error("Failed to register testing session manager")
+        else:
+            services['testing_session_manager'] = testing_session_manager
+            logger.info("✅ Testing session manager initialized and registered")
+    except (ImportError, RuntimeError) as e:
+        logger.error(f"Failed to initialize testing session manager: {e}")
+        raise StartupServicesException(f"Testing session manager initialization failed: {e}")
+    except Exception as e:
+        logger.error(f"Failed to initialize testing session manager: {e}")
+        raise StartupServicesException(f"Unexpected testing session manager error: {e}")
+    
+    # Initialize testing harness
+    from services.ai_services.testing_harness import get_testing_harness
+    try:
+        testing_harness = get_testing_harness()
+        if not ServiceRegistry.register('testing_harness', testing_harness):
+            logger.error("Failed to register testing harness")
+        else:
+            services['testing_harness'] = testing_harness
+            logger.info("✅ Testing harness initialized and registered")
+    except (ImportError, RuntimeError) as e:
+        logger.error(f"Failed to initialize testing harness: {e}")
+        raise StartupServicesException(f"Testing harness initialization failed: {e}")
+    except Exception as e:
+        logger.error(f"Failed to initialize testing harness: {e}")
+        raise StartupServicesException(f"Unexpected testing harness error: {e}")
+    
+    # Initialize testing command processor
+    from services.ai_services.testing_command_processor import get_testing_command_processor
+    try:
+        testing_command_processor = get_testing_command_processor()
+        if not ServiceRegistry.register('testing_command_processor', testing_command_processor):
+            logger.error("Failed to register testing command processor")
+        else:
+            services['testing_command_processor'] = testing_command_processor
+            logger.info("✅ Testing command processor initialized and registered")
+    except (ImportError, RuntimeError) as e:
+        logger.error(f"Failed to initialize testing command processor: {e}")
+        raise StartupServicesException(f"Testing command processor initialization failed: {e}")
+    except Exception as e:
+        logger.error(f"Failed to initialize testing command processor: {e}")
+        raise StartupServicesException(f"Unexpected testing command processor error: {e}")
+    
     # Initialize AI service - move after ServiceRegistry is ready
     # This will be initialized later in startup sequence
     services['ai_service'] = None  # Placeholder, will be set after registry is ready
@@ -1034,7 +1171,10 @@ def get_global_services() -> Dict[str, Any]:
         services.get('combat_encounter_service') is not None and
         services.get('whisper_service') is not None and
         services.get('chat_card_translation_cache') is not None and
-        services.get('chat_card_translator') is not None
+        services.get('chat_card_translator') is not None and
+        services.get('testing_session_manager') is not None and
+        services.get('testing_harness') is not None and
+        services.get('testing_command_processor') is not None
     )
     
     services['services_valid'] = core_services_valid

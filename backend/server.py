@@ -126,6 +126,8 @@ session_router = create_session_router(config)
 admin_router = create_admin_router(config)
 
 # Include routers in app
+# All routers use consistent prefix="/api" registration
+app.include_router(api_chat_router, prefix="/api")
 app.include_router(health_router, prefix="/api")
 app.include_router(system_router, prefix="/api")
 app.include_router(session_router, prefix="/api")

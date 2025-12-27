@@ -1,562 +1,798 @@
-# Testing The Gold Box Backend Server (v0.3.5)
+# The Gold Box - Testing Harness
 
-This document provides comprehensive curl commands to test all API endpoints and security features of The Gold Box backend server from the terminal.
+## Overview
 
-> **Important**: Before testing chat endpoints, you must configure API keys through the key management system. Run the server without API keys configured and follow the interactive setup wizard, or set `GOLD_BOX_KEYCHANGE=true` environment variable to force the key management interface.
+The Testing Harness allows you to test AI functions without calling an actual AI service. It intercepts chat requests and routes them to simulated AI responses controlled via curl commands.
 
-> **Note**: For comprehensive environmental variable configuration options, see [USAGE.md](../USAGE.md).
+## Architecture
 
-## Prerequisites
-1. Make sure the server is running (should be on localhost:5000 or next available port)
-2. The server will display the actual port when it starts
-3. Install curl if not already available on your system
-4. **Configure API keys** through the key management system before testing chat endpoints
-5. **Initialize a session** for endpoints that require authentication
+```
+┌─────────────────┐
+│   Frontend     │
+│  (Foundry VTT) │
+└────────┬────────┘
+         │ WebSocket
+         ▼
+┌──────────────────────────────┐
+│      Backend Server         │
+│                            │
+│  ┌────────────────────┐   │
+│  │ Test Session Start  │───┐
+│  └────────────────────┘   │
+│                             │
+│  ┌────────────────────┐   │
+│  │  WebSocket Handler │   │
+│  └────────────────────┘   │
+│           │               │
+│           │ Test session?  │
+│           ▼               │
+│  ┌────────────────────┐   │
+│  │ Testing Harness    │◀──┼── Admin Endpoint
+│  │  (Mock AI)        │   │   (curl commands)
+│  └────────────────────┘   │
+│                            │
+└────────────────────────────┘
+```
 
-## Session Management Setup
+## Quick Start
 
-### Session Variables
+### 1. Start a Test Session
+
 ```bash
-# Initialize a session and store variables for subsequent tests
-SESSION_RESPONSE=$(curl -s -X POST http://localhost:5000/api/session/init \
+cd backend
+GOLD_BOX_ADMIN_PASSWORD=your_password bash -c \
+  'source testing/test_harness_helpers.sh && start_test <client_id>'
+```
+
+Example:
+```bash
+GOLD_BOX_ADMIN_PASSWORD=swag bash -c \
+  'source testing/test_harness_helpers.sh && start_test gb-wo2BPutUGT9XDlH9-c45265b0'
+```
+
+**What happens:**
+- Creates a test session in backend
+- Generates initial prompt (same format as real AI)
+- Sends `test_session_start` WebSocket message to frontend
+- Frontend displays test session notification
+- AI turn button is blocked (testing mode active)
+
+### 2. Get Client ID
+
+From Foundry VTT console:
+```javascript
+game.settings.get('the-gold-box', 'clientId')
+```
+
+Or check backend logs for:
+```
+WebSocket connection confirmed: {client_id: 'gb-...'}
+```
+
+### 3. Run Test Commands
+
+```bash
+# Get messages from chat
+GOLD_BOX_ADMIN_PASSWORD=swag bash -c \
+  'source testing/test_harness_helpers.sh && send_test_command "" "get_messages 15"'
+
+# Post a test message
+GOLD_BOX_ADMIN_PASSWORD=swag bash -c \
+  'source testing/test_harness_helpers.sh && send_test_command "" "post Hello from testing"'
+
+# Get session status
+GOLD_BOX_ADMIN_PASSWORD=swag bash -c \
+  'source testing/test_harness_helpers.sh && send_test_command "" "status"'
+
+# End test session
+GOLD_BOX_ADMIN_PASSWORD=swag bash -c \
+  'source testing/test_harness_helpers.sh && send_test_command "" "stop"'
+```
+
+## Test Commands Reference
+
+### get_messages `<count>`
+
+Collects `<count>` messages from Foundry chat (default: 15)
+
+**Example:**
+```bash
+send_test_command "" "get_messages 10"
+```
+
+**Returns:**
+```json
+{
+  "messages": [
+    {"content": "Hello", "speaker": "John", "type": "chat", "ts": 1234567890},
+    ...
+  ],
+  "count": 10
+}
+```
+
+### post `<message>`
+
+Posts a single message to chat (as if AI said it)
+
+**Example:**
+```bash
+send_test_command "" "post The goblin attacks with his dagger!"
+```
+
+**Returns:**
+```json
+{
+  "success": true,
+  "message": "Message posted to chat",
+  "message_content": "The goblin attacks with his dagger!"
+}
+```
+
+### post_messages `<message1>` `<message2>` ...
+
+Posts multiple messages to chat
+
+**Example:**
+```bash
+send_test_command "" "post_messages \"Roll 1d20\" \"Roll 1d8\""
+```
+
+### stop
+
+Ends the test session
+
+**Example:**
+```bash
+send_test_command "" "stop"
+```
+
+**Returns:**
+```json
+{
+  "success": true,
+  "message": "Test session ended",
+  "session_summary": {
+    "duration_seconds": 45,
+    "commands_executed": 5,
+    "messages_posted": 3
+  }
+}
+```
+
+### status
+
+Get current session status
+
+**Example:**
+```bash
+send_test_command "" "status"
+```
+
+**Returns:**
+```json
+{
+  "test_session_id": "8f5135eb-9442-4d8b-a162-ecf72eb66590",
+  "state": "awaiting_input",
+  "conversation_length": 2,
+  "commands_executed": 3,
+  "tools_used": ["get_messages", "post"],
+  "start_time": "2025-12-26T17:27:05.963989",
+  "last_activity": "2025-12-26T17:28:30.123456"
+}
+```
+
+### help
+
+Show available commands
+
+**Example:**
+```bash
+send_test_command "" "help"
+```
+
+## Testing AI Functions
+
+### Testing Dice Rolls
+
+```bash
+# Get chat context
+send_test_command "" "get_messages 10"
+
+# Simulate dice roll (as AI would call the tool)
+# You can manually roll dice in Foundry and test the results
+send_test_command "" "post The bandit rolls 1d20+5 for his attack: 14"
+```
+
+### Testing Function Calling
+
+The testing harness can simulate any AI tool call:
+
+```bash
+# Test scene description
+send_test_command "" "post The tavern is dimly lit with a few patrons scattered around."
+
+# Test NPC dialogue
+send_test_command "" "post \"The barkeep says: 'Welcome, traveler!'\""
+
+# Test combat actions
+send_test_command "" "post_messages \"The orc rolls for initiative: 12\" \"The orc attacks with his greatsword!\""
+```
+
+### Testing Multiple Tool Calls
+
+```bash
+# Simulate AI making multiple function calls in one turn
+send_test_command "" "post_messages \
+  \"The dungeon entrance looms before you.\" \
+  \"A guard notices you and shouts: 'Halt!'" \
+  \"The guard rolls for initiative: 8\""
+```
+
+### Testing Multiple Commands in One Call
+
+```bash
+# Execute multiple commands sequentially
+curl -X POST http://localhost:5000/api/admin \
+  -H "X-Admin-Password: swag" \
   -H "Content-Type: application/json" \
-  -d '{}')
-
-# Extract session ID and CSRF token
-SESSION_ID=$(echo $SESSION_RESPONSE | jq -r '.session_id')
-CSRF_TOKEN=$(echo $SESSION_RESPONSE | jq -r '.csrf_token')
-
-echo "Session ID: $SESSION_ID"
-echo "CSRF Token: $CSRF_TOKEN"
-```
-
-## Endpoint Tests (One Test Per Endpoint)
-
-### 1. Health Check Endpoint
-```bash
-curl -X GET http://localhost:5000/api/health | jq .
-```
-*Expected*: Server status, version, and basic configuration info
-
-### 2. Service Information Endpoint
-```bash
-curl -X GET http://localhost:5000/api/info | jq .
-```
-*Expected*: Detailed information about features, validation capabilities, and security status
-
-### 3. Security Verification Endpoint
-```bash
-curl -X GET http://localhost:5000/api/security | jq .
-```
-*Expected*: Comprehensive security check results including file integrity, permissions, and dependencies
-
-### 4. Startup Instructions Endpoint
-```bash
-curl -X POST http://localhost:5000/api/start | jq .
-```
-*Expected*: Manual startup instructions and environment information
-
-### 5. Session Initialization Endpoint
-```bash
-curl -X POST http://localhost:5000/api/session/init \
-  -H "Content-Type: application/json" \
-  -d '{}' | jq .
-```
-*Expected*: New session with ID, CSRF token, and expiry time
-
-### 6. Session Extension Endpoint
-```bash
-curl -X POST http://localhost:5000/api/session/init \
-  -H "Content-Type: application/json" \
-  -d '{"session_id": "'$SESSION_ID'", "extend_existing": true}' | jq .
-```
-*Expected*: Extended session with updated expiry time
-
-### 7. API Chat Endpoint (Requires API Keys)
-```bash
-curl -X POST http://localhost:5000/api/api_chat \
-  -H "Content-Type: application/json" \
-  -H "X-Session-ID: $SESSION_ID" \
-  -H "X-CSRF-Token: $CSRF_TOKEN" \
   -d '{
-    "settings": {
-      "general llm provider": "openai",
-      "general llm model": "gpt-3.5-turbo"
-    },
-    "messages": [
-      {"sender": "User", "content": "Hello world, this is a test prompt"}
+    "command": "execute_test_commands",
+    "test_session_id": "...",
+    "commands": [
+      "get_messages 10",
+      "post_messages [{\"content\":\"Message 1\",\"type\":\"chat-message\"},{\"content\":\"Message 2\",\"type\":\"chat-message\"}]",
+      "status"
     ]
-  }' | jq .
+  }'
 ```
-*Expected*: AI response from configured provider with success status
 
-### 8. WebSocket Connection Test
-```bash
-# Test WebSocket connection (requires websocat or similar tool)
-websocat ws://localhost:5000/ws
-```
-*Expected*: WebSocket connection established and ready for message exchange
+**Benefits:**
+- Single network request for multiple operations
+- Faster test execution
+- Atomic test scenarios
+- Better for automated testing
 
-### 9. WebSocket Message Exchange Test
-```bash
-# Send a test message via WebSocket (JSON format)
-echo '{"type": "test", "data": {"message": "Hello WebSocket"}}' | websocat ws://localhost:5000/ws
-```
-*Expected*: Server processes WebSocket message and responds appropriately
+## Admin Endpoint API
 
-### 13. Admin Status Endpoint (Requires Admin Password)
+You can also use the admin endpoint directly with curl:
+
+### Start Test Session
+
 ```bash
 curl -X POST http://localhost:5000/api/admin \
+  -H "X-Admin-Password: swag" \
   -H "Content-Type: application/json" \
-  -H "X-Admin-Password: your-admin-password" \
-  -d '{"command": "status"}' | jq .
+  -d '{
+    "command": "start_test_session",
+    "client_id": "gb-wo2BPutUGT9XDlH9-c45265b0",
+    "universal_settings": {
+      "ai role": "gm"
+    }
+  }'
 ```
-*Expected*: Server status, features, and endpoints list
 
-### 14. Admin Reload Keys Endpoint
+### Execute Test Command
+
 ```bash
 curl -X POST http://localhost:5000/api/admin \
+  -H "X-Admin-Password: swag" \
   -H "Content-Type: application/json" \
-  -H "X-Admin-Password: your-admin-password" \
-  -d '{"command": "reload_keys"}' | jq .
+  -d '{
+    "command": "test_command",
+    "test_session_id": "8f5135eb-9442-4d8b-a162-ecf72eb66590",
+    "test_command": "get_messages 15"
+  }'
 ```
-*Expected*: Environment variables reloaded with updated keys status
 
-### 15. Admin Set Password Endpoint
+### End Test Session
+
+**Note:** Ending a test session automatically resets the WebSocket connection and forces the frontend to reconnect with a new client ID. This ensures clean state between test sessions.
+
 ```bash
 curl -X POST http://localhost:5000/api/admin \
+  -H "X-Admin-Password: swag" \
   -H "Content-Type: application/json" \
-  -H "X-Admin-Password: your-admin-password" \
-  -d '{"command": "set_admin_password", "password": "new-secure-password"}' | jq .
+  -d '{
+    "command": "end_test_session",
+    "test_session_id": "8f5135eb-9442-4d8b-a162-ecf72eb66590"
+  }'
 ```
-*Expected*: Admin password updated successfully
 
-### 16. Admin Update Settings Endpoint
+### Execute Multiple Test Commands
+
+Executes multiple test commands in a single API call. Commands are executed sequentially, and results are returned for each command even if some fail.
+
 ```bash
 curl -X POST http://localhost:5000/api/admin \
+  -H "X-Admin-Password: swag" \
   -H "Content-Type: application/json" \
-  -H "X-Admin-Password: your-admin-password" \
-  -d '{"command": "update_settings", "settings": {"test_setting": "test_value"}}' | jq .
-```
-*Expected*: Frontend settings updated with confirmation
-
-## Security Feature Tests (One Test Per Security Feature)
-
-### 17. Rate Limiting Test
-```bash
-echo "Testing rate limiting (should succeed first 5, fail on 6th)..."
-for i in {1..6}; do
-  echo "Request $i:"
-  response=$(curl -s -o /dev/null -w "%{http_code}" \
-    -X POST http://localhost:5000/api/api_chat \
-    -H "Content-Type: application/json" \
-    -H "X-Session-ID: $SESSION_ID" \
-    -H "X-CSRF-Token: $CSRF_TOKEN" \
-    -d '{
-      "settings": {"general llm provider": "openai"},
-      "messages": [{"sender": "User", "content": "Rate limit test $i"}]
-    }')
-  echo "HTTP $response"
-  if [ "$response" = "429" ]; then
-    echo "✓ Rate limiting activated on request $i"
-  fi
-  sleep 0.1
-done
-```
-*Expected*: First 5 requests succeed (200), 6th fails with 429 rate limit error
-
-### 18. CSRF Protection Test (Invalid Token)
-```bash
-curl -s -X POST http://localhost:5000/api/api_chat \
-  -H "Content-Type: application/json" \
-  -H "X-Session-ID: $SESSION_ID" \
-  -H "X-CSRF-Token: invalid-csrf-token" \
   -d '{
-    "settings": {"general llm provider": "openai"},
-    "messages": [{"sender": "User", "content": "CSRF test"}]
-  }' | jq .
+    "command": "execute_test_commands",
+    "test_session_id": "8f5135eb-9442-4d8b-a162-ecf72eb66590",
+    "commands": [
+      "get_messages 10",
+      "post_messages [{\"content\":\"Message 1\",\"type\":\"chat-message\"},{\"content\":\"Message 2\",\"type\":\"chat-message\"}]",
+      "post \"Single message\"",
+      "status"
+    ]
+  }'
 ```
-*Expected*: 403 Forbidden error with CSRF token validation failed message
 
-###19. CSRF Protection Test (Missing Token)
+**Returns:**
+```json
+{
+  "status": "success",
+  "command": "execute_test_commands",
+  "test_session_id": "8f5135eb-9442-4d8b-a162-ecf72eb66590",
+  "results": [
+    {
+      "index": 0,
+      "command": "get_messages 10",
+      "status": "success",
+      "result": {
+        "messages": [...],
+        "count": 10
+      }
+    },
+    {
+      "index": 1,
+      "command": "post_messages [...]",
+      "status": "success",
+      "result": {
+        "messages_sent": 2,
+        "results": [...]
+      }
+    },
+    {
+      "index": 2,
+      "command": "post \"Single message\"",
+      "status": "error",
+      "error": "Invalid JSON in request body"
+    }
+  ],
+  "summary": {
+    "total": 3,
+    "succeeded": 2,
+    "failed": 1
+  }
+}
+```
+
+### List All Test Sessions
+
 ```bash
-curl -s -X POST http://localhost:5000/api/api_chat \
+curl -X POST http://localhost:5000/api/admin \
+  -H "X-Admin-Password: swag" \
   -H "Content-Type: application/json" \
-  -H "X-Session-ID: $SESSION_ID" \
   -d '{
-    "settings": {"general llm provider": "openai"},
-    "messages": [{"sender": "User", "content": "No CSRF token test"}]
-  }' | jq .
+    "command": "list_test_sessions"
+  }'
 ```
-*Expected*: 403 Forbidden error with CSRF token required message
 
-###20. Session Validation Test (Invalid Session)
+### Get Test Session State
+
 ```bash
-curl -s -X POST http://localhost:5000/api/api_chat \
+curl -X POST http://localhost:5000/api/admin \
+  -H "X-Admin-Password: swag" \
   -H "Content-Type: application/json" \
-  -H "X-Session-ID: invalid-session-id" \
-  -H "X-CSRF-Token: $CSRF_TOKEN" \
   -d '{
-    "settings": {"general llm provider": "openai"},
-    "messages": [{"sender": "User", "content": "Invalid session test"}]
-  }' | jq .
-```
-*Expected*: 401 Unauthorized error with session validation failed message
-
-###21. Session Validation Test (Missing Session)
-```bash
-curl -s -X POST http://localhost:5000/api/api_chat \
-  -H "Content-Type: application/json" \
-  -H "X-CSRF-Token: $CSRF_TOKEN" \
-  -d '{
-    "settings": {"general llm provider": "openai"},
-    "messages": [{"sender": "User", "content": "No session test"}]
-  }' | jq .
-```
-*Expected*: 401 Unauthorized error with session required message
-
-### 22. Input Validation Test (XSS Protection)
-```bash
-curl -s -X POST http://localhost:5000/api/api_chat \
-  -H "Content-Type: application/json" \
-  -H "X-Session-ID: $SESSION_ID" \
-  -H "X-CSRF-Token: $CSRF_TOKEN" \
-  -d '{
-    "settings": {"general llm provider": "openai"},
-    "messages": [{"sender": "User", "content": "<script>alert(\"xss\")</script>Test prompt"}]
-  }' | jq .
-```
-*Expected*: 400 Bad Request error with dangerous content detected (XSS)
-
-### 23. Input Validation Test (SQL Injection)
-```bash
-curl -s -X POST http://localhost:5000/api/api_chat \
-  -H "Content-Type: application/json" \
-  -H "X-Session-ID: $SESSION_ID" \
-  -H "X-CSRF-Token: $CSRF_TOKEN" \
-  -d '{
-    "settings": {"general llm provider": "openai"},
-    "messages": [{"sender": "User", "content": "SELECT * FROM users WHERE 1=1; DROP TABLE users;"}]
-  }' | jq .
-```
-*Expected*: 400 Bad Request error with dangerous content detected (SQL injection)
-
-### 24. Input Validation Test (Command Injection)
-```bash
-curl -s -X POST http://localhost:5000/api/api_chat \
-  -H "Content-Type: application/json" \
-  -H "X-Session-ID: $SESSION_ID" \
-  -H "X-CSRF-Token: $CSRF_TOKEN" \
-  -d '{
-    "settings": {"general llm provider": "openai"},
-    "messages": [{"sender": "User", "content": "test; rm -rf /; echo done"}]
-  }' | jq .
-```
-*Expected*: 400 Bad Request error with dangerous content detected (command injection)
-
-### 26. Security Headers Test
-```bash
-curl -I -X GET http://localhost:5000/api/health
-```
-*Expected*: Security headers including:
-- X-Content-Type-Options: nosniff
-- X-Frame-Options: DENY
-- X-XSS-Protection: 1; mode=block
-- Referrer-Policy: strict-origin-when-cross-origin
-- Cache-Control: no-store, no-cache, must-revalidate
-
-### 27. CORS Protection Test
-```bash
-curl -H "Origin: https://malicious-site.com" \
-  -H "Access-Control-Request-Method: POST" \
-  -H "Access-Control-Request-Headers: Content-Type" \
-  -X OPTIONS http://localhost:5000/api/api_chat
-```
-*Expected*: 403 Forbidden or no Access-Control-Allow-Origin header (depending on CORS configuration)
-
-### 28. File Integrity Test
-```bash
-# This is tested via the security endpoint
-curl -s -X GET http://localhost:5000/api/security | jq '.checks.file_integrity'
-```
-*Expected*: File integrity verification with hash checks for critical files
-
-### 29. Virtual Environment Test
-```bash
-# This is tested via the security endpoint
-curl -s -X GET http://localhost:5000/api/security | jq '.checks.virtual_environment'
-```
-*Expected*: Virtual environment isolation verification
-
-### 30. Permission Security Test
-```bash
-# This is tested via the security endpoint
-curl -s -X GET http://localhost:5000/api/security | jq '.checks.file_permissions'
-```
-*Expected*: File permissions security verification
-
-### 31. Audit Logging Test
-```bash
-# Make a request that should be logged
-curl -s -X POST http://localhost:5000/api/api_chat \
-  -H "Content-Type: application/json" \
-  -H "X-Session-ID: $SESSION_ID" \
-  -H "X-CSRF-Token: $CSRF_TOKEN" \
-  -d '{"settings": {"general llm provider": "openai"}, "messages": [{"sender": "User", "content": "Audit log test"}]}' > /dev/null
-
-# Check if audit log was created/updated
-tail -n 5 server_files/security_audit.log | jq .
-```
-*Expected*: Recent audit log entries showing the request with timestamp, client info, and endpoint
-
-### 32. Session Expiration Test
-```bash
-# Create a session and wait for expiration (or manually expire)
-OLD_SESSION_RESPONSE=$(curl -s -X POST http://localhost:5000/api/session/init \
-  -H "Content-Type: application/json" \
-  -d '{}')
-
-OLD_SESSION_ID=$(echo $OLD_SESSION_RESPONSE | jq -r '.session_id')
-
-# Try to use expired session (will work immediately after creation, fail after timeout)
-curl -s -X POST http://localhost:5000/api/api_chat \
-  -H "Content-Type: application/json" \
-  -H "X-Session-ID: $OLD_SESSION_ID" \
-  -H "X-CSRF-Token: $CSRF_TOKEN" \
-  -d '{"settings": {"general llm provider": "openai"}, "messages": [{"sender": "User", "content": "Session test"}]}' | jq .
-```
-*Expected*: Success initially, 401 error after session expires
-
-### 33. Admin Authentication Test (Invalid Password)
-```bash
-curl -s -X POST http://localhost:5000/api/admin \
-  -H "Content-Type: application/json" \
-  -H "X-Admin-Password: wrong-password" \
-  -d '{"command": "status"}' | jq .
-```
-*Expected*: 401 Unauthorized error with invalid admin password message
-
-### 34. Admin Authentication Test (Missing Password)
-```bash
-curl -s -X POST http://localhost:5000/api/admin \
-  -H "Content-Type: application/json" \
-  -d '{"command": "status"}' | jq .
-```
-*Expected*: 401 Unauthorized error with admin password required message
-
-## Comprehensive Test Script
-
-Save this as `comprehensive_test.sh` and make it executable:
-
-```bash
-#!/bin/bash
-
-echo "=== The Gold Box Backend Comprehensive Test Suite v0.3.5 ==="
-echo
-
-# Initialize session
-echo "🔐 Initializing session..."
-SESSION_RESPONSE=$(curl -s -X POST http://localhost:5000/api/session/init \
-  -H "Content-Type: application/json" \
-  -d '{}')
-
-SESSION_ID=$(echo $SESSION_RESPONSE | jq -r '.session_id')
-CSRF_TOKEN=$(echo $SESSION_RESPONSE | jq -r '.csrf_token')
-
-echo "Session ID: $SESSION_ID"
-echo "CSRF Token: $CSRF_TOKEN"
-echo
-
-# Test endpoints
-echo "📡 Testing API Endpoints..."
-echo
-
-echo "1. Health Check..."
-curl -s -X GET http://localhost:5000/api/health | jq '.status, .version'
-echo
-
-echo "2. Service Info..."
-curl -s -X GET http://localhost:5000/api/info | jq '.name, .version, .status'
-echo
-
-echo "3. Security Verification..."
-curl -s -X GET http://localhost:5000/api/security | jq '.overall_status, .security_score'
-echo
-
-echo "4. API Chat Test..."
-curl -s -X POST http://localhost:5000/api/api_chat \
-  -H "Content-Type: application/json" \
-  -H "X-Session-ID: $SESSION_ID" \
-  -H "X-CSRF-Token: $CSRF_TOKEN" \
-  -d '{"settings": {"general llm provider": "openai"}, "messages": [{"sender": "Test", "content": "test"}]}' | jq '.success'
-echo
-
-echo "5. WebSocket Test..."
-echo "Testing WebSocket connection (basic test)..."
-# Note: WebSocket testing requires websocat or similar tool
-echo "Run: websocat ws://localhost:5000/ws"
-echo
-
-# Test security features
-echo "🛡️ Testing Security Features..."
-echo
-
-echo "6. CSRF Protection (Invalid Token)..."
-response=$(curl -s -o /dev/null -w "%{http_code}" \
-  -X POST http://localhost:5000/api/api_chat \
-  -H "Content-Type: application/json" \
-  -H "X-Session-ID: $SESSION_ID" \
-  -H "X-CSRF-Token: invalid-token" \
-  -d '{"settings": {"general llm provider": "openai"}, "messages": [{"sender": "Test", "content": "test"}]}')
-if [ "$response" = "403" ]; then echo "✓ CSRF protection working"; else echo "✗ CSRF protection failed"; fi
-echo
-
-echo "7. Input Validation (XSS)..."
-response=$(curl -s -o /dev/null -w "%{http_code}" \
-  -X POST http://localhost:5000/api/api_chat \
-  -H "Content-Type: application/json" \
-  -H "X-Session-ID: $SESSION_ID" \
-  -H "X-CSRF-Token: $CSRF_TOKEN" \
-  -d '{"settings": {"general llm provider": "openai"}, "messages": [{"sender": "Test", "content": "<script>alert(\"xss\")</script>"}]}')
-if [ "$response" = "400" ]; then echo "✓ XSS protection working"; else echo "✗ XSS protection failed"; fi
-echo
-
-echo "8. Rate Limiting..."
-echo "Testing rate limit (first 5 should succeed, 6th should fail)..."
-success_count=0
-for i in {1..6}; do
-  response=$(curl -s -o /dev/null -w "%{http_code}" \
-    -X POST http://localhost:5000/api/api_chat \
-    -H "Content-Type: application/json" \
-    -H "X-Session-ID: $SESSION_ID" \
-    -H "X-CSRF-Token: $CSRF_TOKEN" \
-    -d '{"settings": {"general llm provider": "openai"}, "messages": [{"sender": "Test", "content": "rate test $i"}]}')
-  if [ "$response" = "200" ]; then
-    ((success_count++))
-  elif [ "$response" = "429" ]; then
-    echo "✓ Rate limiting activated on request $i"
-    break
-  fi
-  sleep 0.1
-done
-if [ $success_count -eq 5 ]; then echo "✓ Rate limiting working correctly"; else echo "✗ Rate limiting issue (successes: $success_count)"; fi
-echo
-
-echo "9. Admin Authentication..."
-response=$(curl -s -o /dev/null -w "%{http_code}" \
-  -X POST http://localhost:5000/api/admin \
-  -H "Content-Type: application/json" \
-  -H "X-Admin-Password: wrong-password" \
-  -d '{"command": "status"}')
-if [ "$response" = "401" ]; then echo "✓ Admin authentication working"; else echo "✗ Admin authentication failed"; fi
-echo
-
-echo "10. Security Headers..."
-headers=$(curl -I -X GET http://localhost:5000/api/health 2>/dev/null)
-if echo "$headers" | grep -q "X-Content-Type-Options"; then echo "✓ Security headers present"; else echo "✗ Security headers missing"; fi
-echo
-
-echo "=== Test Suite Complete ==="
-echo "Note: Some tests may require valid API keys for full functionality"
+    "command": "get_test_session_state",
+    "test_session_id": "8f5135eb-9442-4d8b-a162-ecf72eb66590"
+  }'
 ```
 
-Make it executable:
-```bash
-chmod +x comprehensive_test.sh
-./comprehensive_test.sh
-```
+## How It Works
 
-## Utility Commands
+### 1. Session Creation
 
-### Pretty Print JSON Responses
-For better readability, pipe responses to `jq`:
-```bash
-curl -X GET http://localhost:5000/api/info | jq .
-```
+When you start a test session:
+1. Admin endpoint creates a session with unique ID
+2. Backend generates initial prompt (same format as real AI)
+3. Backend sends `test_session_start` WebSocket message to frontend
+4. Frontend receives notification and enters testing mode
+5. AI turn button is blocked (visually disabled)
+6. Session state is "awaiting_input"
 
-### Testing Different Ports
-If server starts on a different port (like 5001), just update URLs:
-```bash
-curl -X GET http://localhost:5001/api/health
-```
+### 2. Command Execution
 
-### Monitoring Server Logs
-You can monitor server logs in real-time while testing:
-```bash
-tail -f server_files/goldbox.log
-```
+When you send a test command:
+1. Admin endpoint receives command via HTTP (curl)
+2. Command is parsed and validated
+3. TestingHarness executes the command
+4. Results are formatted as AI responses
+5. Messages are sent to Foundry chat
+6. Session state is updated
+7. Response is returned to curl
 
-### Monitoring Security Audit Log
-```bash
-tail -f server_files/security_audit.log
-```
+### 3. Session End
 
-### Testing with Custom Timeouts
-```bash
-curl --max-time 10 -X POST http://localhost:5000/api/simple_chat \
-  -H "Content-Type: application/json" \
-  -H "X-Session-ID: $SESSION_ID" \
-  -H "X-CSRF-Token: $CSRF_TOKEN" \
-  -d '{"settings": {"general llm provider": "openai"}, "messages": [{"sender": "User", "content": "timeout test"}]}'
-```
+When you send `stop` command:
+1. Session summary is generated
+2. WebSocket connection is disconnected (forces frontend to reconnect with new client ID)
+3. Backend sends `test_session_end` message to frontend
+4. Frontend receives notification and exits testing mode
+5. Frontend automatically reconnects with new client ID
+6. AI turn button is re-enabled
+7. Final summary is returned
 
-## Expected Behavior Summary
+**WebSocket Reset Behavior:**
+- The WebSocket connection is always reset when ending a test session
+- Frontend disconnects and reconnects after 1 second
+- A new client ID is generated (new UUID suffix)
+- This ensures clean state for subsequent test sessions
 
-### Successful Responses
-- Status code: 200
-- JSON format with `status: "success"` where applicable
-- Validated and sanitized input returned
-- AI response from configured provider
-- Session and CSRF tokens validated
+## Frontend Integration
 
-### Error Responses
-- Status codes: 400, 401, 403, 404, 429, 500
-- JSON format with `status: "error"` where applicable
-- Descriptive error messages with validation step information
-- Security violations logged to audit log
+The testing harness is transparent to the frontend:
 
-### Security Features Verified
-- ✅ CSRF protection (token validation)
-- ✅ Session management (creation, validation, expiration)
-- ✅ Rate limiting (configurable per endpoint)
-- ✅ Input validation (XSS, SQL injection, command injection)
-- ✅ HTML-safe mode for Foundry VTT compatibility
-- ✅ Security headers (CSP, XSS protection, etc.)
-- ✅ CORS restrictions (origin-based)
-- ✅ File integrity verification
-- ✅ Virtual environment verification
-- ✅ Permission security checks
-- ✅ Audit logging (structured JSON)
-- ✅ Admin authentication (password protected)
+- **WebSocket Messages:**
+  - `test_session_start` - Triggers test mode
+  - `test_chat_response` - Displays test results
+
+- **Visual Indicators:**
+  - Notification when test session starts
+  - Chat message with test session details
+  - AI turn button is disabled during testing
+
+- **Normal Flow:**
+  - Frontend sends `chat_request` with `test: true` flag
+  - Backend detects active test session
+  - Request is routed to testing harness instead of AI service
 
 ## Troubleshooting
 
-### Connection Issues
-- Check if server is running with `ps aux | grep python`
-- Verify correct port number from server startup output
-- Check firewall settings: `ufw status` or `iptables -L`
+### "Unknown message type: test_session_start"
 
-### Authentication Issues
-- Ensure session is properly initialized
-- Check CSRF token is included in headers
-- Verify session hasn't expired (default 60 minutes)
-- Confirm admin password is correct
+Ensure frontend JavaScript is updated with test session handlers:
+- `scripts/api/websocket-client.js` should have `handleTestSessionStart()` and `handleTestChatResponse()` methods
 
-### Rate Limiting
-- Wait for rate limit window to reset (default 60 seconds)
-- Check rate limit configuration in security_config.ini
-- Monitor rate limit data in server_files/rate_limits.json
+### Test session not routing to testing harness
 
-### Validation Errors
-- Check request format matches expected schemas
-- Verify no dangerous content patterns in input
-- Ensure HTML content is properly formatted for Foundry VTT
-- Check message length limits
+Check backend logs for:
+```
+Active test session found for client <client_id>
+Routing chat_request to testing harness
+```
 
-### Security Verification
-- Run security endpoint: `curl -X GET http://localhost:5000/api/security`
-- Check audit log for security events
-- Verify file permissions on server_files directory
-- Confirm virtual environment isolation
+If not appearing, check that:
+- Test session was started with correct client_id
+- Session is still active (not ended)
+- WebSocket handler has test session routing logic
 
-This comprehensive testing suite covers all endpoints and security features implemented in The Gold Box v0.3.5 backend server.
+### Messages not appearing in chat
+
+Check that:
+- Messages have valid content
+- You have permission to post to chat
+- Backend is connected to Foundry API
+- No errors in backend logs
+
+### Client ID mismatch
+
+Always use the current client_id from the frontend:
+```javascript
+// Foundry VTT console
+window.goldBoxWebSocketClient.clientId
+```
+
+Or check backend logs for the current connected client.
+
+## Advanced Usage
+
+### Automated Testing Script
+
+Create a test script to run multiple commands:
+
+```bash
+#!/bin/bash
+# test_scenario.sh
+
+source backend/testing/test_harness_helpers.sh
+
+# Start test
+start_test gb-wo2BPutUGT9XDlH9-c45265b0
+
+# Get context
+send_test_command "" "get_messages 10"
+
+# Test AI response
+send_test_command "" "post The goblin approaches cautiously."
+
+# Test multiple messages
+send_test_command "" "post_messages \"Goblin rolls for initiative: 15\" \"Goblin attacks with short sword!\""
+
+# Check status
+send_test_command "" "status"
+
+# End test
+send_test_command "" "stop"
+```
+
+### Testing AI Function Responses
+
+Simulate how AI would respond to specific tools:
+
+```bash
+# Scene description
+send_test_command "" "post The ancient temple is overgrown with vines."
+
+# NPC action
+send_test_command "" "post \"The priestess kneels before the altar.\""
+
+# Dice roll
+send_test_command "" "post Rolling for perception check: 1d20+4 = 16"
+
+# Multiple NPCs
+send_test_command "" "post_messages \
+  \"Goblin 1: Attacks with dagger\" \
+  \"Goblin 2: Shoots arrow at fighter\" \
+  \"Goblin 3: Retreats into darkness\""
+```
+
+### Testing Different AI Roles
+
+```bash
+# Start test with different roles
+curl -X POST http://localhost:5000/api/admin \
+  -H "X-Admin-Password: swag" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "command": "start_test_session",
+    "client_id": "gb-wo2BPutUGT9XDlH9-c45265b0",
+    "universal_settings": {
+      "ai role": "player"
+    }
+  }'
+```
+
+Available roles:
+- `gm` - Game Master (default)
+- `player` - Player assistant
+- `narrator` - Storyteller
+- `combat` - Combat assistant
+
+## Benefits
+
+### vs. Real AI Service
+
+| Testing Harness | Real AI Service |
+|----------------|-----------------|
+| ✅ No API costs | ❌ Token costs |
+| ✅ Instant responses | ❌ Variable latency |
+| ✅ Deterministic results | ❌ Random AI outputs |
+| ✅ Easy to debug | ❌ Hard to reproduce issues |
+| ✅ Test specific scenarios | ❌ Can't force specific behavior |
+| ✅ No rate limits | ❌ Rate limited |
+| ❌ Limited to your commands | ✅ Creative responses |
+
+### Testing Capabilities
+
+- **Function Calling:** Test any AI function call
+- **Dice Rolls:** Simulate and verify dice mechanics
+- **NPC Actions:** Test multiple NPC turns
+- **Combat:** Test initiative, attacks, damage
+- **Scene Description:** Test world-building functions
+- **Dialogue:** Test NPC and player interactions
+
+## Implementation Details
+
+### Backend Components
+
+1. **TestingSessionManager** (`backend/services/system_services/testing_session_manager.py`)
+   - Session lifecycle management
+   - State tracking and cleanup
+
+2. **TestingHarness** (`backend/services/ai_services/testing_harness.py`)
+   - Command processing
+   - AI response simulation
+   - Tool execution
+
+3. **TestingCommandProcessor** (`backend/services/ai_services/testing_command_processor.py`)
+   - Command parsing
+   - Validation
+   - Error handling
+
+4. **Admin Endpoint** (`backend/api/admin.py`)
+   - HTTP API for test commands
+   - WebSocket integration
+
+5. **WebSocket Handler** (`backend/shared/startup/services.py`)
+   - Test session routing
+   - Message interception
+
+### Frontend Components
+
+1. **WebSocket Client** (`scripts/api/websocket-client.js`)
+   - `test_session_start` handler
+   - `test_chat_response` handler
+   - Test mode indicators
+
+2. **Helper Scripts** (`backend/testing/test_harness_helpers.sh`)
+   - Bash functions for testing
+   - Session management
+
+## Available Test Scripts
+
+### `function_check.sh` - Testing Harness Validation
+
+Tests the testing harness functionality including multi-command execution and WebSocket reset.
+
+**Purpose:**
+- Validate testing harness functionality
+- Test individual commands
+- Test multi-command execution
+- Test WebSocket reset on session end
+
+**Usage:**
+```bash
+cd backend/testing
+./function_check.sh
+```
+
+**What it tests:**
+1. Start test session
+2. Individual commands (3 commands):
+   - Get messages from chat
+   - Post single message
+   - Check session status
+3. Multi-command execution (4 commands):
+   - Get messages
+   - Post multiple messages (JSON array)
+   - Post single message
+   - Check status
+4. End session with WebSocket reset
+
+**Expected Results:**
+- All 7 commands execute successfully
+- 6 messages appear in Foundry VTT chat
+- WebSocket disconnects and reconnects
+- New client ID is generated
+- AI turn button re-enables
+
+### `server_test.sh` - Server/API Health Check
+
+Comprehensive server and API endpoint testing including security validation.
+
+**Purpose:**
+- Verify server health
+- Test API endpoints
+- Validate security features
+- Check CSRF protection
+- Test input validation
+
+**Usage:**
+```bash
+cd backend/testing
+./server_test.sh
+```
+
+**What it tests:**
+1. Health check endpoint
+2. Service information endpoint
+3. Security verification endpoint
+4. API chat validation
+5. CSRF protection (invalid/missing token)
+6. Input validation (XSS, SQL injection)
+7. Session validation
+8. Admin authentication
+9. Security headers
+
+**Expected Results:**
+- All API endpoints respond correctly
+- Security features properly reject invalid requests
+- Appropriate HTTP status codes returned
+- Security headers present
+
+**Configuration:**
+```bash
+# Custom server URL
+GOLD_BOX_SERVER_URL=http://localhost:5001 ./server_test.sh
+
+# Custom timeout
+GOLD_BOX_TEST_TIMEOUT=15 ./server_test.sh
+```
+
+### `test_harness_helpers.sh` - Interactive Testing Helper
+
+Bash functions for interactive testing sessions.
+
+**Purpose:**
+- Interactive testing of AI functions
+- Manual command execution
+- Session management
+
+**Usage:**
+```bash
+cd backend
+GOLD_BOX_ADMIN_PASSWORD=swag bash -c \
+  'source testing/test_harness_helpers.sh && start_test <client_id>'
+
+# Run test commands
+GOLD_BOX_ADMIN_PASSWORD=swag bash -c \
+  'source testing/test_harness_helpers.sh && send_test_command "" "get_messages 15"'
+
+# End session
+GOLD_BOX_ADMIN_PASSWORD=swag bash -c \
+  'source testing/test_harness_helpers.sh && send_test_command "" "stop"'
+```
+
+## Test Script Summary
+
+| Script | Purpose | Automation | Scope |
+|--------|----------|-------------|--------|
+| `function_check.sh` | Testing harness validation | ✅ Automated | Testing harness functionality |
+| `server_test.sh` | Server/API health | ✅ Automated | Server endpoints and security |
+| `test_harness_helpers.sh` | Interactive testing | ❌ Manual | Manual command execution |
+
+## Future Enhancements
+
+- [x] Multi-command execution in single API call
+- [x] WebSocket reset on test session end
+- [ ] Test scenario recording and replay
+- [ ] Automated test suites
+- [ ] Performance benchmarking
+- [ ] Test result comparison
+- [ ] Visual test editor UI
+- [ ] Test coverage reporting
+
+## Recent Enhancements (v0.3.6)
+
+### Multi-Command Execution
+- Added `execute_test_commands` admin command
+- Execute multiple test commands in single API call
+- Returns results for each command with success/failure status
+- Continues execution even if some commands fail
+
+### WebSocket Reset on Test End
+- Test session end automatically disconnects WebSocket
+- Frontend reconnects with new client ID
+- Ensures clean state between test sessions
+- Prevents stale connections
+
+### Test Scripts Reorganized
+- `function_check.sh` - Testing harness validation (renamed from `definitive_test.sh`)
+- `server_test.sh` - Server/API health check (renamed from `comprehensive_test.sh`)
+- `test_harness_helpers.sh` - Interactive testing helper (unchanged)
+- Documentation updated to reflect new script names and purposes
+
+## Running Tests
+
+### Quick Start - Run All Tests
+
+```bash
+cd backend/testing
+
+# Test server health and security
+./server_test.sh
+
+# Test testing harness functionality
+./function_check.sh
+```
+
+### Interactive Testing
+
+```bash
+cd backend
+
+# Start interactive test session
+GOLD_BOX_ADMIN_PASSWORD=swag bash -c \
+  'source testing/test_harness_helpers.sh && start_test'
+
+# Then use send_test_command to run tests interactively
+```
+
+## Support
+
+For issues or questions:
+1. Check backend logs at `backend/shared/server_files/goldbox.log`
+2. Check frontend browser console for errors
+3. Verify admin password is correct
+4. Ensure client_id matches connected client
+5. Confirm backend server is running on port 5000
+6. Ensure `jq` is installed for test scripts (`sudo apt-get install jq`)
+7. Ensure `curl` is installed for test scripts
+
+## License
+
+CC-BY-NC-SA 4.0 (compatible with The Gold Box dependencies)

@@ -34,6 +34,8 @@ config.ini
 *~
 rate_limits.json
 sessions.json
+.test_client_id
+.test_session_id
 
 # IDE and editor files
 .vscode/

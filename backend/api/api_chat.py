@@ -19,8 +19,8 @@ from services.system_services.universal_settings import extract_universal_settin
 # Configure logging
 logger = logging.getLogger(__name__)
 
-# Create router
-router = APIRouter(prefix="/api", tags=["api_chat"])
+# Create router (prefix added in server.py for consistency)
+router = APIRouter(tags=["api_chat"])
 
 # Request models
 class APIChatRequest(BaseModel):

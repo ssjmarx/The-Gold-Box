@@ -20,6 +20,7 @@ This project would not be possible without the following:
 - **Multi-Provider Support**: Connect to 70+ AI providers including OpenAI, Anthropic, GLM, and more
 - **Secure Backend**: Encrypted API key storage with comprehensive security framework
 - **Advanced Processing**: Token-efficient delta filtering and intelligent conversation history management
+- **Testing Harness**: Comprehensive testing system to validate AI functions without calling real AI services
 
 ## Quick Start
 
@@ -81,4 +82,4 @@ If you like the project and want to support future development, consider donatin
 
 This project is licensed under **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License**. See [LICENSE](LICENSE) file for details.
 
-**Current Version: 0.3.7** - AI-native function calling with multi-turn tool execution
+**Current Version: 0.3.8** - Testing harness implementation for AI function validation

@@ -47,17 +47,29 @@ class GoldBoxAPI {
   /**
    * Send message context to backend with timeout handling (WebSocket-only)
    */
-  async sendMessageContext(messages, moduleInstance, buttonElement) {
+  async sendMessageContext(messages, moduleInstance, buttonElement, testMode = null) {
     const timeout = this.settingsManager.getSetting('aiResponseTimeout', 60);
     let response = null; // Define response outside try block so it's accessible in finally
     
     try {
       // Use WebSocket-only communication with proper context count
       const maxMessages = this.settingsManager ? this.settingsManager.getSetting('maxMessageContext', 15) : 15;
-      response = await this.communicator.sendChatRequest(messages, {
+      
+      // Build options
+      const options = {
         timeout: timeout,
         contextCount: maxMessages
-      });
+      };
+      
+      // Add test mode if active
+      if (testMode && testMode.active) {
+        options.test = true;
+        options.testSessionId = testMode.testSessionId;
+        options.aiRole = testMode.aiRole;
+        console.log('The Gold Box: Sending chat request with test mode:', options);
+      }
+      
+      response = await this.communicator.sendChatRequest(messages, options);
       
       if (response.success) {
         // WebSocket mode - response comes via WebSocket message handler
@@ -478,8 +490,19 @@ class GoldBoxModule {
         console.warn('The Gold Box: CombatMonitor not available - no combat context will be sent');
       }
       
+      // ADD TEST MODE: Check if we're in test mode
+      let testMode = null;
+      if (this.testMode && this.testMode.active) {
+        testMode = {
+          active: true,
+          testSessionId: this.testMode.testSessionId,
+          aiRole: this.testMode.aiRole
+        };
+        console.log('The Gold Box: Test mode active:', testMode);
+      }
+      
       // Send to backend for processing (pass button element for proper state management)
-      await this.api.sendMessageContext(messages, this, button);
+      await this.api.sendMessageContext(messages, this, button, testMode);
       
     } catch (error) {
       console.error('The Gold Box: Error in AI turn:', error);
@@ -816,6 +839,8 @@ class GoldBoxModule {
 const goldBox = new GoldBoxModule();
 
 // Make module instance globally available for API class
+// Set on both window and game for maximum compatibility
+window.goldBox = goldBox;
 if (typeof game !== 'undefined') {
   game.goldBox = goldBox;
 }

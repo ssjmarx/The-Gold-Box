@@ -5,6 +5,100 @@ All notable changes to The Gold Box project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0/).
 
+## [0.3.8] - 2025-12-26
+
+### Testing Harness Implementation
+
+#### Core Testing Infrastructure
+- **Testing Session Manager** - Comprehensive session lifecycle management for test sessions
+- **Testing Harness Service** - Mock AI service that acts as a stand-in for real AI during testing
+- **Testing Command Processor** - Parses simplified curl commands and converts to AI tool calls
+- **Admin Endpoint Integration** - Complete testing commands accessible via admin API
+
+#### Testing Commands
+- **start_test_session** - Initiate a test session for any client ID
+- **test_command** - Send testing commands (get_messages, post_messages, tool calls)
+- **end_test_session** - Terminate test session with summary statistics
+- **list_test_sessions** - View all active test sessions
+- **get_test_session_state** - Get detailed state of a specific test session
+
+#### Simplified Command Syntax
+- `get_messages [count]` - Retrieve chat messages (default: 15)
+- `post "message content"` - Post simple chat message
+- `post_messages <json>` - Post full message structure
+- `tool_name param1=value1 param2=value2` - Call any AI tool
+- `stop` - End testing session
+- `status` - Show current test session state
+- `help` - List available commands
+
+#### Testing Features
+- **Initial Prompt Generation** - Generates the same system prompt real AI would receive
+- **Tool Execution in Test Mode** - All AI tools execute normally during testing
+- **Conversation History Tracking** - Maintains conversation history for test sessions
+- **Session Isolation** - Each test session has unique ID with no cross-contamination
+- **Session Expiry** - Test sessions expire after 1 hour of inactivity
+- **Audit Logging** - All test commands logged to security audit log
+
+#### Security & Safety
+- **Admin Authentication** - All test commands require admin password
+- **Session Isolation** - Test sessions isolated from production data
+- **Rate Limiting** - Test commands subject to same rate limits as admin endpoints
+- **Security Headers** - Full security protection for all testing endpoints
+
+#### Documentation & Tools
+- **Testing Helper Scripts** - Bash scripts for common testing operations
+- **Comprehensive Documentation** - Complete usage guide in TESTING.md
+- **Example Test Scripts** - Pre-built examples for common testing scenarios
+- **Curl Command Examples** - Detailed workflow examples in documentation
+
+#### Service Integration
+- **Service Factory Registration** - Testing services registered in ServiceRegistry
+- **Startup Integration** - Automatic initialization of testing services
+- **Dependency Injection** - Proper service lifecycle management
+
+#### New Backend Services
+- `backend/services/system_services/testing_session_manager.py` - Session management
+- `backend/services/ai_services/testing_harness.py` - Testing harness service
+- `backend/services/ai_services/testing_command_processor.py` - Command processor
+- `backend/testing/test_harness_helpers.sh` - Helper scripts
+- `backend/testing/TESTING.md` - Testing documentation
+
+#### Updated Files
+- `backend/api/admin.py` - Added testing command handlers
+- `backend/services/system_services/service_factory.py` - Added service getters
+- `backend/shared/startup/services.py` - Service registration
+- `.gitignore` - Added test session ID files
+
+#### Workflow Example
+1. Start test session via admin endpoint with client ID
+2. Receive initial prompt (same format as real AI would get)
+3. Execute AI tools via simplified curl commands
+4. View results in real-time in Foundry chat
+5. End session with comprehensive summary
+
+#### Benefits
+- **No AI Service Dependency** - Test all AI functions without calling real AI
+- **Rapid Iteration** - Test tool calls and workflows quickly
+- **Cost Savings** - No API token usage during testing
+- **Reproducible Testing** - Consistent test scenarios without AI variability
+- **Full Functionality** - Test every AI tool with complete functionality
+
+#### Testing Use Cases
+- Basic tool testing (get_messages, post_messages)
+- Combat scenario testing
+- Multi-turn conversation testing
+- Error handling testing
+- Workflow validation
+- Tool argument validation
+
+#### Implementation Status
+- ✅ Core testing infrastructure complete
+- ✅ Admin endpoint integration complete
+- ✅ Service factory integration complete
+- ✅ Documentation complete
+- ✅ Helper scripts complete
+- 🔄 Ready for comprehensive testing and validation
+
 ## [0.3.7] - 2025-12-25
 
 ### Major Release: AI-Native Function Calling
@@ -877,65 +971,37 @@ backend/
 - **Documentation Updates** - Updated README with user-facing changes
 - **License Compliance** - Added missing python-dotenv license file
 
-### Backend Development
-- **Python Backend Creation** - Initial backend implementation
-- **API Key Management System** - Encrypted key storage and retrieval
-- **Security Framework** - Foundation for secure API operations
-
 ## [0.1.14] through [0.1.10] - 2025-10-28 to 2025-11-03
 
-### Critical Bug Fixes
-- **Module.json Manifest Validation** - Fixed manifest validation errors
-- **DOM Selector Fixes** - Updated selectors for Foundry VTT v13 compatibility
-- **jQuery Wrapper Issues** - Fixed jQuery usage for proper DOM manipulation
-- **JavaScript Syntax Errors** - Resolved missing commas and method issues
-
-### UI/UX Improvements
-- **Chat Button Creation** - Fixed "Take AI Turn" button not appearing
-- **Hook Debugging** - Enhanced debugging for chat button lifecycle
-- **Duplicate Prevention** - Added checks to prevent duplicate UI elements
-- **FormApplicationV2 Implementation** - Updated to use latest Foundry patterns
-
-### Technical Improvements
-- **DOM Loading Timing** - Fixed button creation after DOM is ready
-- **jQuery Usage** - Proper jQuery wrapper usage for Foundry VTT v13
-- **Version Bumps** - Incremental version updates for each fix series
+### Critical Bug Fixes & Compatibility
+- Fixed module.json manifest validation and DOM selectors for Foundry VTT v13
+- Resolved jQuery wrapper issues and JavaScript syntax errors
+- Implemented "Take AI Turn" button functionality with proper DOM loading
+- Added duplicate prevention and FormApplicationV2 implementation
+- Series of incremental stability improvements and version updates
 
 ## [0.1.9] through [0.1.6] - 2025-10-20 to 2025-10-26
 
 ### Foundry VTT v13 Compatibility
-- **DOM Structure Updates** - Adapted to new Foundry VTT v13 DOM structure
-- **jQuery Integration** - Fixed jQuery usage for v13 compatibility
-- **Button Creation Logic** - Enhanced button creation with better error handling
-- **Hook System** - Improved hook usage for DOM readiness
-
-### Stability Improvements
-- **Syntax Error Resolution** - Fixed various JavaScript syntax issues
-- **DOM Manipulation** - Improved DOM element selection and manipulation
-- **Chat Console Pattern** - Implemented working ChatConsole UI pattern
-- **Application Framework** - Updated to use FormApplicationV2
+- Adapted to new Foundry VTT v13 DOM structure
+- Fixed jQuery integration and button creation logic
+- Implemented working ChatConsole UI pattern
+- Enhanced hook system for DOM readiness
+- Improved DOM manipulation and error handling
 
 ## [0.1.5] through [0.1.1] - 2025-10-15 to 2025-10-19
 
 ### Foundation Development
-- **Initial Module Structure** - Basic Foundry VTT module setup
-- **Chat Integration** - Basic chat system integration
-- **UI Framework** - Initial user interface components
-- **Backend Communication** - Basic client-server communication
-
-### Early Development
-- **Basic Functionality** - Core module features implemented
-- **Error Handling** - Basic error management system
-- **Configuration System** - Initial settings and configuration
-- **Testing Framework** - Basic testing capabilities
+- Initial Foundry VTT module structure and chat integration
+- Basic UI framework and backend communication
+- Core functionality, error handling, and configuration system
+- Early testing framework implementation
 
 ## [0.1.0] - 2025-10-10
 
 ### Initial Release
-- **Project Foundation** - Initial The Gold Box module creation
-- **Basic Architecture** - Core module structure established
-- **Foundry VTT Integration** - Basic integration with Foundry VTT
-- **Documentation Setup** - Initial project documentation
+- Project foundation and basic module structure
+- Initial Foundry VTT integration and documentation setup
 
 ---
 
