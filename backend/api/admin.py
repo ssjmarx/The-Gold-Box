@@ -256,8 +256,20 @@ async def handle_start_test_session(request_data: Dict[str, Any], logger: loggin
             # Create minimal settings if none provided
             universal_settings = {
                 'ai role': 'gm',
-                'message_delta': {'new_messages': 0, 'deleted_messages': 0}
+                'message_delta': {'NewMessages': 0, 'DeletedMessages': 0}
             }
+        
+        # Ensure message_delta uses PascalCase format if provided
+        if 'message_delta' in universal_settings:
+            delta = universal_settings['message_delta']
+            # Convert legacy keys to PascalCase if needed
+            if 'new_messages' in delta:
+                delta['NewMessages'] = delta.pop('new_messages')
+            if 'deleted_messages' in delta:
+                delta['DeletedMessages'] = delta.pop('deleted_messages')
+        else:
+            # Add default delta if not present
+            universal_settings['message_delta'] = {'NewMessages': 0, 'DeletedMessages': 0}
         
         # Create test session
         test_session_id = testing_session_manager.create_session(client_id, universal_settings)
@@ -265,7 +277,9 @@ async def handle_start_test_session(request_data: Dict[str, Any], logger: loggin
         # Generate initial prompt
         initial_prompt_result = testing_harness.generate_initial_prompt(
             client_id,
-            universal_settings
+            universal_settings,
+            test_session_id,
+            testing_session_manager
         )
         
         if not initial_prompt_result['success']:
@@ -392,7 +406,7 @@ async def handle_test_command(request_data: Dict[str, Any], logger: logging.Logg
 
 
 async def handle_end_test_session(request_data: Dict[str, Any], logger: logging.Logger) -> Dict[str, Any]:
-    """Handle end_test_session command - forces WebSocket reset for clean state"""
+    """Handle end_test_session command - optional WebSocket reset"""
     try:
         from services.system_services.service_factory import get_testing_session_manager, get_testing_harness, get_websocket_manager
         
@@ -403,6 +417,9 @@ async def handle_end_test_session(request_data: Dict[str, Any], logger: logging.
                 status_code=400,
                 detail="test_session_id is required"
             )
+        
+        # Get reset_connection flag (default: true for backward compatibility)
+        reset_connection = request_data.get('reset_connection', True)
         
         # Get services
         testing_session_manager = get_testing_session_manager()
@@ -419,22 +436,25 @@ async def handle_end_test_session(request_data: Dict[str, Any], logger: logging.
         
         client_id = session['client_id']
         
-        # Send WebSocket message to frontend to indicate test session has ended WITH reset flag
+        # Send WebSocket message to frontend to indicate test session has ended
         await ws_manager.send_to_client(client_id, {
             'type': 'test_session_end',
             'data': {
                 'test_session_id': test_session_id,
-                'reset_connection': True,
+                'reset_connection': reset_connection,
                 'timestamp': datetime.now().isoformat()
             }
         })
         
-        # Force disconnect WebSocket connection (default behavior for clean state)
-        try:
-            await ws_manager.disconnect(client_id)
-            logger.info(f"Forced WebSocket disconnect for client {client_id} during test session end")
-        except Exception as e:
-            logger.warning(f"Failed to disconnect WebSocket for {client_id}: {e}")
+        # Force disconnect WebSocket connection only if reset_connection is True
+        if reset_connection:
+            try:
+                await ws_manager.disconnect(client_id)
+                logger.info(f"Forced WebSocket disconnect for client {client_id} during test session end")
+            except Exception as e:
+                logger.warning(f"Failed to disconnect WebSocket for {client_id}: {e}")
+        else:
+            logger.info(f"Test session ended for client {client_id} without WebSocket reset")
         
         # End session
         result = testing_harness.end_test(test_session_id, testing_session_manager)
@@ -445,11 +465,12 @@ async def handle_end_test_session(request_data: Dict[str, Any], logger: logging.
                 detail=result.get('error', 'Test session not found')
             )
         
-        logger.info(f"Ended test session {test_session_id} for client {client_id} (WebSocket reset)")
+        logger.info(f"Ended test session {test_session_id} for client {client_id} (reset_connection={reset_connection})")
         
         return {
             'status': 'success',
             'command': 'end_test_session',
+            'reset_connection': reset_connection,
             **result
         }
         

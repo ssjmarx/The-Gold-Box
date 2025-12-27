@@ -28,9 +28,10 @@ class TestingCommandProcessor:
     def __init__(self):
         """Initialize testing command processor"""
         self._available_commands = [
-            'get_messages',
-            'post',
-            'post_messages',
+            'get_message_history',
+            'post_message',
+            'roll_dice',
+            'get_encounter',
             'stop',
             'status',
             'help'
@@ -76,47 +77,64 @@ class TestingCommandProcessor:
                 'arguments': None
             }
         
-        # Try to parse as get_messages
-        get_messages_match = re.match(r'^get_messages\s*(\d+)?$', command_string, re.IGNORECASE)
-        if get_messages_match:
-            count = int(get_messages_match.group(1)) if get_messages_match.group(1) else 15
+        # Try to parse as get_message_history
+        get_message_history_match = re.match(r'^get_message_history\s*(\d+)?$', command_string, re.IGNORECASE)
+        if get_message_history_match:
+            limit = int(get_message_history_match.group(1)) if get_message_history_match.group(1) else 15
             return {
-                'command': 'get_messages',
-                'tool_name': 'get_messages',
-                'arguments': {'count': count}
+                'command': 'get_message_history',
+                'tool_name': 'get_message_history',
+                'arguments': {'limit': limit}
             }
         
-        # Try to parse as simple post
-        post_match = re.match(r'^post\s+"([^"]*)"$', command_string, re.IGNORECASE)
+        # Try to parse as post_message (singular)
+        post_match = re.match(r'^post_message\s+"([^"]*)"$', command_string, re.IGNORECASE)
         if post_match:
             message_content = post_match.group(1)
             return {
-                'command': 'post',
-                'tool_name': 'post_messages',
+                'command': 'post_message',
+                'tool_name': 'post_message',
                 'arguments': {
-                    'messages': [
-                        {
-                            'content': message_content,
-                            'type': 'chat-message'
-                        }
-                    ]
+                    'message': {
+                        'content': message_content,
+                        'type': 'chat-message'
+                    }
                 }
             }
         
-        # Try to parse as post_messages with JSON
-        post_messages_match = re.match(r'^post_messages\s+(.+)$', command_string, re.IGNORECASE)
-        if post_messages_match:
-            json_str = post_messages_match.group(1)
+        # Try to parse as post_message with JSON
+        post_message_json_match = re.match(r'^post_message\s+(.+)$', command_string, re.IGNORECASE)
+        if post_message_json_match:
+            json_str = post_message_json_match.group(1)
             try:
-                messages = json.loads(json_str)
+                message = json.loads(json_str)
                 return {
-                    'command': 'post_messages',
-                    'tool_name': 'post_messages',
-                    'arguments': {'messages': messages}
+                    'command': 'post_message',
+                    'tool_name': 'post_message',
+                    'arguments': {'message': message}
                 }
             except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse JSON in post_messages: {e}")
+                logger.error(f"Failed to parse JSON in post_message: {e}")
                 return None
+        
+        # Try to parse as roll_dice
+        roll_dice_match = re.match(r'^roll_dice\s+(.+)$', command_string, re.IGNORECASE)
+        if roll_dice_match:
+            dice_formula = roll_dice_match.group(1)
+            return {
+                'command': 'roll_dice',
+                'tool_name': 'roll_dice',
+                'arguments': {'formula': dice_formula}
+            }
+        
+        # Try to parse as get_encounter
+        get_encounter_match = re.match(r'^get_encounter$', command_string, re.IGNORECASE)
+        if get_encounter_match:
+            return {
+                'command': 'get_encounter',
+                'tool_name': 'get_encounter',
+                'arguments': {}
+            }
         
         # Try to parse as generic tool call
         # Format: tool_name param1=value1 param2=value2
@@ -247,27 +265,31 @@ class TestingCommandProcessor:
             
             arguments = parsed_command.get('arguments', {})
             
-            # Validate get_messages arguments
-            if tool_name == 'get_messages':
-                count = arguments.get('count', 15)
-                if not isinstance(count, int) or count < 1 or count > 50:
-                    return False, "get_messages count must be an integer between 1 and 50"
+            # Validate get_message_history arguments
+            if tool_name == 'get_message_history':
+                limit = arguments.get('limit', 15)
+                if not isinstance(limit, int) or limit < 1 or limit > 50:
+                    return False, "get_message_history limit must be an integer between 1 and 50"
             
-            # Validate post_messages arguments
-            if tool_name == 'post_messages':
-                messages = arguments.get('messages', [])
-                if not isinstance(messages, list):
-                    return False, "post_messages requires a 'messages' array"
+            # Validate post_message arguments
+            if tool_name == 'post_message':
+                message = arguments.get('message', {})
+                if not isinstance(message, dict):
+                    return False, "post_message requires a 'message' dictionary"
                 
-                if len(messages) == 0:
-                    return False, "post_messages requires at least one message"
-                
-                for i, msg in enumerate(messages):
-                    if not isinstance(msg, dict):
-                        return False, f"Message {i} must be a dictionary"
-                    
-                    if 'content' not in msg:
-                        return False, f"Message {i} is missing 'content' field"
+                if 'content' not in message:
+                    return False, "post_message message is missing 'content' field"
+            
+            # Validate roll_dice arguments
+            if tool_name == 'roll_dice':
+                formula = arguments.get('formula', '')
+                if not formula or not isinstance(formula, str):
+                    return False, "roll_dice requires a non-empty 'formula' string"
+            
+            # Validate get_encounter arguments
+            if tool_name == 'get_encounter':
+                # No arguments required
+                pass
         
         return True, None
     
@@ -290,23 +312,24 @@ class TestingCommandProcessor:
         help_text = """
 Available Testing Commands:
 
-1. get_messages [count]
+1. get_message_history [limit]
    Retrieve recent chat messages from Foundry
-   Example: get_messages 15
-   Default count: 15
+   Example: get_message_history 15
+   Default limit: 15
 
-2. post "message content"
-   Post a simple chat message to Foundry
-   Example: post "Hello from testing!"
+2. post_message <json>
+   Post a message to Foundry (single message)
+   Example: post_message {"content": "Hello", "type": "chat-message"}
+   Example: post_message {"content": "Attack!", "type": "chat-message", "roll": "1d20+5"}
 
-3. post_messages <json>
-   Post full message structure with options
-   Example: post_messages messages=[{"content": "Hello", "type": "chat-message"}]
+3. roll_dice <formula>
+   Roll dice using Foundry format
+   Example: roll_dice 1d20+5
+   Example: roll_dice 2d6
 
-4. <tool_name> param1=value1 param2=value2
-   Call any AI tool with parameters
-   Example: get_messages count=20
-   Example: post_messages messages=[{"content": "Test", "type": "chat-card"}]
+4. get_encounter
+   Get current combat encounter state
+   Example: get_encounter
 
 5. stop
    End the testing session
@@ -321,9 +344,9 @@ Available Testing Commands:
    Example: help
 
 Tips:
-- Use double quotes for string values with spaces
-- JSON can be used for complex structures
-- All tool names from the AI system are available
+- Use JSON for complex message structures
+- Dice rolls can be included in post_message content or use roll_dice
+- All AI tool names are available as direct commands
 """
         return help_text.strip()
     
@@ -338,7 +361,7 @@ Tips:
         Returns:
             Formatted response dictionary
         """
-        if tool_name == 'get_messages':
+        if tool_name == 'get_message_history':
             # Tool executor returns 'content' field, not 'messages'
             messages = result.get('content', [])
             return {
@@ -349,13 +372,32 @@ Tips:
                 }
             }
         
-        elif tool_name == 'post_messages':
-            # Tool executor returns 'sent_count' and 'results', not 'messages_sent' and 'message_ids'
+        elif tool_name == 'post_message':
+            # Tool executor returns message result
             return {
                 'success': True,
                 'result': {
-                    'messages_sent': result.get('sent_count', 0),
-                    'results': result.get('results', [])
+                    'message_sent': result.get('success', False),
+                    'result': result
+                }
+            }
+        
+        elif tool_name == 'roll_dice':
+            # Tool executor returns roll result
+            return {
+                'success': True,
+                'result': {
+                    'roll_success': result.get('success', False),
+                    'roll_result': result
+                }
+            }
+        
+        elif tool_name == 'get_encounter':
+            # Tool executor returns encounter data
+            return {
+                'success': True,
+                'result': {
+                    'encounter': result
                 }
             }
         

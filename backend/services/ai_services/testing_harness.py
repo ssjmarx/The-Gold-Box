@@ -34,7 +34,9 @@ class TestingHarness:
     def generate_initial_prompt(
         self,
         client_id: str,
-        universal_settings: Dict[str, Any]
+        universal_settings: Dict[str, Any],
+        test_session_id: Optional[str] = None,
+        testing_session_manager = None
     ) -> Dict[str, Any]:
         """
         Generate initial prompt (same format as real AI would receive)
@@ -42,6 +44,8 @@ class TestingHarness:
         Args:
             client_id: The Foundry client ID
             universal_settings: Settings from frontend
+            test_session_id: Test session ID (optional, for WSO generation)
+            testing_session_manager: TestingSessionManager (optional, for conversation history)
             
         Returns:
             Dictionary with initial_prompt and session data
@@ -59,19 +63,44 @@ class TestingHarness:
                 'combat_context': combat_context
             }
             
-            # Generate enhanced system prompt
+            # Check if this is first turn (no conversation history)
+            # For test sessions, check if conversation history is empty
+            is_first_turn = True
+            if test_session_id and testing_session_manager:
+                session = testing_session_manager.get_session(test_session_id)
+                if session and session.get('conversation_history'):
+                    is_first_turn = len(session.get('conversation_history', [])) == 0
+            
+            # Generate World State Overview for first turn
+            world_state_overview = None
+            if is_first_turn:
+                try:
+                    from services.ai_services.world_state_generator import get_world_state_generator
+                    wso_generator = get_world_state_generator()
+                    world_state_overview = wso_generator.generate_world_state_overview(
+                        client_id,
+                        universal_settings
+                    )
+                    logger.info(f"World State Overview generated for test session {test_session_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to generate World State Overview: {e}")
+            
+            # Generate enhanced system prompt with WSO
             system_prompt = self._unified_processor.generate_enhanced_system_prompt(
                 ai_role,
-                [combat_context_message]
+                [combat_context_message],
+                world_state_overview=world_state_overview
             )
             
-            # Get delta counts
+            # Get delta counts (use PascalCase)
             message_delta = universal_settings.get('message_delta', {})
-            new_count = message_delta.get('new_messages', 0)
-            deleted_count = message_delta.get('deleted_messages', 0)
+            new_count = message_delta.get('NewMessages', 0)
+            deleted_count = message_delta.get('DeletedMessages', 0)
             
-            # Add delta information
-            delta_display = f"""
+            # Add delta information (only for non-first turns)
+            delta_display = ""
+            if not is_first_turn:
+                delta_display = f"""
 
 Changes since last prompt: [New Messages: {new_count}, Deleted Messages: {deleted_count}]
 """
