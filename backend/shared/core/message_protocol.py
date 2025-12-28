@@ -29,6 +29,8 @@ class MessageProtocol:
     TYPE_ERROR = "error"
     TYPE_STATUS = "status"
     TYPE_BROADCAST = "broadcast"
+    TYPE_EXECUTE_ROLL = "execute_roll"
+    TYPE_ROLL_RESULT = "roll_result"
     
     # Protocol version
     PROTOCOL_VERSION = "1.0"

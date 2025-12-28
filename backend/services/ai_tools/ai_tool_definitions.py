@@ -89,5 +89,36 @@ def get_tool_definitions() -> list:
                     "required": ["messages"]
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "roll_dice",
+                "description": "Roll one or more Foundry-formatted dice formulas. Each roll can include optional flavor text. The rolls are executed in Foundry and the results are returned.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "rolls": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "formula": {
+                                        "type": "string",
+                                        "description": "Foundry dice formula (e.g., '1d20+5', '2d6', '4d6kh3')"
+                                    },
+                                    "flavor": {
+                                        "type": "string",
+                                        "description": "Flavor text for the roll (optional)"
+                                    }
+                                },
+                                "required": ["formula"]
+                            },
+                            "description": "Array of dice roll requests"
+                        }
+                    },
+                    "required": ["rolls"]
+                }
+            }
         }
     ]

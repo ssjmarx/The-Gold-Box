@@ -18,6 +18,7 @@
     "scripts/services/message-collector.js",
     "scripts/services/settings-manager.js",
     "scripts/services/frontend-delta-service.js",
+    "scripts/services/dice-roll-executor.js",
     "scripts/shared/ui-manager.js",
     "scripts/api/combat-monitor.js",
     "scripts/shared/whisper-display.js",

@@ -125,8 +125,12 @@ class TestingCommandProcessor:
             tool_name = tool_match.group(1)
             args_string = tool_match.group(2).strip()
             
+            logger.info(f"Parsed tool call: tool_name={tool_name}, args_string='{args_string}'")
+            
             # Parse arguments
             arguments = self._parse_arguments(args_string)
+            
+            logger.info(f"Parsed arguments: {arguments}")
             
             return {
                 'command': 'tool_call',
@@ -142,7 +146,7 @@ class TestingCommandProcessor:
         Parse arguments from command string
         
         Args:
-            args_string: Arguments string (e.g., 'count=15 "name=value"')
+            args_string: Arguments string (e.g., 'count=15 "name=value"' or 'rolls=[{"formula":"1d20"}]')
             
         Returns:
             Dictionary of parsed arguments
@@ -158,9 +162,43 @@ class TestingCommandProcessor:
         except json.JSONDecodeError:
             pass
         
-        # Parse as key=value pairs
+        # Try to parse as key=value pairs with JSON values
+        # Handle cases like: rolls=[{"formula":"1d20"}]
+        # Pattern: key=value where value can be complex JSON
+        key_value_pattern = r'^(\w+)=(.+)$'
+        kv_match = re.match(key_value_pattern, args_string.strip())
+        
+        if kv_match:
+            key = kv_match.group(1)
+            value_str = kv_match.group(2).strip()
+            
+            # Try to parse value as JSON
+            try:
+                value = json.loads(value_str)
+                arguments[key] = value
+            except json.JSONDecodeError:
+                # Not JSON, treat as simple value
+                # Remove quotes if present
+                if value_str.startswith('"') and value_str.endswith('"'):
+                    value_str = value_str[1:-1]
+                elif value_str.startswith("'") and value_str.endswith("'"):
+                    value_str = value_str[1:-1]
+                
+                # Try to convert to int or float
+                try:
+                    value = int(value_str)
+                except ValueError:
+                    try:
+                        value = float(value_str)
+                    except ValueError:
+                        value = value_str  # Keep as string
+                
+                arguments[key] = value
+            
+            return arguments
+        
+        # Fallback to simple key=value parsing for multiple arguments
         # Handle quoted values
-        # Pattern: key="quoted value" or key=value
         pattern = r'(\w+)=("[^"]*"|\'[^\']*\'|\S+)'
         matches = re.findall(pattern, args_string)
         

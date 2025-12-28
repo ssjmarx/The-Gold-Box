@@ -5,6 +5,9 @@
  * HTTP used only for initial health check
  */
 
+// Import DiceRollExecutor (relative path from api/ to services/)
+import '../services/dice-roll-executor.js';
+
 /**
  * Connection States
  */
@@ -42,6 +45,9 @@ class WebSocketCommunicator {
     // Settings manager reference
     this.settingsManager = null;
     
+    // Dice roll executor reference
+    this.diceRollExecutor = null;
+    
     // Initialization control
     this.initPromise = null;
     
@@ -78,6 +84,36 @@ class WebSocketCommunicator {
   setWebSocketClient(webSocketClient) {
     this.webSocketClient = webSocketClient;
     console.log('WebSocketCommunicator: WebSocket client set');
+    
+    // Initialize DiceRollExecutor and register handlers
+    this.initializeDiceRollExecutor();
+  }
+
+  /**
+   * Initialize Dice Roll Executor
+   * @private
+   */
+  initializeDiceRollExecutor() {
+    try {
+      if (typeof DiceRollExecutor !== 'undefined') {
+        this.diceRollExecutor = new DiceRollExecutor();
+        
+        // Register message handlers with WebSocket client
+        const handlers = this.diceRollExecutor.getMessageHandlers();
+        for (const [messageType, handler] of Object.entries(handlers)) {
+          this.webSocketClient.onMessageType(messageType, handler);
+          console.log(`WebSocketCommunicator: Registered handler for ${messageType}`);
+        }
+        
+        // Store executor globally for access from other scripts
+        window.diceRollExecutor = this.diceRollExecutor;
+        console.log('WebSocketCommunicator: DiceRollExecutor initialized');
+      } else {
+        console.warn('WebSocketCommunicator: DiceRollExecutor not available');
+      }
+    } catch (error) {
+      console.error('WebSocketCommunicator: Error initializing DiceRollExecutor:', error);
+    }
   }
 
   /**
