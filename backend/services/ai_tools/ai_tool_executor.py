@@ -5,10 +5,16 @@ Executes AI tools with proper separation of concerns
 """
 
 import logging
-from typing import Dict, Any, List
+import asyncio
+from typing import Dict, Any, List, Optional
 from datetime import datetime
+import uuid
 
 logger = logging.getLogger(__name__)
+
+# Dictionary to store pending roll requests
+# Key: request_id, Value: asyncio.Future
+_pending_roll_requests: Dict[str, asyncio.Future] = {}
 
 class AIToolExecutor:
     """
@@ -54,6 +60,8 @@ class AIToolExecutor:
             return await self.execute_get_message_history(tool_args, client_id)
         elif tool_name == 'post_message':
             return await self.execute_post_message(tool_args, client_id)
+        elif tool_name == 'roll_dice':
+            return await self.execute_roll_dice(tool_args, client_id)
         else:
             raise ValueError(f"Unknown tool: {tool_name}")
     
@@ -151,6 +159,109 @@ class AIToolExecutor:
                 "error": str(e)
             }
     
+    async def execute_roll_dice(
+        self,
+        args: Dict[str, Any],
+        client_id: str
+    ) -> Dict[str, Any]:
+        """
+        Execute roll_dice tool - sends roll requests to frontend, awaits results
+        
+        Args:
+            args: Tool arguments (must contain 'rolls' array)
+            client_id: Client ID for WebSocket communication
+        
+        Returns:
+            Dict with roll results for each requested roll
+        """
+        try:
+            # Validate arguments
+            rolls = args.get('rolls', [])
+            if not isinstance(rolls, list) or not rolls:
+                raise ValueError("rolls must be a non-empty array")
+            
+            # Validate each roll
+            for i, roll in enumerate(rolls):
+                if not isinstance(roll, dict):
+                    raise ValueError(f"Roll {i} must be a dictionary")
+                if 'formula' not in roll:
+                    raise ValueError(f"Roll {i} missing required 'formula' field")
+                formula = roll['formula']
+                if not isinstance(formula, str) or not formula.strip():
+                    raise ValueError(f"Roll {i} must have a non-empty formula string")
+            
+            # Get services via ServiceFactory
+            from ..system_services.service_factory import get_websocket_manager
+            from shared.core.message_protocol import MessageProtocol
+            
+            websocket_manager = get_websocket_manager()
+            
+            # Create a unique request ID for this roll batch
+            request_id = str(uuid.uuid4())
+            
+            logger.info(f"roll_dice: Creating future for request {request_id} with client_id {client_id}")
+            
+            # Create a future to await the result
+            result_future = asyncio.Future()
+            _pending_roll_requests[request_id] = result_future
+            logger.info(f"roll_dice: Stored future in _pending_roll_requests. Total pending: {len(_pending_roll_requests)}")
+            
+            try:
+                # Send roll request to frontend
+                roll_message = {
+                    "type": "execute_roll",
+                    "request_id": request_id,
+                    "data": {
+                        "rolls": rolls,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                }
+                
+                await websocket_manager.send_to_client(client_id, roll_message)
+                logger.info(f"roll_dice: Sent {len(rolls)} roll requests to client {client_id}, request_id: {request_id}")
+                
+                # Wait for result with timeout (30 seconds)
+                try:
+                    logger.info(f"roll_dice: Waiting for result for request {request_id}...")
+                    result_data = await asyncio.wait_for(result_future, timeout=30.0)
+                    logger.info(f"roll_dice: Successfully awaited result for request {request_id}")
+                    
+                    return {
+                        "success": True,
+                        "count": len(rolls),
+                        "results": result_data.get('results', []),
+                        "request_id": request_id
+                    }
+                    
+                except asyncio.TimeoutError:
+                    logger.error(f"roll_dice: Timeout waiting for roll results, request_id: {request_id}")
+                    # Check if future is still pending
+                    if request_id in _pending_roll_requests:
+                        logger.error(f"Future still in _pending_roll_requests but timed out")
+                    else:
+                        logger.error(f"Future removed from _pending_roll_requests before timeout")
+                    return {
+                        "success": False,
+                        "error": "Timeout waiting for roll results from frontend",
+                        "request_id": request_id
+                    }
+                    
+            finally:
+                # Clean up the pending request
+                logger.info(f"Cleaning up future for request {request_id}")
+                if request_id in _pending_roll_requests:
+                    del _pending_roll_requests[request_id]
+                    logger.info(f"Removed future for request {request_id} from _pending_roll_requests")
+                else:
+                    logger.warning(f"Future for request {request_id} not found in _pending_roll_requests during cleanup")
+            
+        except Exception as e:
+            logger.error(f"roll_dice execution failed: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
     async def execute_post_message(
         self,
         args: Dict[str, Any],
@@ -236,6 +347,42 @@ class AIToolExecutor:
                 "success": False,
                 "error": str(e)
             }
+
+
+def handle_roll_result(request_id: str, results: Any) -> None:
+    """
+    Handle incoming roll result from frontend
+    Called when backend receives roll_result message
+    
+    Args:
+        request_id: Request ID from original roll_dice call
+        results: Roll results from frontend
+    """
+    logger.info(f"handle_roll_result called for request {request_id}")
+    
+    if request_id in _pending_roll_requests:
+        future = _pending_roll_requests[request_id]
+        logger.info(f"Found pending future for request {request_id}")
+        
+        try:
+            if not future.done():
+                logger.info(f"Setting result for request {request_id}")
+                future.set_result(results)
+                logger.info(f"Result set successfully for request {request_id}")
+            else:
+                logger.warning(f"Future already done for request {request_id}")
+        except Exception as e:
+            logger.error(f"Error setting future result for request {request_id}: {e}")
+            # Try to set exception if result setting failed
+            if not future.done():
+                try:
+                    future.set_exception(e)
+                except Exception as e2:
+                    logger.error(f"Error setting future exception: {e2}")
+    else:
+        logger.warning(f"Received roll result for unknown request_id: {request_id}")
+
+
 def get_ai_tool_executor() -> AIToolExecutor:
     """Get AI tool executor instance"""
     return AIToolExecutor()

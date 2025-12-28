@@ -5,6 +5,7 @@ __pycache__/
 *.log
 *.enc
 venv/
+prompt.md
 
 # Runtime data files
 backend/server_files/goldbox.log

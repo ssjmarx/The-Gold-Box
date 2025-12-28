@@ -65,7 +65,27 @@ exec_curl "Check Status" '{
   "test_command": "status"
 }'
 
-echo "Step 3: Test Multi-Command Execution"
+echo "Step 3: Test Dice Rolling (Feature 2)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+exec_curl "Single Dice Roll" '{
+  "command": "test_command",
+  "test_session_id": "'"$TEST_SESSION_ID"'",
+  "test_command": "roll_dice rolls=[{\"formula\":\"1d20+5\",\"flavor\":\"Attack roll\"}]"
+}'
+
+exec_curl "Multiple Dice Rolls" '{
+  "command": "test_command",
+  "test_session_id": "'"$TEST_SESSION_ID"'",
+  "test_command": "roll_dice rolls=[{\"formula\":\"2d6\",\"flavor\":\"Damage\"},{\"formula\":\"1d8+3\",\"flavor\":\"Bonus damage\"}]"
+}'
+
+exec_curl "Dice Roll Without Flavor" '{
+  "command": "test_command",
+  "test_session_id": "'"$TEST_SESSION_ID"'",
+  "test_command": "roll_dice rolls=[{\"formula\":\"1d20\"}]"
+}'
+
+echo "Step 4: Test Multi-Command Execution"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 exec_curl "Execute Multiple Commands" '{
   "command": "execute_test_commands",
@@ -78,7 +98,7 @@ exec_curl "Execute Multiple Commands" '{
   ]
 }'
 
-echo "Step 4: End Test Session with WebSocket Reset"
+echo "Step 5: End Test Session with WebSocket Reset"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 exec_curl "End Test Session (WebSocket Reset)" '{
   "command": "end_test_session",
@@ -91,8 +111,12 @@ echo "=========================================="
 echo ""
 echo "✅ Verification Checklist:"
 echo ""
-echo "1. Check Foundry VTT chat - Should see 6 messages:"
+echo "1. Check Foundry VTT chat - Should see 7 messages:"
 echo "   - 'Individual test message'"
+echo "   - Dice roll: '1d20+5 (Attack roll) = X'"
+echo "   - Dice roll: '2d6 (Damage) = X'"
+echo "   - Dice roll: '1d8+3 (Bonus damage) = X'"
+echo "   - Dice roll: '1d20 = X'"
 echo "   - 'Multi-test message 1'"
 echo "   - 'Multi-test message 2'"
 echo "   - 'Multi-test message 3'"
@@ -120,7 +144,8 @@ echo "   window.goldBoxWebSocketClient.clientId"
 echo ""
 echo "📊 Test Results:"
 echo "   ✅ Individual commands tested (3 commands)"
+echo "   ✅ Dice rolling tested (3 commands)"
 echo "   ✅ Multi-command execution tested (4 commands)"
 echo "   ✅ WebSocket reset tested"
-echo "   ✅ Total: 7 test commands executed"
+echo "   ✅ Total: 10 test commands executed"
 echo ""
