@@ -224,14 +224,14 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         
         # Step 5.5: For function calling mode, strip chat context from system prompt
         # Function calling mode should only send system prompt + role instructions + combat context
-        # AI will use get_messages tool to retrieve chat context
+        # AI will use get_message_history tool to retrieve chat context
         disable_function_calling = universal_settings.get('disable function calling', False)
         enable_function_calling = not disable_function_calling
         
         if enable_function_calling:
             # Generate system prompt without chat context messages
             # Only include system prompt + role instructions + combat context
-            # AI will use get_messages tool to retrieve chat messages
+            # AI will use get_message_history tool to retrieve chat messages
             combat_context_messages = [msg for msg in compact_messages if msg.get('type') == 'combat_context']
             system_prompt = unified_processor.generate_enhanced_system_prompt(ai_role, combat_context_messages)
         # Standard mode includes chat context in system prompt (no special handling needed)
@@ -385,13 +385,13 @@ async def process_with_function_calling_or_standard(
         provider_config = get_provider_config(universal_settings, use_tactical=False)
         
         # Build initial messages for function calling loop
-        # Function calling mode: Only system prompt (AI will use get_messages tool)
+        # Function calling mode: Only system prompt (AI will use get_message_history tool)
         # Standard mode: System prompt + chat context
         import json
         
         if enable_function_calling:
             # FUNCTION CALLING MODE: System prompt + simple user instruction
-            # AI will use get_messages tool to retrieve chat messages
+            # AI will use get_message_history tool to retrieve chat messages
             # User message needed to trigger AI response
             
             # Get delta counts from request
