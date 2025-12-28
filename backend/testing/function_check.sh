@@ -50,7 +50,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 exec_curl "Get Messages" '{
   "command": "test_command",
   "test_session_id": "'"$TEST_SESSION_ID"'",
-  "test_command": "get_messages 10"
+  "test_command": "get_message_history 10"
 }'
 
 exec_curl "Single Post Message" '{
@@ -71,8 +71,8 @@ exec_curl "Execute Multiple Commands" '{
   "command": "execute_test_commands",
   "test_session_id": "'"$TEST_SESSION_ID"'",
   "commands": [
-    "get_messages 5",
-    "post_messages [{\"content\":\"Multi-test message 1\",\"type\":\"chat-message\"},{\"content\":\"Multi-test message 2\",\"type\":\"chat-message\"}]",
+    "get_message_history 5",
+    "post_message [{\"content\":\"Multi-test message 1\",\"type\":\"chat-message\"},{\"content\":\"Multi-test message 2\",\"type\":\"chat-message\"}]",
     "post \"Multi-test message 3\"",
     "status"
   ]

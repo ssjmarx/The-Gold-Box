@@ -50,14 +50,14 @@ class AIToolExecutor:
         """
         
         # Route to specific tool executor
-        if tool_name == 'get_messages':
-            return await self.execute_get_messages(tool_args, client_id)
-        elif tool_name == 'post_messages':
-            return await self.execute_post_messages(tool_args, client_id)
+        if tool_name == 'get_message_history':
+            return await self.execute_get_message_history(tool_args, client_id)
+        elif tool_name == 'post_message':
+            return await self.execute_post_message(tool_args, client_id)
         else:
             raise ValueError(f"Unknown tool: {tool_name}")
     
-    async def execute_get_messages(
+    async def execute_get_message_history(
         self,
         args: Dict[str, Any],
         client_id: str
@@ -140,18 +140,18 @@ class AIToolExecutor:
             }
             
             # Log summary
-            logger.info(f"get_messages executed: {len(compact_messages)} messages collected for client {client_id}")
+            logger.info(f"get_message_history executed: {len(compact_messages)} messages collected for client {client_id}")
             
             return result
             
         except Exception as e:
-            logger.error(f"get_messages execution failed: {e}")
+            logger.error(f"get_message_history execution failed: {e}")
             return {
                 "success": False,
                 "error": str(e)
             }
     
-    async def execute_post_messages(
+    async def execute_post_message(
         self,
         args: Dict[str, Any],
         client_id: str
@@ -222,7 +222,7 @@ class AIToolExecutor:
                         "error": str(e)
                     })
             
-            logger.info(f"post_messages executed: {len(results)}/{len(messages)} messages sent for client {client_id}")
+            logger.info(f"post_message executed: {len(results)}/{len(messages)} messages sent for client {client_id}")
             
             return {
                 "success": True,
@@ -231,7 +231,7 @@ class AIToolExecutor:
             }
             
         except Exception as e:
-            logger.error(f"post_messages execution failed: {e}")
+            logger.error(f"post_message execution failed: {e}")
             return {
                 "success": False,
                 "error": str(e)

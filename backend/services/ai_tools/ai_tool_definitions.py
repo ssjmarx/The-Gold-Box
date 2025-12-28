@@ -15,7 +15,7 @@ def get_tool_definitions() -> list:
         {
             "type": "function",
             "function": {
-                "name": "get_messages",
+                "name": "get_message_history",
                 "description": "Retrieve recent chat messages from Foundry chat for context. Use once at the start of a turn to get new messages.",
                 "parameters": {
                     "type": "object",
@@ -35,7 +35,7 @@ def get_tool_definitions() -> list:
         {
             "type": "function",
             "function": {
-                "name": "post_messages",
+                "name": "post_message",
                 "description": "Send one or more chat messages or chat cards to Foundry as your response. Messages can be chat text, or structured chat cards with Foundry-specific formatting. This function accepts markdown styling.",
                 "parameters": {
                     "type": "object",

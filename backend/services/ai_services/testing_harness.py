@@ -160,7 +160,7 @@ Changes since last prompt: [New Messages: {new_count}, Deleted Messages: {delete
             }
         
         # Handle tool calls
-        elif command in ['get_messages', 'post', 'post_messages', 'tool_call']:
+        elif command in ['get_message_history', 'post', 'post_message', 'tool_call']:
             return await self._handle_tool_call(
                 test_session_id,
                 parsed_command,

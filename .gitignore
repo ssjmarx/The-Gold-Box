@@ -5,7 +5,6 @@ __pycache__/
 *.log
 *.enc
 venv/
-plans/
 
 # Runtime data files
 backend/server_files/goldbox.log
