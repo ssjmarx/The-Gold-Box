@@ -237,6 +237,11 @@ class GoldBoxWebSocketClient {
           console.log('WebSocket ping response received');
           break;
 
+        case 'settings_sync_response':
+          console.log('WebSocket settings sync response received:', message.data);
+          // Settings sync completed, no action needed
+          break;
+
         default:
           // Handle custom message types
           if (this.messageHandlers.has(message.type)) {
