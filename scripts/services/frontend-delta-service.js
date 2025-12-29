@@ -1,41 +1,115 @@
 /**
  * The Gold Box - Frontend Delta Service
- * Tracks message counts (new/deleted) since last AI turn
+ * Tracks game state changes (messages, rolls, combat) since last AI turn
  * 
  * Purpose:
  * - Track new messages added to Foundry chat since last AI turn
  * - Track deleted messages removed from Foundry chat since last AI turn
- * - Display these counts to AI in system prompt (function calling mode only)
- * - Help AI understand what changed without seeing entire message history again
+ * - Track new dice rolls executed since last AI turn
+ * - Track combat encounters started/ended since last AI turn
+ * - Provide complete delta object to backend when AI turn button is clicked
+ * - Automatically reset all deltas when AI turn completes
+ * 
+ * Architecture:
+ * - Frontend handles ALL delta tracking via Foundry hooks
+ * - Smart filtering removes empty/null fields
+ * - Frontend sends deltas to backend, backend passes through to AI
  */
 
 export class FrontendDeltaService {
   constructor() {
+    // Message tracking
     this.newMessages = 0;
     this.deletedMessages = 0;
+    
+    // Dice roll tracking
+    this.newDiceRolls = [];
+    
+    // Combat event tracking
+    this.encounterStarted = null;
+    this.encounterEnded = null;
+    
     console.log('The Gold Box: FrontendDeltaService initialized');
   }
 
   /**
-   * Get current delta counts
-   * @returns {Object} Delta counts object with new_messages and deleted_messages (snake_case to match backend)
+   * Get current delta counts (legacy method for backward compatibility)
+   * @deprecated Use getFilteredDelta() instead
+   * @returns {Object} Delta counts object with PascalCase field names
    */
   getDeltaCounts() {
     return {
-      new_messages: this.newMessages,
-      deleted_messages: this.deletedMessages
+      NewMessages: this.newMessages,
+      DeletedMessages: this.deletedMessages
     };
   }
 
   /**
-   * Reset delta counts to zero
+   * Get complete filtered delta object for backend
+   * Smart filtering: only includes fields with actual changes
+   * 
+   * @returns {Object} Filtered delta object with all tracked changes
+   */
+  getFilteredDelta() {
+    const delta = {
+      hasChanges: false
+    };
+    
+    // Add message counts if non-zero
+    if (this.newMessages > 0) {
+      delta.NewMessages = this.newMessages;
+      delta.hasChanges = true;
+    }
+    if (this.deletedMessages > 0) {
+      delta.DeletedMessages = this.deletedMessages;
+      delta.hasChanges = true;
+    }
+    
+    // Add dice rolls if any exist
+    if (this.newDiceRolls.length > 0) {
+      delta.NewDiceRolls = [...this.newDiceRolls];
+      delta.hasChanges = true;
+    }
+    
+    // Add combat events if they occurred
+    if (this.encounterStarted !== null) {
+      delta.EncounterStarted = {...this.encounterStarted};
+      delta.hasChanges = true;
+    }
+    if (this.encounterEnded !== null) {
+      delta.EncounterEnded = this.encounterEnded;
+      delta.hasChanges = true;
+    }
+    
+    // If no changes, add message for clarity
+    if (!delta.hasChanges) {
+      delta.message = "No changes to game state since last AI turn";
+    }
+    
+    console.log('The Gold Box: Filtered delta object generated:', delta);
+    return delta;
+  }
+
+  /**
+   * Reset all delta counts to zero
    * Called when AI turn completes to prepare for next turn
    */
   resetDeltaCounts() {
-    const countsBeforeReset = this.getDeltaCounts();
+    const countsBeforeReset = {
+      NewMessages: this.newMessages,
+      DeletedMessages: this.deletedMessages,
+      NewDiceRolls: this.newDiceRolls.length,
+      EncounterStarted: this.encounterStarted,
+      EncounterEnded: this.encounterEnded
+    };
+    
     this.newMessages = 0;
     this.deletedMessages = 0;
-    console.log(`The Gold Box: Delta counts reset. Before reset: New=${countsBeforeReset.newMessages}, Deleted=${countsBeforeReset.deletedMessages}`);
+    this.newDiceRolls = [];
+    this.encounterStarted = null;
+    this.encounterEnded = null;
+    
+    console.log(`The Gold Box: Delta counts reset. Before reset:`, countsBeforeReset);
   }
 
   /**
@@ -55,6 +129,56 @@ export class FrontendDeltaService {
     this.deletedMessages++;
     console.log(`The Gold Box: Deleted message detected. Total deleted messages: ${this.deletedMessages}`);
   }
+
+  /**
+   * Add a dice roll to delta tracking
+   * Called when a dice roll is executed in Foundry
+   * 
+   * @param {Object} rollData - Roll data object
+   * @param {string} rollData.formula - Dice formula (e.g., "1d20+5")
+   * @param {number} rollData.result - Total result of the roll
+   * @param {string} rollData.flavor - Flavor text for the roll
+   */
+  addDiceRoll(rollData) {
+    this.newDiceRolls.push({
+      formula: rollData.formula,
+      result: rollData.result,
+      flavor: rollData.flavor || '',
+      timestamp: Date.now()
+    });
+    console.log(`The Gold Box: Dice roll detected: ${rollData.formula} = ${rollData.result}`);
+  }
+
+  /**
+   * Record that an encounter has started
+   * Called by CombatMonitor when combat begins
+   * 
+   * @param {Object} combatData - Combat encounter data
+   * @param {string} combatData.id - Combat encounter ID
+   * @param {string} combatData.name - Combat encounter name
+   */
+  setEncounterStarted(combatData) {
+    this.encounterStarted = {
+      id: combatData.id,
+      name: combatData.name
+    };
+    this.encounterEnded = null; // Reset ended flag
+    console.log(`The Gold Box: Encounter started: ${combatData.name} (${combatData.id})`);
+  }
+
+  /**
+   * Record that an encounter has ended
+   * Called by CombatMonitor when combat ends
+   * 
+   * @param {boolean} ended - Always true when called
+   */
+  setEncounterEnded(ended = true) {
+    if (ended) {
+      this.encounterEnded = true;
+      this.encounterStarted = null; // Reset started flag
+      console.log('The Gold Box: Encounter ended');
+    }
+  }
 }
 
 // Create global instance and attach to window
@@ -70,6 +194,20 @@ Hooks.on('createChatMessage', (chatMessage) => {
   const isAIMessage = chatMessage.flags?.['gold-box']?.isAIMessage;
   if (!isAIMessage) {
     window.FrontendDeltaService?.incrementNewMessages();
+    
+    // Check if this is a dice roll message
+    if (chatMessage.isRoll && chatMessage.rolls) {
+      // Extract roll data from the message
+      const roll = chatMessage.rolls[0];
+      if (roll) {
+        const rollData = {
+          formula: roll.formula || chatMessage.getRollData().formula || 'Unknown',
+          result: roll.total || roll.total,
+          flavor: chatMessage.flavor || ''
+        };
+        window.FrontendDeltaService?.addDiceRoll(rollData);
+      }
+    }
   }
 });
 

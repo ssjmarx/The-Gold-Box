@@ -33,6 +33,7 @@ class MessageProtocol:
     TYPE_ROLL_RESULT = "roll_result"
     TYPE_COMBAT_STATE = "combat_state"
     TYPE_COMBAT_STATE_REFRESH = "combat_state_refresh"
+    TYPE_GAME_DELTA = "game_delta"
     
     # Protocol version
     PROTOCOL_VERSION = "1.0"
