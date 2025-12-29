@@ -474,8 +474,7 @@ class GoldBoxModule {
       let combatContext = null;
       if (window.CombatMonitor) {
         // Force refresh combat state to get current turn information
-        window.CombatMonitor.refreshCombatState();
-        combatContext = window.CombatMonitor.getCombatStateForBackend();
+        combatContext = window.CombatMonitor.getCombatStateForBackend(true);  // true = force refresh
         console.log('The Gold Box: Combat context retrieved:', combatContext);
         
         // Add combat context as a special message type if combat is active

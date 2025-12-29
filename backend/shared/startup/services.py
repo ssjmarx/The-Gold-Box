@@ -142,6 +142,12 @@ def initialize_websocket_manager():
                         asyncio.create_task(self._handle_combat_context(client_id, message))
                         return
                     
+                    # Handle combat state messages from frontend - FAST PATH
+                    if message_type == "combat_state":
+                        logger.info(f"WebSocket: [FAST PATH] Handling combat_state for client {client_id}")
+                        await self._handle_combat_state(client_id, message)
+                        return
+                    
                     # Handle chat requests - check for active test session first - SLOW PATH
                     if message_type == "chat_request":
                         # Check if there's an active test session for this client
@@ -328,10 +334,10 @@ def initialize_websocket_manager():
                     logger.error(f"Error handling chat message from client {client_id}: {e}")
                     await self.send_to_client(client_id, {
                         "type": "error",
-                        "data": {
-                            "error": f"Chat message handling failed: {str(e)}",
-                            "timestamp": time.time()
-                        }
+                            "data": {
+                                "error": f"Chat message handling failed: {str(e)}",
+                                "timestamp": time.time()
+                            }
                     })
             
             async def _handle_dice_roll(self, client_id: str, message: Dict[str, Any]):
@@ -433,6 +439,69 @@ def initialize_websocket_manager():
                             "timestamp": time.time()
                         }
                     })
+            
+            def _convert_single_message_to_compact(self, message: Dict[str, Any]) -> Dict[str, Any]:
+                """Convert a single raw HTML message to compact JSON format - DELEGATE TO UNIFIED PROCESSOR"""
+                # Import unified processor at function level to avoid circular import issues
+                from shared.core.unified_message_processor import get_unified_processor
+                
+                content = message.get("content", "")
+                original_timestamp = message.get("timestamp")
+                
+                # Skip empty messages
+                if not content or not content.strip():
+                    return None
+                
+                # Use unified processor for all HTML parsing - no duplicate logic
+                processor = get_unified_processor()
+                parsed = processor.html_to_compact_json(content)
+                
+                # Override with original timestamp if provided, otherwise use current time
+                if 'ts' in parsed:
+                    if original_timestamp is not None:
+                        parsed['ts'] = original_timestamp
+                else:
+                    # Generate timestamp from message if not provided
+                    parsed['ts'] = int(time.time() * 1000)
+                
+                return parsed
+            
+            async def _handle_combat_state(self, client_id: str, message: Dict[str, Any]):
+                """Handle combat_state message from frontend"""
+                try:
+                    message_data = message.get("data", {})
+                    combat_state = message_data.get("combat_state")
+                    request_id = message.get("request_id")
+                    
+                    if not combat_state:
+                        logger.warning(f"Received combat_state message without combat_state data from client {client_id}")
+                        return
+                    
+                    # Check if this is a response to a combat_state_refresh request
+                    # Access pending requests from ai_tool_executor module
+                    if request_id:
+                        from services.ai_tools.ai_tool_executor import _pending_roll_requests
+                        if request_id in _pending_roll_requests:
+                            future = _pending_roll_requests[request_id]
+                            if not future.done():
+                                logger.info(f"Resolving pending combat_state_refresh request {request_id}")
+                                future.set_result(combat_state)
+                            else:
+                                logger.warning(f"Pending request {request_id} already done")
+                    
+                    # Store combat state directly in WebSocket message collector class
+                    # Access via service factory to avoid circular import
+                    from services.system_services.service_factory import get_message_collector
+                    message_collector = get_message_collector()
+                    
+                    success = message_collector.set_combat_state(client_id, combat_state)
+                    if success:
+                        logger.info(f"Combat state stored for client {client_id}: in_combat={combat_state.get('in_combat')}")
+                    else:
+                        logger.warning(f"Failed to store combat state for client {client_id}")
+                    
+                except Exception as e:
+                    logger.error(f"Error handling combat_state from client {client_id}: {e}", exc_info=True)
             
             def _convert_single_message_to_compact(self, message: Dict[str, Any]) -> Dict[str, Any]:
                 """Convert a single raw HTML message to compact JSON format - DELEGATE TO UNIFIED PROCESSOR"""
@@ -725,7 +794,7 @@ def initialize_websocket_manager():
                     # Delta filtering already logged by get_delta_filtered_client_messages()
                     # Force full context if requested
                     if force_full_context:
-                        logger.info(f"Force full context for WebSocket session {session_id} - bypassing delta filtering")
+                        logger.info(f"Force full context for session {session_id} - bypassing delta filtering")
                         message_delta_service.force_full_context(session_id)
                     
                     # Use compact messages (AI service will handle conversation history)

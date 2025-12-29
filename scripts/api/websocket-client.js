@@ -125,8 +125,8 @@ class GoldBoxWebSocketClient {
       }
 
       // Build WebSocket URL - use FastAPI WebSocket endpoint
-      const url = new URL(this.baseUrl);
-      const wsUrl = `ws://${url.hostname}:5000/ws`;
+      // Use the discovered port from baseUrl instead of hardcoded 5000
+      const wsUrl = this.baseUrl.replace('http://', 'ws://').replace('https://', 'wss://') + '/ws';
       console.log(`Connecting to WebSocket at ${wsUrl}`);
 
       // Create WebSocket connection

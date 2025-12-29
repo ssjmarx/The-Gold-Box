@@ -85,7 +85,43 @@ exec_curl "Dice Roll Without Flavor" '{
   "test_command": "roll_dice rolls=[{\"formula\":\"1d20\"}]"
 }'
 
-echo "Step 4: Test Multi-Command Execution"
+echo "Step 4: Test Combat Status (Feature 3)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+exec_curl "Get Encounter (Out of Combat)" '{
+  "command": "test_command",
+  "test_session_id": "'"$TEST_SESSION_ID"'",
+  "test_command": "get_encounter"
+}'
+
+echo "📝 Manual Test: Start Combat in Foundry VTT"
+echo "   - Click the 'Combat' tab in Foundry VTT"
+echo "   - Click 'Start Combat' button"
+echo "   - Add at least one combatant to the combat"
+echo "   - Wait for combat to start"
+echo ""
+echo "⏸️  Press Enter when combat is started in Foundry VTT..."
+read
+
+exec_curl "Get Encounter (In Combat)" '{
+  "command": "test_command",
+  "test_session_id": "'"$TEST_SESSION_ID"'",
+  "test_command": "get_encounter"
+}'
+
+echo "📝 Manual Test: End Combat in Foundry VTT"
+echo "   - Click the 'End Combat' button in Foundry VTT"
+echo "   - Wait for combat to end"
+echo ""
+echo "⏸️  Press Enter when combat has ended in Foundry VTT..."
+read
+
+exec_curl "Get Encounter (Combat Ended)" '{
+  "command": "test_command",
+  "test_session_id": "'"$TEST_SESSION_ID"'",
+  "test_command": "get_encounter"
+}'
+
+echo "Step 5: Test Multi-Command Execution"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 exec_curl "Execute Multiple Commands" '{
   "command": "execute_test_commands",
@@ -98,7 +134,7 @@ exec_curl "Execute Multiple Commands" '{
   ]
 }'
 
-echo "Step 5: End Test Session with WebSocket Reset"
+echo "Step 6: End Test Session with WebSocket Reset"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 exec_curl "End Test Session (WebSocket Reset)" '{
   "command": "end_test_session",
@@ -145,7 +181,8 @@ echo ""
 echo "📊 Test Results:"
 echo "   ✅ Individual commands tested (3 commands)"
 echo "   ✅ Dice rolling tested (3 commands)"
+echo "   ✅ Combat status tested (3 commands)"
 echo "   ✅ Multi-command execution tested (4 commands)"
 echo "   ✅ WebSocket reset tested"
-echo "   ✅ Total: 10 test commands executed"
+echo "   ✅ Total: 13 test commands executed"
 echo ""

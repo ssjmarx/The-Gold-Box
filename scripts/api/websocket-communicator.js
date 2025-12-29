@@ -50,6 +50,7 @@ class WebSocketCommunicator {
     
     // Initialization control
     this.initPromise = null;
+    this.isInitializing = false;
     
     // Configuration
     this.defaultPort = config.defaultPort || 5000;
@@ -114,6 +115,45 @@ class WebSocketCommunicator {
     } catch (error) {
       console.error('WebSocketCommunicator: Error initializing DiceRollExecutor:', error);
     }
+    
+    // Initialize combat state refresh handler
+    this.initializeCombatStateRefreshHandler();
+  }
+
+  /**
+   * Initialize Combat State Refresh Handler
+   * @private
+   */
+  initializeCombatStateRefreshHandler() {
+    try {
+      if (!this.webSocketClient) {
+        console.warn('WebSocketCommunicator: WebSocket client not available for combat state refresh handler');
+        return;
+      }
+      
+      // Register handler for combat_state_refresh messages
+      this.webSocketClient.onMessageType('combat_state_refresh', async (message) => {
+        console.log('WebSocketCommunicator: Received combat_state_refresh request');
+        
+        try {
+          // Check if CombatMonitor is available
+          if (window.CombatMonitor && typeof window.CombatMonitor.transmitCombatState === 'function') {
+            // Transmit current combat state
+            await window.CombatMonitor.transmitCombatState();
+            console.log('WebSocketCommunicator: Combat state transmitted in response to refresh request');
+          } else {
+            console.warn('WebSocketCommunicator: CombatMonitor not available or transmitCombatState not found');
+          }
+        } catch (error) {
+          console.error('WebSocketCommunicator: Error handling combat_state_refresh:', error);
+        }
+      });
+      
+      console.log('WebSocketCommunicator: Combat state refresh handler initialized');
+      
+    } catch (error) {
+      console.error('WebSocketCommunicator: Error initializing combat state refresh handler:', error);
+    }
   }
 
   /**
@@ -149,7 +189,14 @@ class WebSocketCommunicator {
    * @private
    */
   async _performInitialization() {
+    // Prevent race conditions - if already initializing, wait for current init
+    if (this.isInitializing) {
+      console.log('WebSocketCommunicator: Initialization already in progress, waiting...');
+      return this.initPromise;
+    }
+    
     try {
+      this.isInitializing = true;
       this.setState(CommunicatorState.CONNECTING);
       console.log('WebSocketCommunicator: Starting WebSocket initialization...');
       
@@ -184,6 +231,8 @@ class WebSocketCommunicator {
       this.setState(CommunicatorState.ERROR);
       console.error('WebSocketCommunicator: Initialization failed:', error);
       throw error;
+    } finally {
+      this.isInitializing = false;
     }
   }
 
@@ -208,7 +257,7 @@ class WebSocketCommunicator {
         
         const response = await fetch(`http://localhost:${port}/api/health`, {
           method: 'GET',
-          signal: AbortSignal.timeout(2000) // 2 second timeout
+          signal: AbortSignal.timeout(5000) // 5 second timeout (increased from 2s to handle slow systems)
         });
         
         if (response.ok) {

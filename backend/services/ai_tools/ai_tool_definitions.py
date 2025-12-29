@@ -120,5 +120,16 @@ def get_tool_definitions() -> list:
                     "required": ["rolls"]
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_encounter",
+                "description": "Gets the current combat state. Returns standard 'no active encounter' response if out of combat.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }
         }
     ]
