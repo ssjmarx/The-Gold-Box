@@ -53,7 +53,7 @@ class GoldBoxAPI {
     
     try {
       // Use WebSocket-only communication with proper context count
-      const maxMessages = this.settingsManager ? this.settingsManager.getSetting('maxMessageContext', 15) : 15;
+      const maxMessages = 15;  // Use default of 15
       
       // Build options
       const options = {
@@ -474,8 +474,7 @@ class GoldBoxModule {
       let combatContext = null;
       if (window.CombatMonitor) {
         // Force refresh combat state to get current turn information
-        window.CombatMonitor.refreshCombatState();
-        combatContext = window.CombatMonitor.getCombatStateForBackend();
+        combatContext = window.CombatMonitor.getCombatStateForBackend(true);  // true = force refresh
         console.log('The Gold Box: Combat context retrieved:', combatContext);
         
         // Add combat context as a special message type if combat is active
@@ -520,13 +519,10 @@ class GoldBoxModule {
    * Real message collection happens via WebSocket
    */
   collectFoundryChatMessages(maxMessages = null) {
-    // Use maxMessageContext setting if no explicit maxMessages provided
-    if (maxMessages === null && this.settingsManager) {
-      maxMessages = this.settingsManager.getSetting('maxMessageContext', 15);
-      console.log('The Gold Box: Using maxMessageContext setting:', maxMessages);
-    } else if (maxMessages === null) {
-      maxMessages = 15; // Fallback if no settings manager
-      console.log('The Gold Box: Using fallback maxMessages:', maxMessages);
+    // Use default if no explicit maxMessages provided
+    if (maxMessages === null) {
+      maxMessages = 15; // Default value
+      console.log('The Gold Box: Using default maxMessages:', maxMessages);
     } else {
       console.log('The Gold Box: Using provided maxMessages:', maxMessages);
     }

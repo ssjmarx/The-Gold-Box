@@ -62,6 +62,8 @@ class AIToolExecutor:
             return await self.execute_post_message(tool_args, client_id)
         elif tool_name == 'roll_dice':
             return await self.execute_roll_dice(tool_args, client_id)
+        elif tool_name == 'get_encounter':
+            return await self.execute_get_encounter(tool_args, client_id)
         else:
             raise ValueError(f"Unknown tool: {tool_name}")
     
@@ -347,6 +349,117 @@ class AIToolExecutor:
                 "success": False,
                 "error": str(e)
             }
+    
+    async def execute_get_encounter(
+        self,
+        args: Dict[str, Any],
+        client_id: str
+    ) -> Dict[str, Any]:
+        """
+        Execute get_encounter tool - requests fresh combat state from frontend
+        
+        Args:
+            args: Tool arguments (no parameters required)
+            client_id: Client ID for WebSocket communication
+        
+        Returns:
+            Dict with combat state or no active encounter response
+        """
+        try:
+            # Get services via ServiceFactory (single source of truth)
+            from ..system_services.service_factory import get_websocket_manager, get_message_collector
+            from shared.core.message_protocol import MessageProtocol
+            
+            websocket_manager = get_websocket_manager()
+            websocket_message_collector = get_message_collector()
+            
+            # Create a unique request ID for this combat state refresh
+            request_id = str(uuid.uuid4())
+            
+            logger.info(f"get_encounter: Creating future for request {request_id} with client_id {client_id}")
+            
+            # Create a future to await combat state response
+            result_future = asyncio.Future()
+            _pending_roll_requests[request_id] = result_future  # Reuse pending requests dict
+            logger.info(f"get_encounter: Stored future in _pending_roll_requests. Total pending: {len(_pending_roll_requests)}")
+            
+            try:
+                # Send combat state refresh request to frontend
+                refresh_message = {
+                    "type": "combat_state_refresh",
+                    "request_id": request_id,
+                    "data": {
+                        "timestamp": datetime.now().isoformat()
+                    }
+                }
+                
+                await websocket_manager.send_to_client(client_id, refresh_message)
+                logger.info(f"get_encounter: Sent combat_state_refresh request to client {client_id}, request_id: {request_id}")
+                
+                # Wait for combat state response with timeout (5 seconds - matches health check)
+                try:
+                    logger.info(f"get_encounter: Waiting for combat state for request {request_id}...")
+                    await asyncio.wait_for(result_future, timeout=5.0)
+                    logger.info(f"get_encounter: Successfully received combat state for request {request_id}")
+                    
+                except asyncio.TimeoutError:
+                    logger.debug(f"get_encounter: Timeout waiting for combat state, request_id: {request_id}")
+                    # Check if future is still pending
+                    if request_id in _pending_roll_requests:
+                        logger.debug(f"Future still in _pending_roll_requests but timed out")
+                    else:
+                        logger.debug(f"Future removed from _pending_roll_requests before timeout")
+                    
+                    # Timeout is acceptable - continue with cached state
+                    logger.info(f"get_encounter: Using cached combat state after timeout")
+                
+                finally:
+                    # Clean up pending request
+                    logger.info(f"Cleaning up future for request {request_id}")
+                    if request_id in _pending_roll_requests:
+                        del _pending_roll_requests[request_id]
+                        logger.info(f"Removed future for request {request_id} from _pending_roll_requests")
+                    else:
+                        logger.warning(f"Future for request {request_id} not found in _pending_roll_requests during cleanup")
+                
+                # Get cached combat state from message collector
+                combat_state = websocket_message_collector.get_cached_combat_state(client_id)
+                
+                if not combat_state or not combat_state.get('in_combat', False):
+                    # No active encounter
+                    result = {
+                        "success": True,
+                        "in_combat": False,
+                        "message": "No active encounter"
+                    }
+                    logger.info(f"get_encounter executed for client {client_id}: no active combat")
+                    return result
+                
+                # Active encounter - return full combat state
+                result = {
+                    "success": True,
+                    "in_combat": True,
+                    "combat_id": combat_state.get('combat_id'),
+                    "round": combat_state.get('round', 0),
+                    "turn": combat_state.get('turn', 0),
+                    "combatants": combat_state.get('combatants', []),
+                    "last_updated": combat_state.get('last_updated')
+                }
+                
+                logger.info(f"get_encounter executed for client {client_id}: round {combat_state.get('round', 0)}, turn {combat_state.get('turn', 0)}, {len(combat_state.get('combatants', []))} combatants")
+                return result
+            
+            except Exception as inner_error:
+                logger.error(f"get_encounter: Error during combat state request for client {client_id}: {inner_error}")
+                # Continue with cached state even if refresh request fails
+                pass
+            
+        except Exception as e:
+            logger.error(f"get_encounter execution failed: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
 
 
 def handle_roll_result(request_id: str, results: Any) -> None:
@@ -358,19 +471,15 @@ def handle_roll_result(request_id: str, results: Any) -> None:
         request_id: Request ID from original roll_dice call
         results: Roll results from frontend
     """
-    logger.info(f"handle_roll_result called for request {request_id}")
-    
     if request_id in _pending_roll_requests:
         future = _pending_roll_requests[request_id]
-        logger.info(f"Found pending future for request {request_id}")
         
         try:
             if not future.done():
-                logger.info(f"Setting result for request {request_id}")
                 future.set_result(results)
                 logger.info(f"Result set successfully for request {request_id}")
             else:
-                logger.warning(f"Future already done for request {request_id}")
+                logger.debug(f"Future already done for request {request_id}")
         except Exception as e:
             logger.error(f"Error setting future result for request {request_id}: {e}")
             # Try to set exception if result setting failed

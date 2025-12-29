@@ -40,77 +40,134 @@ class CombatMonitor {
         });
         
         // Listen for combat round events
+        // Note: When a new round starts, combatTurn hook does NOT fire with turn 0
+        // It starts firing from turn 1, so we MUST use combatRound to capture turn 0
         Hooks.on('combatRound', (combat, round) => {
             console.log('Combat round:', combat, round);
-            this.updateCombatState(combat);
+            // When new round starts, first combatant is index 0
+            // Pass turn 0 explicitly since combatTurn won't fire with it
+            this.updateCombatState(combat, 0);
         });
         
         // Listen for combat turn events
-        Hooks.on('combatTurn', (combat, turn, combatant) => {
-            console.log('Combat turn:', combat, turn, combatant);
-            this.updateCombatState(combat);
+        // Note: Second parameter is a context object {round, turn, direction, worldTime}
+        // This fires for turns 1, 2, 3, etc. (does NOT fire for turn 0)
+        // combatRound hook handles turn 0 (first combatant of new round)
+        Hooks.on('combatTurn', (combat, context, combatant) => {
+            console.log('Combat turn:', combat, context, combatant);
+            // Always use context.turn (0-based index) - this is always accurate
+            this.updateCombatState(combat, context?.turn);
         });
         
         // Listen for combatant updates
-        Hooks.on('updateCombatant', (combat, combatant) => {
-            console.log('Combatant updated:', combat, combatant);
-            this.updateCombatState(combat);
+        // Note: Hook passes combatant as first param, not combat object - use game.combat
+        Hooks.on('updateCombatant', (document, data, options, userId) => {
+            console.log('Combatant updated:', document, data);
+            // Always use game.combat to get the full combat state with all combatants
+            this.updateCombatState(game.combat);
+        });
+        
+        // Listen for combatant creation events
+        Hooks.on('createCombatant', (document, data, options, userId) => {
+            console.log('Combatant created:', document);
+            // Always use game.combat to get the full combat state with all combatants
+            this.updateCombatState(game.combat);
+        });
+        
+        // Listen for combatant deletion events
+        Hooks.on('deleteCombatant', (document, options, userId) => {
+            console.log('Combatant deleted:', document);
+            // Always use game.combat to get the full combat state with all combatants
+            this.updateCombatState(game.combat);
         });
     }
     
     /**
      * Update combat state from Foundry combat object
-     * @param {Combat} combat - Foundry combat object
+     * @param {Combat} combat - Foundry combat object (optional, will use game.combat if not provided)
+     * @param {number} turnIndex - Optional turn index from combatTurn hook (0-based, indicates which turn is starting)
      */
-    updateCombatState(combat) {
-        if (!combat) {
-            this.clearCombatState();
-            return;
-        }
-        
+    updateCombatState(combat = null, turnIndex = null) {
         try {
-            // Safety check: ensure combat.combatants exists and is accessible
-            if (!combat.combatants) {
-                console.warn('Combat combatants not yet initialized, skipping update');
+            // Use game.combat if no combat object provided (hook may pass incomplete object)
+            const combatObj = combat || game.combat;
+            
+            // Safety check: ensure combat object is valid (combatants may be initializing)
+            if (!combatObj || combatObj._id === undefined) {
+                if (!combatObj) {
+                    this.clearCombatState();  // Also clears cachedCombatData
+                }
                 return;
             }
             
+            // Use Foundry's pre-sorted turn order (setupTurns() returns combatants sorted by initiative)
+            // This works for all game systems (D&D 5e, Pathfinder, etc.)
+            const combatantsArray = combatObj.setupTurns() || [];
+            
+            // Cache combat data before sending to avoid race conditions
+            // This ensures backend always receives complete combat state with valid combat_id
+            this.cachedCombatData = {
+                combat_id: combatObj._id,
+                round: combatObj.round,
+                turn: combatObj.turn,
+                combatants: combatantsArray,
+                last_updated: Date.now()
+            };
+            
             // Debug: Log combat object structure to find correct current turn property
             console.log('Combat object structure:', {
-                combat_id: combat._id,
-                current: combat.current,
-                turn: combat.turn,
-                combatant_count: combat.combatants.length,
-                combatant_ids: combat.combatants.map(c => ({ name: c.name, id: c._id }))
+                combat_id: combatObj._id,
+                current: combatObj.current,
+                turn: combatObj.turn,
+                combatant_count: combatantsArray.length,
+                combatant_ids: combatantsArray.map(c => ({ name: c.name, id: c._id }))
             });
             
-            // Try different ways to get current turn combatant ID
+            // Get current turn combatant ID
+            // PRIORITY 1: Use turnIndex from hook (ALWAYS reliable, even for round start at turn 0)
+            // PRIORITY 2: Fall back to combatObj.current (only for initial load)
+            // PRIORITY 3: Special case - combat just started, no turn has begun yet (round 0, turn null)
             let currentTurnId = null;
+            let effectiveTurn = 0;
             
-            // Method 1: Check combat.current (should contain combatant ID)
-            if (combat.current && typeof combat.current === 'string') {
-                currentTurnId = combat.current;
-                console.log('Using combat.current as combatant ID:', currentTurnId);
-            }
-            // Method 2: Check if combat.current is an object with combatantId
-            else if (combat.current && combat.current.combatantId) {
-                currentTurnId = combat.current.combatantId;
-                console.log('Using combat.current.combatantId:', currentTurnId);
-            }
-            // Method 3: Use combat.turn as index (0-based)
-            else if (typeof combat.turn === 'number' && combat.turn >= 0) {
-                const combatantsArray = Array.from(combat.combatants);
-                if (combat.turn < combatantsArray.length) {
-                    const currentCombatant = combatantsArray[combat.turn];
-                    if (currentCombatant) {
-                        currentTurnId = currentCombatant._id;
-                        console.log('Using combat.turn as index', combat.turn, ':', currentCombatant.name, 'ID:', currentTurnId);
-                    }
+            // Special case: Combat just started, no turn has begun yet (round 0, turn null)
+            // Default to the first combatant in Foundry's turn order
+            if (combatObj.round === 0 && (combatObj.turn === null || combatObj.turn === undefined)) {
+                if (combatantsArray.length > 0) {
+                    currentTurnId = combatantsArray[0]._id;
+                    effectiveTurn = 0;
+                    console.log('Combat just started, defaulting to first combatant:', combatantsArray[0].name);
                 }
             }
-            
-            // Convert combatants to array if it's a collection
-            const combatantsArray = Array.from(combat.combatants);
+            // Use hook turn index whenever available (includes round start at turn 0)
+            else if (turnIndex !== null && turnIndex !== undefined && typeof turnIndex === 'number' && combatantsArray.length > 0) {
+                effectiveTurn = turnIndex;
+                const currentCombatant = combatantsArray[effectiveTurn];
+                if (currentCombatant) {
+                    currentTurnId = currentCombatant._id;
+                    console.log('Using hook turn index', turnIndex, ':', currentCombatant.name, 'ID:', currentTurnId);
+                }
+            }
+            // Only fall back to combatObj.current for initial load (when no turnIndex provided)
+            else {
+                // For initial load or non-turn events, use combatObj.current
+                if (combatObj.current && combatObj.current.combatantId) {
+                    currentTurnId = combatObj.current.combatantId;
+                    // Calculate turn number by finding current combatant's position in turns array
+                    const currentIndex = combatantsArray.findIndex(c => c._id === currentTurnId);
+                    if (currentIndex !== -1) {
+                        effectiveTurn = currentIndex;
+                    }
+                    console.log('Using combat.current.combatantId:', currentTurnId, 'at index:', effectiveTurn);
+                } else if (combatObj.current && typeof combatObj.current === 'string') {
+                    currentTurnId = combatObj.current;
+                    const currentIndex = combatantsArray.findIndex(c => c._id === currentTurnId);
+                    if (currentIndex !== -1) {
+                        effectiveTurn = currentIndex;
+                    }
+                    console.log('Using combat.current as combatant ID:', currentTurnId, 'at index:', effectiveTurn);
+                }
+            }
             
             // Get current combat data from Foundry in the order Foundry is using
             const combatants = combatantsArray.map(c => ({
@@ -128,9 +185,10 @@ class CombatMonitor {
             
             this.combatState = {
                 in_combat: true,
-                combat_id: combat._id,
-                round: combat.round || 0,
-                turn: combat.turn || 0,
+                combat_id: combatObj._id,
+                round: combatObj.round || 0,
+                // Convert 0-based index to 1-based turn number for reporting
+                turn: effectiveTurn + 1,
                 combatants: combatants
             };
             
@@ -138,6 +196,8 @@ class CombatMonitor {
             this.lastCombatCheck = Date.now();
             
             console.log('Combat state updated:', this.combatState);
+            
+            // Removed automatic transmission - state only transmitted on explicit combat_state_refresh request
             
         } catch (error) {
             console.error('Error updating combat state:', error);
@@ -161,15 +221,18 @@ class CombatMonitor {
         this.lastCombatCheck = Date.now();
         
         console.log('Combat state cleared');
+        
+        // Removed automatic transmission - state only transmitted on explicit combat_state_refresh request
     }
     
     /**
      * Get current combat state (on-demand pattern)
+     * @param {boolean} forceRefresh - Force refresh from Foundry even if cache is recent
      * @returns {Object} Current combat state
      */
-    getCurrentCombatState() {
-        // Update cache if it's old (more than 5 seconds)
-        if (Date.now() - this.lastCombatCheck > 5000) {
+    getCurrentCombatState(forceRefresh = false) {
+        // Force refresh if requested or if cache is old (more than 5 seconds)
+        if (forceRefresh || Date.now() - this.lastCombatCheck > 5000) {
             this.refreshCombatState();
         }
         
@@ -229,9 +292,15 @@ class CombatMonitor {
     
     /**
      * Get combat state for backend integration
+     * @param {boolean} forceRefresh - Force refresh from Foundry even if cache is recent
      * @returns {Object} Combat state formatted for backend
      */
-    getCombatStateForBackend() {
+    getCombatStateForBackend(forceRefresh = false) {
+        // Force refresh to ensure we have the latest turn information
+        if (forceRefresh) {
+            this.refreshCombatState();
+        }
+        
         return {
             in_combat: this.combatState.in_combat,
             combat_id: this.combatState.combat_id,
@@ -241,6 +310,39 @@ class CombatMonitor {
             last_updated: Date.now()
         };
     }
+    
+    /**
+     * Transmit combat state to backend via WebSocket
+     */
+    async transmitCombatState() {
+        try {
+            // Get Gold Box WebSocket client instance
+            const wsClient = window.goldBox?.webSocketClient;
+            
+            if (!wsClient || !wsClient.isConnected) {
+                console.log('Combat Monitor: WebSocket client not available or not connected, skipping combat state transmission');
+                return;
+            }
+            
+            // Get current combat state
+            const combatState = this.getCombatStateForBackend();
+            
+            // Send combat state via WebSocket
+            const message = {
+                type: 'combat_state',
+                data: {
+                    combat_state: combatState,
+                    timestamp: Date.now()
+                }
+            };
+            
+            await wsClient.send(message);
+            console.log('Combat Monitor: Transmitted combat state to backend:', combatState);
+            
+        } catch (error) {
+            console.error('Combat Monitor: Error transmitting combat state:', error);
+        }
+    }
 }
 
 // Export for global access
@@ -249,4 +351,10 @@ window.CombatMonitor = CombatMonitor;
 // Auto-initialize when module is ready
 Hooks.once('ready', () => {
     window.CombatMonitor = new CombatMonitor();
+    
+    // NEW: Capture combat state if combat was already active before module loaded
+    if (game.combat) {
+        console.log('Combat detected during module load - capturing initial state');
+        window.CombatMonitor.updateCombatState(game.combat);
+    }
 });

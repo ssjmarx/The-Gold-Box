@@ -102,11 +102,10 @@ class AIService:
             # Add tools if provided (function calling)
             if tools:
                 completion_params["tools"] = tools
-                # Log tools being sent to AI
+                # Log summary of tools being sent to AI
                 logger.info(f"Tools available to AI: {len(tools)} tools")
-                for tool in tools:
-                    tool_name = tool.get('function', {}).get('name', 'unknown')
-                    logger.info(f"  - {tool_name}")
+                # Log individual tools at debug level only
+                logger.debug(f"Tool details: {[t.get('function', {}).get('name', 'unknown') for t in tools]}")
                 
             # Log summary of messages being sent to AI (detailed logs now in add_conversation_message)
             logger.info(f"===== SENDING TO AI =====")
