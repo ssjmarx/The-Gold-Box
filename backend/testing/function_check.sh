@@ -134,7 +134,65 @@ exec_curl "Execute Multiple Commands" '{
   ]
 }'
 
-echo "Step 6: End Test Session with WebSocket Reset"
+echo "Step 6: End Test Session WITHOUT Reset (Prepare for Delta Test)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+exec_curl "End Session (No WebSocket Reset)" '{
+  "command": "end_test_session",
+  "test_session_id": "'"$TEST_SESSION_ID"'",
+  "reset_connection": false
+}'
+
+echo ""
+echo "Step 7: Test Delta Tracking (Feature 4)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+echo "📝 This test demonstrates delta tracking in action"
+echo ""
+echo "The test session was ended WITHOUT WebSocket reset."
+echo "You'll now make changes in Foundry, and we'll start a new session"
+echo "to show you exactly what delta gets injected into AI's initial prompt."
+echo ""
+
+echo "🎮 INSTRUCTIONS FOR DELTA TEST:"
+echo "   Please make the following changes in Foundry VTT:"
+echo "   • Create 2-3 new chat messages (type in chat and press Enter)"
+echo "   • Roll some dice (Ctrl+Shift+D, then enter formulas like '1d20')"
+echo "   • (Optional) Start or end combat (Combat tab → Start/End Combat)"
+echo ""
+echo "   After making changes, press Enter to start new test session"
+echo ""
+read -p "⏸️  Press Enter when ready to start new session... "
+
+# Start NEW session to capture deltas
+exec_curl "Start New Test Session (Capture Deltas)" '{
+  "command": "start_test_session",
+  "ai_role": "gm"
+}'
+
+# Save new session ID
+TEST_SESSION_ID=$(cat .test_session_id)
+TEST_CLIENT_ID=$(cat .test_client_id)
+
+echo ""
+echo "📊 DELTA INFORMATION:"
+echo ""
+echo "The initial_prompt below shows exactly what AI receives:"
+echo "Look for the 'Recent changes to game' section."
+echo ""
+exec_curl "Show Initial Prompt with Deltas" '{
+  "command": "test_command",
+  "test_session_id": "'"$TEST_SESSION_ID"'",
+  "test_command": "status"
+}'
+
+echo ""
+echo "✅ Delta test complete!"
+echo "   • Reviewed initial prompt above"
+echo "   • Should see full delta JSON if you made changes"
+echo "   • Should see 'No changes to game state' if you didn't"
+echo ""
+
+echo "Step 8: End Test Session with WebSocket Reset"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 exec_curl "End Test Session (WebSocket Reset)" '{
   "command": "end_test_session",

@@ -242,6 +242,11 @@ class GoldBoxWebSocketClient {
           // Settings sync completed, no action needed
           break;
 
+        case 'game_delta':
+          console.log('WebSocket game_delta confirmation received:', message.data);
+          // Game delta processed by backend, no action needed
+          break;
+
         default:
           // Handle custom message types
           if (this.messageHandlers.has(message.type)) {
@@ -582,13 +587,16 @@ class GoldBoxWebSocketClient {
    */
   async sendChatRequest(messages, options = {}) {
     try {
-      // Get delta counts before sending request
-      const deltaCounts = window.FrontendDeltaService?.getDeltaCounts() || {
-        newMessages: 0,
-        deletedMessages: 0
+      // Get filtered game delta before sending request
+      const gameDelta = window.FrontendDeltaService?.getFilteredDelta() || {
+        hasChanges: false,
+        message: "No changes to game state since last AI turn"
       };
 
-      console.log('Gold Box WebSocket: Sending chat_request with delta:', JSON.stringify(deltaCounts));
+      console.log('Gold Box WebSocket: Sending game_delta:', JSON.stringify(gameDelta));
+      
+      // Include message_delta directly in chat_request message data (use camelCase as specified in ROADMAP)
+      console.log('Gold Box WebSocket: Sending chat_request with message_delta included');
       console.log('Gold Box WebSocket: Full message data being sent:', JSON.stringify({
         type: 'chat_request',
         data: {
@@ -596,7 +604,7 @@ class GoldBoxWebSocketClient {
           context_count: options.contextCount || 15,
           scene_id: options.sceneId || null,
           force_full_context: options.forceFullContext || false,
-          message_delta: deltaCounts
+          message_delta: gameDelta
         }
       }));
 
@@ -609,12 +617,15 @@ class GoldBoxWebSocketClient {
           // Let backend handle session management entirely
           // No ai_session_id - backend will manage sessions based on client_id
           force_full_context: options.forceFullContext || false,
-          message_delta: deltaCounts,  // Add delta counts for function calling mode
-          ...options
+          // Include message_delta in chat_request for backend access (use camelCase as specified in ROADMAP)
+          message_delta: gameDelta
         }
       };
 
       const response = await this.send(message);
+      
+      // Note: Don't reset deltas here - AI Orchestrator will clear after retrieving and injecting
+      
       return response;
 
     } catch (error) {

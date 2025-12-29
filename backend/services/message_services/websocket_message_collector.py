@@ -30,6 +30,7 @@ class WebSocketMessageCollector:
         self.client_rolls: Dict[str, List[Dict[str, Any]]] = {}
         self.client_last_processed: Dict[str, int] = {}  # Track last processed timestamp per client
         self.client_combat_state: Dict[str, Dict[str, Any]] = {}  # Cache combat state per client
+        self.client_game_delta: Dict[str, Optional[Dict[str, Any]]] = {}  # Store game delta per client
         self.max_messages_per_client = 100
         self.max_rolls_per_client = 50
         
@@ -397,6 +398,62 @@ class WebSocketMessageCollector:
             logger.error(f"Error clearing combat state for client {client_id}: {e}")
             return False
     
+    def set_game_delta(self, client_id: str, delta: Dict[str, Any]) -> bool:
+        """
+        Store game delta object from frontend
+        
+        Args:
+            client_id: WebSocket client identifier
+            delta: Game delta object from FrontendDeltaService
+            
+        Returns:
+            True if set successfully
+        """
+        try:
+            self.client_game_delta[client_id] = delta
+            logger.info(f"Game delta stored for client {client_id}: {delta}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error setting game delta for client {client_id}: {e}")
+            return False
+    
+    def get_game_delta(self, client_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get stored game delta for a client
+        
+        Args:
+            client_id: WebSocket client identifier
+            
+        Returns:
+            Game delta object or None if not available
+        """
+        try:
+            return self.client_game_delta.get(client_id)
+            
+        except Exception as e:
+            logger.error(f"Error getting game delta for client {client_id}: {e}")
+            return None
+    
+    def clear_game_delta(self, client_id: str) -> bool:
+        """
+        Clear game delta for a client (after AI turn completes)
+        
+        Args:
+            client_id: WebSocket client identifier
+            
+        Returns:
+            True if cleared successfully
+        """
+        try:
+            self.client_game_delta.pop(client_id, None)
+            logger.debug(f"Cleared game delta for client {client_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error clearing game delta for client {client_id}: {e}")
+            return False
+    
     def clear_client_data(self, client_id: str) -> bool:
         """
         Clear all data for a specific client
@@ -412,6 +469,7 @@ class WebSocketMessageCollector:
             self.client_rolls.pop(client_id, None)
             self.client_last_processed.pop(client_id, None)
             self.client_combat_state.pop(client_id, None)
+            self.client_game_delta.pop(client_id, None)
             
             logger.debug(f"Cleared data for client {client_id}")
             return True

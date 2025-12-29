@@ -31,13 +31,15 @@ class TestingHarness:
         self._unified_processor = get_unified_processor()
         logger.info("TestingHarness initialized")
     
-    def generate_initial_prompt(
+    async def generate_initial_prompt(
         self,
         client_id: str,
         universal_settings: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
         Generate initial prompt (same format as real AI would receive)
+        
+        Uses shared utility to ensure consistency with production code.
         
         Args:
             client_id: The Foundry client ID
@@ -47,9 +49,49 @@ class TestingHarness:
             Dictionary with initial_prompt and session data
         """
         try:
-            # Generate system prompt based on AI role
-            ai_role = universal_settings.get('ai role', 'gm')
+            # Retrieve game delta from WebSocketMessageCollector
+            # We need to wait for the delta because chat_request is processed asynchronously
+            from services.message_services.websocket_message_collector import get_websocket_message_collector
+            message_collector = get_websocket_message_collector()
             
+            # DEBUG: Log delta retrieval
+            logger.info(f"===== TESTING HARNESS DELTA RETRIEVAL =====")
+            logger.info(f"generate_initial_prompt called for client {client_id}")
+            
+            # Wait for delta to be available (chat_request is processed as background task)
+            # Poll for up to 3 seconds to get the delta from the latest chat_request
+            max_wait_seconds = 3
+            poll_interval = 0.1  # 100ms
+            waited_seconds = 0
+            
+            game_delta = message_collector.get_game_delta(client_id)
+            
+            while not game_delta or (game_delta.get('hasChanges') == False and waited_seconds < max_wait_seconds):
+                await asyncio.sleep(poll_interval)
+                waited_seconds += poll_interval
+                game_delta = message_collector.get_game_delta(client_id)
+                
+                if game_delta and game_delta.get('hasChanges') == True:
+                    logger.info(f"Found delta with hasChanges=True after {waited_seconds:.1f}s")
+                    break
+            
+            logger.info(f"Retrieved game_delta from collector after {waited_seconds:.1f}s: {json.dumps(game_delta, indent=2) if game_delta else 'None'}")
+            
+            # Update universal_settings with fresh delta
+            if game_delta:
+                universal_settings['message_delta'] = game_delta
+                logger.info(f"Updated universal_settings with game_delta: hasChanges={game_delta.get('hasChanges', False)}")
+            else:
+                # No delta available - ensure we have default
+                if 'message_delta' not in universal_settings:
+                    universal_settings['message_delta'] = {'hasChanges': False}
+                    logger.info(f"No game_delta available, using default: hasChanges=False")
+            
+            logger.info(f"universal_settings keys: {list(universal_settings.keys())}")
+            message_delta = universal_settings.get('message_delta', {})
+            logger.info(f"message_delta from universal_settings: {json.dumps(message_delta, indent=2)}")
+            logger.info(f"message_delta hasChanges: {message_delta.get('hasChanges', 'NOT SET')}")
+            logger.info(f"===== END TESTING HARNESS DELTA RETRIEVAL =====")
             # Get combat context
             combat_context = self._get_combat_context()
             
@@ -59,36 +101,27 @@ class TestingHarness:
                 'combat_context': combat_context
             }
             
-            # Generate enhanced system prompt
+            # Generate system prompt based on AI role
+            ai_role = universal_settings.get('ai role', 'gm')
             system_prompt = self._unified_processor.generate_enhanced_system_prompt(
                 ai_role,
                 [combat_context_message]
             )
             
-            # Get delta counts
+            # Use shared utility for consistent delta injection
+            # This ensures testing harness uses exact same logic as production
+            from shared.utils.ai_prompt_builder import build_initial_messages_with_delta
+            
+            initial_messages = build_initial_messages_with_delta(
+                universal_settings=universal_settings,
+                system_prompt=system_prompt
+            )
+            
+            # Extract initial_prompt from the messages array
+            initial_prompt = initial_messages[0]['content']
+            
+            # Get delta from settings for return value
             message_delta = universal_settings.get('message_delta', {})
-            new_count = message_delta.get('new_messages', 0)
-            deleted_count = message_delta.get('deleted_messages', 0)
-            
-            # Add delta information
-            delta_display = f"""
-
-Changes since last prompt: [New Messages: {new_count}, Deleted Messages: {deleted_count}]
-"""
-            
-            # Build initial prompt
-            initial_prompt = system_prompt + delta_display
-            
-            # Get AI role instruction
-            ai_role_lower = ai_role.lower()
-            role_messages = {
-                'gm': 'Take your turn as Game Master.',
-                "gm's assistant": 'Take your turn as GM\'s Assistant.',
-                'player': 'Take your turn as Player.'
-            }
-            user_message = role_messages.get(ai_role_lower, 'Take your turn as Game Master.')
-            
-            initial_prompt += f"\n\n{user_message}"
             
             return {
                 'success': True,

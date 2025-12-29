@@ -394,42 +394,18 @@ async def process_with_function_calling_or_standard(
             # AI will use get_message_history tool to retrieve chat messages
             # User message needed to trigger AI response
             
-            # Get delta counts from request
-            message_delta = universal_settings.get('message_delta', {})
-            new_count = message_delta.get('new_messages', 0)
-            deleted_count = message_delta.get('deleted_messages', 0)
+            # Use shared utility for consistent delta injection
+            from shared.utils.ai_prompt_builder import build_initial_messages_with_delta
             
-            # Build delta display and append to system_prompt
-            delta_display = f"""
-
-Changes since last prompt: [New Messages: {new_count}, Deleted Messages: {deleted_count}]
-"""
-            
-            # Add delta to system prompt
-            system_prompt_with_delta = system_prompt + delta_display
-            
-            # Get AI role from settings to make message role-aware
-            ai_role = universal_settings.get('ai role', 'gm').lower()
-            
-            # Map role to appropriate user message
-            role_messages = {
-                'gm': 'Take your turn as Game Master.',
-                "gm's assistant": 'Take your turn as GM\'s Assistant.',
-                'player': 'Take your turn as Player.'
-            }
-            
-            user_message = role_messages.get(ai_role, 'Take your turn as Game Master.')
-            
-            initial_messages = [
-                {"role": "system", "content": system_prompt_with_delta},
-                {"role": "user", "content": user_message}
-            ]
+            initial_messages = build_initial_messages_with_delta(
+                universal_settings=universal_settings,
+                system_prompt=system_prompt
+            )
             
             # Debug logging: Show complete initial_messages array (everything sent to AI)
             # Decode escape sequences in content strings for better readability
             decoded_messages = _decode_messages_for_display(initial_messages)
             logger.info(f"===== SENDING INITIAL MESSAGES TO AI =====")
-            logger.info(f"Delta Counts: New={new_count}, Deleted={deleted_count}")
             logger.info(f"Complete initial_messages array:\n{json.dumps(decoded_messages, indent=2, ensure_ascii=False)}")
             logger.info(f"===== END SENDING INITIAL MESSAGES =====")
         else:

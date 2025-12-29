@@ -148,6 +148,12 @@ def initialize_websocket_manager():
                         await self._handle_combat_state(client_id, message)
                         return
                     
+                    # Handle game delta messages from frontend - FAST PATH
+                    if message_type == "game_delta":
+                        logger.info(f"WebSocket: [FAST PATH] Handling game_delta for client {client_id}")
+                        await self._handle_game_delta(client_id, message)
+                        return
+                    
                     # Handle chat requests - check for active test session first - SLOW PATH
                     if message_type == "chat_request":
                         # Check if there's an active test session for this client
@@ -503,6 +509,29 @@ def initialize_websocket_manager():
                 except Exception as e:
                     logger.error(f"Error handling combat_state from client {client_id}: {e}", exc_info=True)
             
+            async def _handle_game_delta(self, client_id: str, message: Dict[str, Any]):
+                """Handle game_delta message from frontend - store in message collector"""
+                try:
+                    logger.info(f"_handle_game_delta called for client {client_id}")
+                    game_delta = message.get("data", {})
+                    
+                    if not game_delta:
+                        logger.warning("Received game_delta without data")
+                        return
+                    
+                    # Store game delta in WebSocket message collector
+                    from services.message_services.websocket_message_collector import get_websocket_message_collector
+                    collector = get_websocket_message_collector()
+                    
+                    success = collector.set_game_delta(client_id, game_delta)
+                    if success:
+                        logger.info(f"Game delta stored for client {client_id}: hasChanges={game_delta.get('hasChanges', False)}")
+                    else:
+                        logger.warning(f"Failed to store game delta for client {client_id}")
+                    
+                except Exception as e:
+                    logger.error(f"Error handling game_delta for client {client_id}: {e}")
+            
             def _convert_single_message_to_compact(self, message: Dict[str, Any]) -> Dict[str, Any]:
                 """Convert a single raw HTML message to compact JSON format - DELEGATE TO UNIFIED PROCESSOR"""
                 # Import unified processor at function level to avoid circular import issues
@@ -579,6 +608,15 @@ def initialize_websocket_manager():
                             }
                         })
                         return
+                    
+                    # Store message_delta in WebSocketMessageCollector for test session
+                    # This allows admin endpoint to retrieve it later
+                    message_delta = message_data.get("message_delta", {})
+                    if message_delta:
+                        from services.message_services.websocket_message_collector import get_websocket_message_collector
+                        collector = get_websocket_message_collector()
+                        collector.set_game_delta(client_id, message_delta)
+                        logger.info(f"Game delta stored for client {client_id} in test chat request: hasChanges={message_delta.get('hasChanges', False)}")
                     
                     # IMPORTANT: Store messages in WebSocket message collector
                     # This ensures get_messages can retrieve them later
@@ -855,7 +893,11 @@ def initialize_websocket_manager():
                     message_delta = message_data.get("message_delta", {})
                     if message_delta:
                         universal_settings['message_delta'] = message_delta
-                        logger.info(f"Frontend delta counts received: New={message_delta.get('new_messages', 0)}, Deleted={message_delta.get('deleted_messages', 0)}")
+                        # Store delta in WebSocketMessageCollector for AI Orchestrator to retrieve
+                        from services.message_services.websocket_message_collector import get_websocket_message_collector
+                        collector = get_websocket_message_collector()
+                        collector.set_game_delta(client_id, message_delta)
+                        logger.info(f"Game delta stored for client {client_id} from chat_request: hasChanges={message_delta.get('hasChanges', False)}")
                     else:
                         logger.warning(f"No message_delta found in WebSocket request. Available keys: {list(message_data.keys())}")
                     

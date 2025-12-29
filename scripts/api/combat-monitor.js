@@ -31,12 +31,23 @@ class CombatMonitor {
         Hooks.on('createCombat', (combat) => {
             console.log('Combat created:', combat);
             this.updateCombatState(combat);
+            // Track combat start in delta service
+            if (window.FrontendDeltaService && combat && combat._id) {
+                window.FrontendDeltaService.setEncounterStarted({
+                    id: combat._id,
+                    name: combat.name || 'Combat Encounter'
+                });
+            }
         });
         
         // Listen for combat delete events
         Hooks.on('deleteCombat', (combat) => {
             console.log('Combat deleted:', combat);
             this.clearCombatState();
+            // Track combat end in delta service
+            if (window.FrontendDeltaService) {
+                window.FrontendDeltaService.setEncounterEnded(true);
+            }
         });
         
         // Listen for combat round events

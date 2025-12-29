@@ -77,9 +77,35 @@ class AIOrchestrator:
             Final AI response when complete
         """
         from ..ai_services.ai_session_manager import get_ai_session_manager
-        ai_session_manager = get_ai_session_manager()
+        from ..message_services.websocket_message_collector import get_websocket_message_collector
+        import json
         
+        ai_session_manager = get_ai_session_manager()
+        collector = get_websocket_message_collector()
+        
+        # Get game delta from frontend
+        game_delta = collector.get_game_delta(client_id)
+        
+        # Inject delta into system message if available
         conversation = initial_messages.copy()
+        if game_delta:
+            # Inject delta into system message
+            system_msg = conversation[0] if conversation and conversation[0].get('role') == 'system' else None
+            
+            if system_msg:
+                if game_delta.get('hasChanges'):
+                    # Add delta section to system message
+                    delta_section = f"\n\nRecent changes to the game:\n{json.dumps(game_delta, indent=2)}"
+                    system_msg['content'] += delta_section
+                    logger.info(f"Game delta injected for session {session_id}: {game_delta}")
+                else:
+                    # No changes - add clear message
+                    delta_section = "\n\nRecent changes to the game:\nNo changes to game state since last AI turn"
+                    system_msg['content'] += delta_section
+                    logger.info(f"No game changes for session {session_id}")
+            
+            # Clear delta after injection
+            collector.clear_game_delta(client_id)
         iteration = 0
         
         while iteration < max_iterations:
