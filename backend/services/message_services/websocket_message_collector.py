@@ -245,6 +245,9 @@ class WebSocketMessageCollector:
             # Combine all items
             all_items = messages + rolls
             
+            # Filter out combat_context messages (should only come from get_encounter tool)
+            all_items = [item for item in all_items if item.get('type') != 'combat_context']
+            
             # Apply delta filtering if session_id is provided
             if session_id and self.delta_service:
                 all_items = self._apply_delta_filtering(session_id, all_items)

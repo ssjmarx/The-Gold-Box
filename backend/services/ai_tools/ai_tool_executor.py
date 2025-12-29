@@ -396,19 +396,19 @@ class AIToolExecutor:
                 await websocket_manager.send_to_client(client_id, refresh_message)
                 logger.info(f"get_encounter: Sent combat_state_refresh request to client {client_id}, request_id: {request_id}")
                 
-                # Wait for combat state response with timeout (2 seconds)
+                # Wait for combat state response with timeout (5 seconds - matches health check)
                 try:
                     logger.info(f"get_encounter: Waiting for combat state for request {request_id}...")
-                    await asyncio.wait_for(result_future, timeout=2.0)
+                    await asyncio.wait_for(result_future, timeout=5.0)
                     logger.info(f"get_encounter: Successfully received combat state for request {request_id}")
                     
                 except asyncio.TimeoutError:
-                    logger.warning(f"get_encounter: Timeout waiting for combat state, request_id: {request_id}")
+                    logger.debug(f"get_encounter: Timeout waiting for combat state, request_id: {request_id}")
                     # Check if future is still pending
                     if request_id in _pending_roll_requests:
-                        logger.warning(f"Future still in _pending_roll_requests but timed out")
+                        logger.debug(f"Future still in _pending_roll_requests but timed out")
                     else:
-                        logger.warning(f"Future removed from _pending_roll_requests before timeout")
+                        logger.debug(f"Future removed from _pending_roll_requests before timeout")
                     
                     # Timeout is acceptable - continue with cached state
                     logger.info(f"get_encounter: Using cached combat state after timeout")
@@ -471,19 +471,15 @@ def handle_roll_result(request_id: str, results: Any) -> None:
         request_id: Request ID from original roll_dice call
         results: Roll results from frontend
     """
-    logger.info(f"handle_roll_result called for request {request_id}")
-    
     if request_id in _pending_roll_requests:
         future = _pending_roll_requests[request_id]
-        logger.info(f"Found pending future for request {request_id}")
         
         try:
             if not future.done():
-                logger.info(f"Setting result for request {request_id}")
                 future.set_result(results)
                 logger.info(f"Result set successfully for request {request_id}")
             else:
-                logger.warning(f"Future already done for request {request_id}")
+                logger.debug(f"Future already done for request {request_id}")
         except Exception as e:
             logger.error(f"Error setting future result for request {request_id}: {e}")
             # Try to set exception if result setting failed

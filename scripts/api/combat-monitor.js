@@ -197,8 +197,7 @@ class CombatMonitor {
             
             console.log('Combat state updated:', this.combatState);
             
-            // Transmit updated combat state to backend
-            this.transmitCombatState();
+            // Removed automatic transmission - state only transmitted on explicit combat_state_refresh request
             
         } catch (error) {
             console.error('Error updating combat state:', error);
@@ -223,8 +222,7 @@ class CombatMonitor {
         
         console.log('Combat state cleared');
         
-        // Transmit cleared combat state to backend
-        this.transmitCombatState();
+        // Removed automatic transmission - state only transmitted on explicit combat_state_refresh request
     }
     
     /**
