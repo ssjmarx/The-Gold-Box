@@ -131,15 +131,30 @@ class GoldBoxAPI {
    * Called when AI turn completes or test session ends
    */
   handleTurnCompletion() {
-    console.log('The Gold Box: Handling turn completion - resetting button state and delta counters');
+    console.log('The Gold Box: ===== TURN COMPLETION DIAGNOSTICS =====');
+    console.log('The Gold Box: handleTurnCompletion called');
+    console.log('The Gold Box: uiManager exists:', !!this.uiManager);
+    console.log('The Gold Box: aiTurnButtonHandler exists:', !!(this.uiManager && this.uiManager.aiTurnButtonHandler));
+    console.log('The Gold Box: FrontendDeltaService exists:', !!window.FrontendDeltaService);
     
     // Reset button state via state machine
-    this.uiManager.aiTurnButtonHandler.onAITurnEnded();
+    if (this.uiManager && this.uiManager.aiTurnButtonHandler) {
+      console.log('The Gold Box: Calling onAITurnEnded on button handler');
+      this.uiManager.aiTurnButtonHandler.onAITurnEnded();
+    } else {
+      console.error('The Gold Box: Cannot reset button - handler not available');
+    }
     
     // Reset delta counters
-    window.FrontendDeltaService?.resetDeltaCounts();
+    if (window.FrontendDeltaService) {
+      console.log('The Gold Box: Resetting delta counters');
+      window.FrontendDeltaService.resetDeltaCounts();
+    } else {
+      console.warn('The Gold Box: FrontendDeltaService not available');
+    }
     
     console.log('The Gold Box: Turn completion handled successfully');
+    console.log('The Gold Box: ===== END TURN COMPLETION DIAGNOSTICS =====');
   }
 }
 
@@ -299,7 +314,7 @@ class GoldBoxModule {
         console.log('The Gold Box: WebSocket connection established');
         
         // Step 3: Set WebSocket client in communicator
-        this.api.communicator.setWebSocketClient(this.webSocketClient);
+        await this.api.communicator.setWebSocketClient(this.webSocketClient);
         
         // Step 4: Set up real-time data synchronization
         this.setupRealTimeSync();
@@ -690,6 +705,10 @@ class GoldBoxModule {
           break;
           
         case 'ai_turn_complete':
+          console.log('The Gold Box: ===== AI_TURN_COMPLETE MESSAGE RECEIVED =====');
+          console.log('The Gold Box: Received ai_turn_complete message from server');
+          console.log('The Gold Box: Message data:', JSON.stringify(message.data));
+          
           // Use unified cleanup handler for turn completion
           // This is the ONLY place where we reset the button state
           this.api.handleTurnCompletion();
@@ -698,6 +717,8 @@ class GoldBoxModule {
           if (message.data && message.data.test_mode) {
             console.log('The Gold Box: Test mode turn completed');
           }
+          
+          console.log('The Gold Box: ===== END AI_TURN_COMPLETE MESSAGE =====');
           break;
           
         case 'error':

@@ -43,7 +43,7 @@ unified_processor = get_unified_processor()
 
 # Import service factory functions for consistent access patterns
 from services.system_services.service_factory import (
-    get_provider_manager, get_ai_service, get_websocket_manager, get_message_collector
+    get_provider_manager, get_ai_service, get_websocket_manager, get_message_collector, get_ai_session_manager
 )
 
 # Import dynamic chat card translation components
@@ -129,8 +129,9 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         if force_full_context:
             message_delta_service.force_full_context(session_id)
         
-        # Add session ID to universal settings for response delivery
+        # Add session ID and client_id to universal settings for shared utility
         universal_settings['ai_session_id'] = session_id
+        universal_settings['client_id'] = client_id
         
         # Step1: Collect chat messages via WebSocket
         api_messages = await collect_chat_messages(context_count, client_id)
@@ -398,9 +399,13 @@ async def process_with_function_calling_or_standard(
             # Use shared utility for consistent delta injection
             from shared.utils.ai_prompt_builder import build_initial_messages_with_delta
             
+            # Determine first turn status
+            is_first_turn = not get_ai_session_manager().is_first_turn_complete(session_id)
+            
             initial_messages = build_initial_messages_with_delta(
                 universal_settings=universal_settings,
-                system_prompt=system_prompt
+                system_prompt=system_prompt,
+                is_first_turn=is_first_turn
             )
             
             # Debug logging: Show complete initial_messages array (everything sent to AI)

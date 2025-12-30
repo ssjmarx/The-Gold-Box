@@ -49,8 +49,13 @@ exec_curl() {
   sleep 1
 }
 
-echo "Step 1: Start Test Session"
+echo "Step 1: Start Test Session (First AI Turn - Initial Context)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "📝 NOTE: This is the FIRST AI turn for this session"
+echo "   • AI will receive FULL WORLD STATE OVERVIEW"
+echo "   • Look for 'World State Overview' section in initial_prompt"
+echo "   • NO deltas will be included on first turn"
+echo ""
 exec_curl "Start Test Session" '{
   "command": "start_test_session"
 }'
@@ -97,35 +102,7 @@ exec_curl "Dice Roll Without Flavor" '{
 
 echo "Step 4: Test Combat Status (Feature 3)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-exec_curl "Get Encounter (Out of Combat)" '{
-  "command": "test_command",
-  "test_session_id": "'"$TEST_SESSION_ID"'",
-  "test_command": "get_encounter"
-}'
-
-echo "📝 Manual Test: Start Combat in Foundry VTT"
-echo "   - Click the 'Combat' tab in Foundry VTT"
-echo "   - Click 'Start Combat' button"
-echo "   - Add at least one combatant to the combat"
-echo "   - Wait for combat to start"
-echo ""
-echo "⏸️  Press Enter when combat is started in Foundry VTT..."
-read
-
-exec_curl "Get Encounter (In Combat)" '{
-  "command": "test_command",
-  "test_session_id": "'"$TEST_SESSION_ID"'",
-  "test_command": "get_encounter"
-}'
-
-echo "📝 Manual Test: End Combat in Foundry VTT"
-echo "   - Click the 'End Combat' button in Foundry VTT"
-echo "   - Wait for combat to end"
-echo ""
-echo "⏸️  Press Enter when combat has ended in Foundry VTT..."
-read
-
-exec_curl "Get Encounter (Combat Ended)" '{
+exec_curl "Get Encounter" '{
   "command": "test_command",
   "test_session_id": "'"$TEST_SESSION_ID"'",
   "test_command": "get_encounter"
@@ -153,12 +130,16 @@ exec_curl "End Session (No WebSocket Reset)" '{
 }'
 
 echo ""
-echo "Step 7: Test Delta Tracking (Feature 4)"
+echo "Step 7: Test Delta Tracking (Feature 4) - Subsequent AI Turn"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "📝 This test demonstrates delta tracking in action"
+echo "📝 NOTE: This is SUBSEQUENT AI turn (same client_id)"
+echo "   • AI will receive ONLY DELTAS (no full context)"
+echo "   • Look for 'Recent changes to game' section in initial_prompt"
+echo "   • NO 'World State Overview' will be included"
 echo ""
 echo "The test session was ended WITHOUT WebSocket reset."
+echo "This preserves client_id, simulating a subsequent AI turn."
 echo "You'll now make changes in Foundry, and we'll start a new session"
 echo "to show you exactly what delta gets injected into AI's initial prompt."
 echo ""
@@ -249,8 +230,7 @@ echo ""
 echo "📊 Test Results:"
 echo "   ✅ Individual commands tested (3 commands)"
 echo "   ✅ Dice rolling tested (3 commands)"
-echo "   ✅ Combat status tested (3 commands)"
 echo "   ✅ Multi-command execution tested (4 commands)"
 echo "   ✅ WebSocket reset tested"
-echo "   ✅ Total: 13 test commands executed"
+echo "   ✅ Total: 10 test commands executed"
 echo ""

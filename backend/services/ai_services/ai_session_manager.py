@@ -110,7 +110,8 @@ class AISessionManager:
             'created_at': current_time,
             'last_activity': current_time,
             'last_message_timestamp': None,  # No messages sent to AI yet
-            'conversation_history': []  # Store full conversation history
+            'conversation_history': [],  # Store full conversation history
+            'has_first_turn_complete': False  # Track first AI turn completion
         }
         
         # logger.info(f"Created new AI session {new_session_id} for client {client_id} with {provider}/{model}")
@@ -519,6 +520,57 @@ class AISessionManager:
         session_data['last_activity'] = current_time
         
         logger.info(f"Cleared conversation history for session {session_id}")
+        return True
+    
+    def is_first_turn_complete(self, session_id: str) -> bool:
+        """
+        Check if first AI turn is complete for a session
+        
+        Args:
+            session_id: Session identifier
+            
+        Returns:
+            True if first turn is complete, False if not or session not found
+        """
+        if session_id not in self.sessions:
+            return False
+        
+        current_time = time.time()
+        session_data = self.sessions[session_id]
+        
+        # Validate session is not expired
+        if current_time - session_data.get('last_activity', 0) >= self.session_timeout_minutes * 60:
+            logger.warning(f"Session {session_id} expired during first turn check")
+            return False
+        
+        return session_data.get('has_first_turn_complete', False)
+    
+    def set_first_turn_complete(self, session_id: str) -> bool:
+        """
+        Mark first AI turn as complete for a session
+        
+        Args:
+            session_id: Session identifier
+            
+        Returns:
+            True if successful, False if session not found
+        """
+        if session_id not in self.sessions:
+            return False
+        
+        current_time = time.time()
+        session_data = self.sessions[session_id]
+        
+        # Validate session is not expired
+        if current_time - session_data.get('last_activity', 0) >= self.session_timeout_minutes * 60:
+            logger.warning(f"Attempted to set first turn complete for expired session {session_id}")
+            return False
+        
+        # Set first turn complete flag and update activity
+        session_data['has_first_turn_complete'] = True
+        session_data['last_activity'] = current_time
+        
+        logger.info(f"Marked first turn complete for session {session_id}")
         return True
     
     def auto_cleanup(self) -> None:

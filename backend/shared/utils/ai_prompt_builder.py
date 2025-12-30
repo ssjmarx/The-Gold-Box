@@ -13,50 +13,78 @@ logger = logging.getLogger(__name__)
 
 def build_initial_messages_with_delta(
     universal_settings: Dict[str, Any],
-    system_prompt: str
+    system_prompt: str,
+    is_first_turn: bool = True
 ) -> List[Dict[str, Any]]:
     """
-    Build initial messages for AI with delta injection
+    Build initial messages for AI with delta or full context injection
     
-    This function is used by both the production API endpoint and the testing harness
-    to ensure consistent delta handling across the codebase. This provides a single
+    This function is used by both production API endpoint and testing harness
+    to ensure consistent delta handling across codebase. This provides a single
     source of truth for delta injection logic.
     
     Args:
-        universal_settings: Settings dictionary containing 'message_delta' and 'ai role'
+        universal_settings: Settings dictionary containing 'message_delta', 'ai role', and 'client_id'
         system_prompt: Base system prompt (without delta information)
+        is_first_turn: Whether this is the first turn for the session (default: True)
         
     Returns:
         List of messages in OpenAI format:
         [
-            {"role": "system", "content": system_prompt + delta_display},
+            {"role": "system", "content": system_prompt + delta_display or full_context},
             {"role": "user", "content": user_message}
         ]
     """
     try:
-        # Get delta from settings (use PascalCase as specified in ROADMAP)
-        message_delta = universal_settings.get('message_delta', {})
-        has_changes = message_delta.get('hasChanges', False)
-        
-        # Build delta display based on whether there are changes
-        if has_changes:
-            # Include full delta data with all details (dice rolls, combat events, etc.)
-            delta_display = f"""
+        if is_first_turn:
+            # FIRST TURN: Build full initial context
+            logger.info(f"Building initial context for first turn")
+            
+            # Build initial world context
+            try:
+                from services.message_services.context_builder import get_context_builder
+                context_builder = get_context_builder()
+                client_id = universal_settings.get('relay_client_id', '')
+                initial_context = context_builder.build_initial_context(client_id)
+                
+                # Inject full context into system prompt
+                context_display = f"""
+
+World State Overview:
+{json.dumps(initial_context, indent=2)}
+"""
+                logger.info(f"Full initial context injected for first turn")
+                system_prompt_with_context = system_prompt + context_display
+            except Exception as e:
+                logger.warning(f"Failed to build initial context: {e}")
+                system_prompt_with_context = system_prompt
+        else:
+            # SUCCESSIVE TURN: Use deltas only
+            logger.info(f"Building delta context for successive turn")
+            
+            # Get delta from settings (use PascalCase as specified in ROADMAP)
+            message_delta = universal_settings.get('message_delta', {})
+            has_changes = message_delta.get('hasChanges', False)
+            
+            # Build delta display based on whether there are changes
+            if has_changes:
+                # Include full delta data with all details (dice rolls, combat events, etc.)
+                delta_display = f"""
 
 Recent changes to the game:
 {json.dumps(message_delta, indent=2)}
 """
-            logger.info(f"Delta hasChanges: True - including full delta JSON")
-        else:
-            # No changes - show clear message
-            delta_display = """
+                logger.info(f"Delta hasChanges: True - including full delta JSON")
+            else:
+                # No changes - show clear message
+                delta_display = """
 
 No changes to game state since last AI turn
 """
-            logger.info(f"Delta hasChanges: False - no changes to report")
-        
-        # Append delta to system_prompt
-        system_prompt_with_delta = system_prompt + delta_display
+                logger.info(f"Delta hasChanges: False - no changes to report")
+            
+            # Append delta to system_prompt
+            system_prompt_with_context = system_prompt + delta_display
         
         # Get AI role from settings to make message role-aware
         ai_role = universal_settings.get('ai role', 'gm').lower()
@@ -72,7 +100,7 @@ No changes to game state since last AI turn
         
         # Return OpenAI format messages
         return [
-            {"role": "system", "content": system_prompt_with_delta},
+            {"role": "system", "content": system_prompt_with_context},
             {"role": "user", "content": user_message}
         ]
         

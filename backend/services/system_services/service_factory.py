@@ -634,3 +634,29 @@ def get_testing_command_processor() -> Any:
         )
     
     return ServiceRegistry.get('testing_command_processor')
+
+def get_context_builder() -> Any:
+    """
+    Get context builder from ServiceRegistry.
+    
+    Returns:
+        ContextBuilder instance from ServiceRegistry
+        
+    Raises:
+        RuntimeError: If ServiceRegistry is not ready or context_builder is not registered
+    """
+    from .registry import ServiceRegistry
+    
+    if not ServiceRegistry.is_ready():
+        raise RuntimeError(
+            "ServiceRegistry is not ready. Services must be initialized during server startup. "
+            "Check that run_server_startup() completed successfully."
+        )
+    
+    if not ServiceRegistry.is_registered('context_builder'):
+        raise RuntimeError(
+            "context_builder is not registered in ServiceRegistry. "
+            "Check that context_builder is properly registered during startup."
+        )
+    
+    return ServiceRegistry.get('context_builder')
