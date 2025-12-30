@@ -8,6 +8,9 @@
 // Import DiceRollExecutor (relative path from api/ to services/)
 import '../services/dice-roll-executor.js';
 
+// Import WorldStateCollector
+import { getWorldStateCollector } from '../services/world-state-collector.js';
+
 /**
  * Connection States
  */
@@ -48,6 +51,9 @@ class WebSocketCommunicator {
     // Dice roll executor reference
     this.diceRollExecutor = null;
     
+    // World state collector reference
+    this.worldStateCollector = null;
+    
     // Initialization control
     this.initPromise = null;
     this.isInitializing = false;
@@ -82,19 +88,19 @@ class WebSocketCommunicator {
    * Set WebSocket client reference
    * @param {GoldBoxWebSocketClient} webSocketClient - WebSocket client instance
    */
-  setWebSocketClient(webSocketClient) {
+  async setWebSocketClient(webSocketClient) {
     this.webSocketClient = webSocketClient;
     console.log('WebSocketCommunicator: WebSocket client set');
     
     // Initialize DiceRollExecutor and register handlers
-    this.initializeDiceRollExecutor();
+    await this.initializeDiceRollExecutor();
   }
 
   /**
    * Initialize Dice Roll Executor
    * @private
    */
-  initializeDiceRollExecutor() {
+  async initializeDiceRollExecutor() {
     try {
       if (typeof DiceRollExecutor !== 'undefined') {
         this.diceRollExecutor = new DiceRollExecutor();
@@ -118,6 +124,9 @@ class WebSocketCommunicator {
     
     // Initialize combat state refresh handler
     this.initializeCombatStateRefreshHandler();
+    
+    // Initialize world state collector
+    await this.initializeWorldStateCollector();
   }
 
   /**
@@ -149,10 +158,53 @@ class WebSocketCommunicator {
         }
       });
       
+      // Register handler for world_state_refresh messages
+      this.webSocketClient.onMessageType('world_state_refresh', async (message) => {
+        console.log('WebSocketCommunicator: Received world_state_refresh request');
+        
+        try {
+          // Check if WorldStateCollector is available
+          if (this.worldStateCollector && typeof this.worldStateCollector.sendWorldState === 'function') {
+            // Send current world state
+            await this.worldStateCollector.sendWorldState();
+            console.log('WebSocketCommunicator: World state transmitted in response to refresh request');
+          } else {
+            console.warn('WebSocketCommunicator: WorldStateCollector not available or sendWorldState not found');
+          }
+        } catch (error) {
+          console.error('WebSocketCommunicator: Error handling world_state_refresh:', error);
+        }
+      });
+      
+      console.log('WebSocketCommunicator: Combat state refresh handler initialized');
       console.log('WebSocketCommunicator: Combat state refresh handler initialized');
       
     } catch (error) {
       console.error('WebSocketCommunicator: Error initializing combat state refresh handler:', error);
+    }
+  }
+
+  /**
+   * Initialize World State Collector
+   * @private
+   */
+  async initializeWorldStateCollector() {
+    try {
+      if (typeof getWorldStateCollector !== 'undefined') {
+        this.worldStateCollector = getWorldStateCollector();
+        
+        // Initialize the collector (now async)
+        await this.worldStateCollector.initialize();
+        
+        // Store globally for access from other scripts
+        window.goldBoxWorldStateCollector = this.worldStateCollector;
+        
+        console.log('WebSocketCommunicator: WorldStateCollector initialized');
+      } else {
+        console.warn('WebSocketCommunicator: WorldStateCollector not available');
+      }
+    } catch (error) {
+      console.error('WebSocketCommunicator: Error initializing WorldStateCollector:', error);
     }
   }
 

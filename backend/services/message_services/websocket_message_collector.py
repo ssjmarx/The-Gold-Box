@@ -31,6 +31,7 @@ class WebSocketMessageCollector:
         self.client_last_processed: Dict[str, int] = {}  # Track last processed timestamp per client
         self.client_combat_state: Dict[str, Dict[str, Any]] = {}  # Cache combat state per client
         self.client_game_delta: Dict[str, Optional[Dict[str, Any]]] = {}  # Store game delta per client
+        self.world_states: Dict[str, Dict[str, Any]] = {}  # Store full world state per client
         self.max_messages_per_client = 100
         self.max_rolls_per_client = 50
         
@@ -454,6 +455,70 @@ class WebSocketMessageCollector:
             logger.error(f"Error clearing game delta for client {client_id}: {e}")
             return False
     
+    def set_world_state(self, client_id: str, world_state: Dict[str, Any]) -> bool:
+        """
+        Store full world state from frontend
+        
+        Args:
+            client_id: WebSocket client identifier
+            world_state: Full world state from frontend
+            
+        Returns:
+            True if set successfully
+        """
+        try:
+            # Store world state with timestamp
+            self.world_states[client_id] = {
+                **world_state,
+                'last_updated': int(time.time() * 1000)
+            }
+            
+            logger.info(f"World state updated for client {client_id}: "
+                       f"scene={world_state.get('active_scene', {}).get('name', 'unknown')}, "
+                       f"players={len(world_state.get('session_info', {}).get('players', []))}, "
+                       f"party={len(world_state.get('party_compendium', []))}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error storing world state for client {client_id}: {e}")
+            return False
+    
+    def get_world_state(self, client_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve stored world state for a client
+        
+        Args:
+            client_id: WebSocket client identifier
+            
+        Returns:
+            World state object or None if not available
+        """
+        try:
+            return self.world_states.get(client_id)
+            
+        except Exception as e:
+            logger.error(f"Error retrieving world state for client {client_id}: {e}")
+            return None
+    
+    def clear_world_state(self, client_id: str) -> bool:
+        """
+        Clear world state for a client
+        
+        Args:
+            client_id: WebSocket client identifier
+            
+        Returns:
+            True if cleared successfully
+        """
+        try:
+            self.world_states.pop(client_id, None)
+            logger.debug(f"Cleared world state for client {client_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error clearing world state for client {client_id}: {e}")
+            return False
+    
     def clear_client_data(self, client_id: str) -> bool:
         """
         Clear all data for a specific client
@@ -470,6 +535,7 @@ class WebSocketMessageCollector:
             self.client_last_processed.pop(client_id, None)
             self.client_combat_state.pop(client_id, None)
             self.client_game_delta.pop(client_id, None)
+            self.world_states.pop(client_id, None)
             
             logger.debug(f"Cleared data for client {client_id}")
             return True

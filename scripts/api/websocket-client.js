@@ -21,6 +21,7 @@ class GoldBoxWebSocketClient {
     this.reconnectDelay = 1000;
     this.reconnectTimer = null;
     this.isReconnecting = false;
+    this.manualDisconnect = false; // NEW: Flag to prevent auto-reconnect during manual resets
     this.pingInterval = null;
     this.messageHandlers = new Map();
     this.pendingRequests = new Map(); // request_id -> Promise resolver
@@ -187,9 +188,31 @@ class GoldBoxWebSocketClient {
       this.reconnectAttempts = 0;
       this.isReconnecting = false;
 
+      // Wait for WebSocket to be fully OPEN before sending
+      if (this.ws.readyState !== WebSocket.OPEN) {
+        await new Promise(resolve => {
+          const checkInterval = setInterval(() => {
+            if (this.ws.readyState === WebSocket.OPEN) {
+              clearInterval(checkInterval);
+              resolve();
+            }
+          }, 10);
+        });
+      }
+      
       // Notify connection established
       if (this.onConnected) {
         this.onConnected();
+      }
+
+      // Send initial world state
+      if (window.goldBoxWorldStateCollector && typeof window.goldBoxWorldStateCollector.sendWorldState === 'function') {
+        try {
+          await window.goldBoxWorldStateCollector.sendWorldState();
+          console.log('Gold Box WebSocket: Initial world state sent after connection');
+        } catch (error) {
+          console.warn('Gold Box WebSocket: Failed to send initial world state:', error);
+        }
       }
 
       // Send connection message
@@ -230,6 +253,12 @@ class GoldBoxWebSocketClient {
 
         case 'chat_response':
           this.handleChatResponse(message);
+          break;
+
+        case 'ai_turn_complete':
+          // AI turn completed - forward to main message handler
+          console.log('WebSocket: Received ai_turn_complete message, forwarding to main handler');
+          this.onMessage?.(message);
           break;
 
         case 'test_session_start':
@@ -448,6 +477,7 @@ class GoldBoxWebSocketClient {
         
         // Disconnect and reconnect with new client ID
         console.log('Gold Box: Disconnecting WebSocket...');
+        this.manualDisconnect = true; // Prevent auto-reconnect during reset
         this.disconnect();
         
         // Wait 1 second, then reconnect with new client ID
@@ -508,7 +538,14 @@ class GoldBoxWebSocketClient {
     }
     this.pendingRequests.clear();
 
-    // Attempt reconnection (always, regardless of close code)
+    // Don't auto-reconnect if this was a manual disconnect
+    if (this.manualDisconnect) {
+      this.manualDisconnect = false;
+      console.log('Manual disconnect detected - skipping auto-reconnect');
+      return;
+    }
+  
+    // Only auto-reconnect for network errors
     if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.scheduleReconnect();
     } else {
@@ -669,7 +706,9 @@ class GoldBoxWebSocketClient {
           // No ai_session_id - backend will manage sessions based on client_id
           force_full_context: options.forceFullContext || false,
           // Include message_delta in chat_request for backend access (use camelCase as specified in ROADMAP)
-          message_delta: gameDelta
+          message_delta: gameDelta,
+          // Include client_id so backend can identify this client
+          client_id: this.clientId
         }
       };
 

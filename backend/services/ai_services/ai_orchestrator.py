@@ -78,34 +78,58 @@ class AIOrchestrator:
         """
         from ..ai_services.ai_session_manager import get_ai_session_manager
         from ..message_services.websocket_message_collector import get_websocket_message_collector
+        from ..system_services.service_factory import get_context_builder
         import json
         
         ai_session_manager = get_ai_session_manager()
         collector = get_websocket_message_collector()
+        context_builder = get_context_builder()
         
-        # Get game delta from frontend
-        game_delta = collector.get_game_delta(client_id)
+        # DEBUG: Log session details for troubleshooting
+        logger.info(f"===== AI ORCHESTRATOR TURN CHECK =====")
+        logger.info(f"Session ID: {session_id}")
+        logger.info(f"Client ID: {client_id}")
         
-        # Inject delta into system message if available
-        conversation = initial_messages.copy()
-        if game_delta:
-            # Inject delta into system message
-            system_msg = conversation[0] if conversation and conversation[0].get('role') == 'system' else None
-            
-            if system_msg:
-                if game_delta.get('hasChanges'):
-                    # Add delta section to system message
-                    delta_section = f"\n\nRecent changes to the game:\n{json.dumps(game_delta, indent=2)}"
-                    system_msg['content'] += delta_section
-                    logger.info(f"Game delta injected for session {session_id}: {game_delta}")
+        # Check if this is first turn for this session
+        is_first_turn = not ai_session_manager.is_first_turn_complete(session_id)
+        logger.info(f"First turn check: {is_first_turn}")
+        logger.info(f"===== END TURN CHECK =====")
+        
+        # Request fresh world state from frontend on first turn
+        if is_first_turn:
+            try:
+                # Get websocket manager from ServiceRegistry
+                from ..system_services.service_factory import get_service_registry
+                registry = get_service_registry()
+                websocket_manager = registry.get('websocket_manager')
+                
+                if websocket_manager:
+                    # Send world state refresh request
+                    await websocket_manager.send_to_client(client_id, {
+                        "type": "world_state_refresh",
+                        "data": {},
+                        "timestamp": time.time()
+                    })
+                    logger.info(f"Requested world state refresh for first turn (client {client_id})")
+                    
+                    # Brief pause to allow frontend to respond
+                    import asyncio
+                    await asyncio.sleep(0.5)
                 else:
-                    # No changes - add clear message
-                    delta_section = "\n\nRecent changes to the game:\nNo changes to game state since last AI turn"
-                    system_msg['content'] += delta_section
-                    logger.info(f"No game changes for session {session_id}")
-            
-            # Clear delta after injection
+                    logger.warning(f"WebSocket manager not available, cannot request world state refresh")
+                    
+            except Exception as e:
+                logger.error(f"Error requesting world state refresh: {e}")
+        
+        # Clear delta after determining first turn status
+        # The shared utility will handle context injection based on is_first_turn
+        game_delta = collector.get_game_delta(client_id)
+        if game_delta:
             collector.clear_game_delta(client_id)
+            logger.info(f"Cleared game delta after retrieving for session {session_id}")
+        
+        # Use initial_messages as-is (shared utility will inject context/delta)
+        conversation = initial_messages.copy()
         iteration = 0
         
         while iteration < max_iterations:
@@ -188,6 +212,11 @@ class AIOrchestrator:
             
             # Store in session using existing method
             ai_session_manager.add_conversation_message(session_id, final_message)
+            
+            # Mark first turn as complete if this was the first turn
+            if is_first_turn:
+                ai_session_manager.set_first_turn_complete(session_id)
+                logger.info(f"Marked first turn complete for session {session_id}")
             
             return {
                 'success': True,

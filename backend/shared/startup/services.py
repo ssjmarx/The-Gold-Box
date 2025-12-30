@@ -148,10 +148,22 @@ def initialize_websocket_manager():
                         await self._handle_combat_state(client_id, message)
                         return
                     
+                    # Handle ai_turn_complete messages from backend - FAST PATH
+                    if message_type == "ai_turn_complete":
+                        logger.info(f"WebSocket: [FAST PATH] Handling ai_turn_complete for client {client_id}")
+                        await self._handle_ai_turn_complete(client_id, message)
+                        return
+                    
                     # Handle game delta messages from frontend - FAST PATH
                     if message_type == "game_delta":
                         logger.info(f"WebSocket: [FAST PATH] Handling game_delta for client {client_id}")
                         await self._handle_game_delta(client_id, message)
+                        return
+                    
+                    # Handle world state sync messages from frontend - FAST PATH
+                    if message_type == "world_state_sync":
+                        logger.info(f"WebSocket: [FAST PATH] Handling world_state_sync for client {client_id}")
+                        await self._handle_world_state_sync(client_id, message)
                         return
                     
                     # Handle chat requests - check for active test session first - SLOW PATH
@@ -509,6 +521,26 @@ def initialize_websocket_manager():
                 except Exception as e:
                     logger.error(f"Error handling combat_state from client {client_id}: {e}", exc_info=True)
             
+            async def _handle_ai_turn_complete(self, client_id: str, message: Dict[str, Any]):
+                """Handle ai_turn_complete message from backend - reset AI button state"""
+                try:
+                    logger.info(f"_handle_ai_turn_complete called for client {client_id}")
+                    
+                    # Send confirmation response
+                    await self.send_to_client(client_id, {
+                        "type": "ai_turn_complete_ack",
+                        "data": {
+                            "success": True,
+                            "message": "AI turn complete - button reset acknowledged",
+                            "timestamp": time.time()
+                        }
+                    })
+                    
+                    logger.info(f"AI turn complete acknowledged for client {client_id}")
+                    
+                except Exception as e:
+                    logger.error(f"Error handling ai_turn_complete for client {client_id}: {e}")
+            
             async def _handle_game_delta(self, client_id: str, message: Dict[str, Any]):
                 """Handle game_delta message from frontend - store in message collector"""
                 try:
@@ -531,6 +563,29 @@ def initialize_websocket_manager():
                     
                 except Exception as e:
                     logger.error(f"Error handling game_delta for client {client_id}: {e}")
+            
+            async def _handle_world_state_sync(self, client_id: str, message: Dict[str, Any]):
+                """Handle world_state_sync message from frontend - store in message collector"""
+                try:
+                    logger.info(f"_handle_world_state_sync called for client {client_id}")
+                    world_state = message.get("data", {})
+                    
+                    if not world_state:
+                        logger.warning("Received world_state_sync without data")
+                        return
+                    
+                    # Store world state in WebSocket message collector
+                    from services.message_services.websocket_message_collector import get_websocket_message_collector
+                    collector = get_websocket_message_collector()
+                    
+                    success = collector.set_world_state(client_id, world_state)
+                    if success:
+                        logger.info(f"World state stored for client {client_id}")
+                    else:
+                        logger.warning(f"Failed to store world state for client {client_id}")
+                    
+                except Exception as e:
+                    logger.error(f"Error handling world_state_sync for client {client_id}: {e}")
             
             def _convert_single_message_to_compact(self, message: Dict[str, Any]) -> Dict[str, Any]:
                 """Convert a single raw HTML message to compact JSON format - DELEGATE TO UNIFIED PROCESSOR"""
@@ -890,6 +945,8 @@ def initialize_websocket_manager():
                     logger.debug(f"WebSocket message_data keys: {list(message_data.keys())}")
                     logger.debug(f"WebSocket message_data content: {json.dumps({k: v for k, v in message_data.items() if k not in ['messages']}, indent=2)}")
                     
+                    # Store message_delta in universal_settings for AI Orchestrator
+                    # DO NOT inject into system message here - let AI Orchestrator decide!
                     message_delta = message_data.get("message_delta", {})
                     if message_delta:
                         universal_settings['message_delta'] = message_delta
@@ -897,7 +954,7 @@ def initialize_websocket_manager():
                         from services.message_services.websocket_message_collector import get_websocket_message_collector
                         collector = get_websocket_message_collector()
                         collector.set_game_delta(client_id, message_delta)
-                        logger.info(f"Game delta stored for client {client_id} from chat_request: hasChanges={message_delta.get('hasChanges', False)}")
+                        logger.info(f"Game delta stored for client {client_id} from chat_request: hasChanges={message_delta.get('hasChanges', False)} (will be used by AI Orchestrator)")
                     else:
                         logger.warning(f"No message_delta found in WebSocket request. Available keys: {list(message_data.keys())}")
                     
@@ -1331,6 +1388,22 @@ def get_global_services() -> Dict[str, Any]:
     except Exception as e:
         logger.error(f"Failed to initialize testing command processor: {e}")
         raise StartupServicesException(f"Unexpected testing command processor error: {e}")
+    
+    # Initialize context builder for initial world context
+    from services.message_services.context_builder import get_context_builder
+    try:
+        context_builder = get_context_builder()
+        if not ServiceRegistry.register('context_builder', context_builder):
+            logger.error("Failed to register context builder")
+        else:
+            services['context_builder'] = context_builder
+            logger.info("OK Context builder initialized and registered")
+    except (ImportError, RuntimeError) as e:
+        logger.error(f"Failed to initialize context builder: {e}")
+        raise StartupServicesException(f"Context builder initialization failed: {e}")
+    except Exception as e:
+        logger.error(f"Failed to initialize context builder: {e}")
+        raise StartupServicesException(f"Unexpected context builder error: {e}")
     
     # Initialize AI service - move after ServiceRegistry is ready
     # This will be initialized later in startup sequence

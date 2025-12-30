@@ -108,14 +108,12 @@ class TestingHarness:
                 [combat_context_message]
             )
             
-            # Use shared utility for consistent delta injection
-            # This ensures testing harness uses exact same logic as production
-            from shared.utils.ai_prompt_builder import build_initial_messages_with_delta
-            
-            initial_messages = build_initial_messages_with_delta(
-                universal_settings=universal_settings,
-                system_prompt=system_prompt
-            )
+            # CRITICAL: DO NOT inject deltas in testing harness
+            # Let AI Orchestrator decide: full context (first turn) OR deltas (subsequent turn)
+            # Testing harness should NOT pre-inject deltas into system prompt
+            initial_messages = [
+                {"role": "system", "content": system_prompt}
+            ]
             
             # Extract initial_prompt from the messages array
             initial_prompt = initial_messages[0]['content']

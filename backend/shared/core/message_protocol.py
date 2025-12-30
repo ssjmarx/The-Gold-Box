@@ -34,6 +34,8 @@ class MessageProtocol:
     TYPE_COMBAT_STATE = "combat_state"
     TYPE_COMBAT_STATE_REFRESH = "combat_state_refresh"
     TYPE_GAME_DELTA = "game_delta"
+    TYPE_WORLD_STATE_SYNC = "world_state_sync"
+    TYPE_WORLD_STATE_REFRESH = "world_state_refresh"
     
     # Protocol version
     PROTOCOL_VERSION = "1.0"
