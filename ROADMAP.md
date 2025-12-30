@@ -234,6 +234,9 @@ This comprehensive plan provides the full blueprint for developing a highly capa
 
 ### **Patch 0.3.9: The Foundation**
 
+**Status:** ✅ **COMPLETE**
+**Completed:** 2025-12-30
+
 **Goal:** To establish the AI's core ability to communicate, perceive the basic game state, and interact with the most fundamental mechanics (dice, combat status). This patch turns the AI into a basic, aware participant.
 
 #### **New Functions (0.3.9)**
@@ -411,5 +414,3 @@ Goal: Polish the user experience and formalize the project for public consumptio
      Release Candidates:
          Deploy v0.5.0-rc1 to a limited audience for final testing.
          Proceed to full v0.5.0 Beta release.
-         
-     
