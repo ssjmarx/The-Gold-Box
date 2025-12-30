@@ -4,6 +4,133 @@
  */
 
 /**
+ * AI Turn Button Handler with State Machine
+ */
+class AITurnButtonHandler {
+  constructor(uiManager, moduleInstance) {
+    this.uiManager = uiManager;
+    this.moduleInstance = moduleInstance;
+    this.state = 'DISCONNECTED'; // States: DISCONNECTED, CONNECTED, THINKING
+    this.button = null;
+    this.ellipsisIndex = 0;
+    this.ellipsisInterval = null;
+  }
+  
+  // State transitions
+  setState(newState) {
+    const oldState = this.state;
+    this.state = newState;
+    console.log(`AI Turn Button: ${oldState} -> ${newState}`);
+    this.updateButton();
+  }
+  
+  // Update button appearance based on state
+  updateButton() {
+    if (!this.button) {
+      this.button = $('#gold-box-ai-turn-btn');
+    }
+    
+    if (!this.button.length) return;
+    
+    switch (this.state) {
+      case 'DISCONNECTED':
+        this.setDisconnectedState();
+        break;
+      case 'CONNECTED':
+        this.setConnectedState();
+        break;
+      case 'THINKING':
+        this.setThinkingState();
+        break;
+    }
+  }
+  
+  setDisconnectedState() {
+    this.button.css({
+      'background': '#808080',
+      'color': '#ffffff',
+      'opacity': '0.5',
+      'cursor': 'not-allowed'
+    });
+    this.button.text('Not Connected');
+    this.button.prop('disabled', true);
+    this.stopEllipsisAnimation();
+  }
+  
+  setConnectedState() {
+    this.button.css({
+      'background': 'linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FF8C00 100%)',
+      'color': '#1a1a1a',
+      'opacity': '1',
+      'cursor': 'pointer'
+    });
+    this.button.text('Take AI Turn');
+    this.button.prop('disabled', false);
+    this.stopEllipsisAnimation();
+  }
+  
+  setThinkingState() {
+    this.button.css({
+      'background': 'linear-gradient(135deg, #FFD700 0%, #FFA500 50%, #FF8C00 100%)',
+      'color': '#1a1a1a',
+      'opacity': '0.5',
+      'cursor': 'not-allowed'
+    });
+    this.button.prop('disabled', true);
+    this.startEllipsisAnimation();
+  }
+  
+  startEllipsisAnimation() {
+    this.stopEllipsisAnimation();
+    this.ellipsisIndex = 0;
+    this.updateEllipsis();
+    this.ellipsisInterval = setInterval(() => {
+      this.updateEllipsis();
+    }, 500);
+  }
+  
+  updateEllipsis() {
+    const ellipsis = '.'.repeat((this.ellipsisIndex % 3) + 1);
+    this.button.text('Thinking' + ellipsis);
+    this.ellipsisIndex++;
+  }
+  
+  stopEllipsisAnimation() {
+    if (this.ellipsisInterval) {
+      clearInterval(this.ellipsisInterval);
+      this.ellipsisInterval = null;
+    }
+  }
+  
+  // Event handlers
+  onWebSocketConnected() {
+    this.setState('CONNECTED');
+  }
+  
+  onWebSocketDisconnected() {
+    this.setState('DISCONNECTED');
+  }
+  
+  onAITurnStarted() {
+    this.setState('THINKING');
+  }
+  
+  onAITurnEnded() {
+    this.setState('CONNECTED');
+  }
+  
+  onAITurnError(error) {
+    console.error('AI Turn error:', error);
+    this.setState('CONNECTED');
+  }
+  
+  destroy() {
+    this.stopEllipsisAnimation();
+    this.button = null;
+  }
+}
+
+/**
  * UI Management Class for The Gold Box
  */
 class GoldBoxUIManager {
@@ -11,6 +138,8 @@ class GoldBoxUIManager {
     this.settingsManager = settingsManager;
     this.moduleInstance = moduleInstance;
     this.buttonRetryCount = 0;
+    // Initialize AI Turn button handler
+    this.aiTurnButtonHandler = new AITurnButtonHandler(this, moduleInstance);
   }
 
   /**
@@ -482,7 +611,7 @@ class GoldBoxUIManager {
     // Use hardcoded name since we removed moduleElementsName setting
     const customName = 'The Gold Box';
     
-    // Startup instructions without rocket emoji
+    // Simplified startup instructions
     const messageContent = `
       <div class="gold-box-startup">
         <div class="gold-box-header">
@@ -491,16 +620,7 @@ class GoldBoxUIManager {
         </div>
         <div class="gold-box-content">
           <p><strong>Backend Server Not Running or Not Reachable</strong></p>
-          <p><strong>Option 1: Run</strong> automation script</p>
-          <p>Run <code>./start-backend.py</code> from The Gold Box module directory to automatically set up and start the backend server.</p>
-          <p>See README.md file for manual setup instructions.</p>
-          <p>Go to The Gold Box settings and click "Discover Backend" to automatically find and connect to a running backend server.</p>
-          <p><em>Configure your desired provider in The Gold Box settings.</em></p>
-          <p><strong>Option 2: Manual setup</strong></p>
-          <p>See the README.md file for manual setup instructions.</p>
-          <p><strong>Option 3: Auto-discover port</strong></p>
-          <p>Go to Gold Box settings and click "Discover Backend" to automatically find and connect to a running backend server.</p>
-          <p><em><strong>Note:</strong> The frontend automatically discovers the backend port. Use the "Discover Backend" button if needed.</em></p>
+          <p>Run <code>backend.sh</code> from The Gold Box module directory to automatically set up and start the backend server.</p>
         </div>
       </div>
     `;

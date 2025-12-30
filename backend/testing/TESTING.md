@@ -558,13 +558,13 @@ Available roles:
 
 | Testing Harness | Real AI Service |
 |----------------|-----------------|
-| ✅ No API costs | ❌ Token costs |
-| ✅ Instant responses | ❌ Variable latency |
-| ✅ Deterministic results | ❌ Random AI outputs |
-| ✅ Easy to debug | ❌ Hard to reproduce issues |
-| ✅ Test specific scenarios | ❌ Can't force specific behavior |
-| ✅ No rate limits | ❌ Rate limited |
-| ❌ Limited to your commands | ✅ Creative responses |
+| OK No API costs | ❌ Token costs |
+| OK Instant responses | ❌ Variable latency |
+| OK Deterministic results | ❌ Random AI outputs |
+| OK Easy to debug | ❌ Hard to reproduce issues |
+| OK Test specific scenarios | ❌ Can't force specific behavior |
+| OK No rate limits | ❌ Rate limited |
+| ❌ Limited to your commands | OK Creative responses |
 
 ### Testing Capabilities
 
@@ -721,8 +721,8 @@ GOLD_BOX_ADMIN_PASSWORD=swag bash -c \
 
 | Script | Purpose | Automation | Scope |
 |--------|----------|-------------|--------|
-| `function_check.sh` | Testing harness validation | ✅ Automated | Testing harness functionality |
-| `server_test.sh` | Server/API health | ✅ Automated | Server endpoints and security |
+| `function_check.sh` | Testing harness validation | OK Automated | Testing harness functionality |
+| `server_test.sh` | Server/API health | OK Automated | Server endpoints and security |
 | `test_harness_helpers.sh` | Interactive testing | ❌ Manual | Manual command execution |
 
 ## Future Enhancements

@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Dict, Any
 import logging
 import os
+import asyncio
 
 logger = logging.getLogger(__name__)
 
@@ -248,22 +249,51 @@ async def handle_start_test_session(request_data: Dict[str, Any], logger: loggin
         # Get services
         testing_session_manager = get_testing_session_manager()
         testing_harness = get_testing_harness()
+        ws_manager = get_websocket_manager()
         
-        # Get universal settings (simulated from request)
-        # In real use, these would come from the frontend's chat_request
+        # Clear any stale delta from previous test session
+        # This ensures we only get the fresh delta from the upcoming chat_request
+        try:
+            from services.message_services.websocket_message_collector import get_websocket_message_collector
+            message_collector = get_websocket_message_collector()
+            message_collector.clear_game_delta(client_id)
+            logger.info(f"Cleared stale delta for client {client_id}")
+        except Exception as e:
+            logger.warning(f"Failed to clear stale delta for client {client_id}: {e}")
+        
+        # Send WebSocket message to frontend to trigger chat request with test flag
+        # This must happen before we try to retrieve delta, because frontend only sends
+        # delta after receiving "test_session_start" message
+        await ws_manager.send_to_client(client_id, {
+            'type': 'test_session_start',
+            'data': {
+                'test_session_id': 'pending',  # Will be updated after session creation
+                'ai_role': 'gm',
+                'timestamp': datetime.now().isoformat()
+            }
+        })
+        
+        logger.info(f"Sent test_session_start to client {client_id}")
+        
+        # NOTE: We don't try to retrieve delta here because:
+        # 1. There's a race condition - AI service may clear delta before we can retrieve it
+        # 2. The testing harness will retrieve the delta at the exact right moment
+        # 3. This ensures testing harness gets the same delta as AI service would receive
+        
+        # Create minimal universal_settings - testing harness will add delta when generating prompt
         universal_settings = request_data.get('universal_settings', {})
         if not universal_settings:
-            # Create minimal settings if none provided
             universal_settings = {
-                'ai role': 'gm',
-                'message_delta': {'new_messages': 0, 'deleted_messages': 0}
+                'ai role': 'gm'
+                # 'message_delta' will be added by testing harness from collector
             }
+            logger.info(f"Created minimal universal_settings for client {client_id} - testing harness will retrieve delta when generating prompt")
         
         # Create test session
         test_session_id = testing_session_manager.create_session(client_id, universal_settings)
         
-        # Generate initial prompt
-        initial_prompt_result = testing_harness.generate_initial_prompt(
+        # Generate initial prompt (now with delta if available)
+        initial_prompt_result = await testing_harness.generate_initial_prompt(
             client_id,
             universal_settings
         )
@@ -279,19 +309,6 @@ async def handle_start_test_session(request_data: Dict[str, Any], logger: loggin
             test_session_id,
             initial_prompt_result['initial_prompt']
         )
-        
-        # Send WebSocket message to frontend to trigger chat request with test flag
-        from services.system_services.service_factory import get_websocket_manager
-        ws_manager = get_websocket_manager()
-        await ws_manager.send_to_client(client_id, {
-            'type': 'test_session_start',
-            'data': {
-                'test_session_id': test_session_id,
-                'ai_role': initial_prompt_result.get('ai_role'),
-                'initial_prompt': initial_prompt_result['initial_prompt'],
-                'timestamp': datetime.now().isoformat()
-            }
-        })
         
         logger.info(f"Started test session {test_session_id} for client {client_id}")
         
@@ -392,7 +409,7 @@ async def handle_test_command(request_data: Dict[str, Any], logger: logging.Logg
 
 
 async def handle_end_test_session(request_data: Dict[str, Any], logger: logging.Logger) -> Dict[str, Any]:
-    """Handle end_test_session command - forces WebSocket reset for clean state"""
+    """Handle end_test_session command - optionally forces WebSocket reset for clean state"""
     try:
         from services.system_services.service_factory import get_testing_session_manager, get_testing_harness, get_websocket_manager
         
@@ -404,12 +421,15 @@ async def handle_end_test_session(request_data: Dict[str, Any], logger: logging.
                 detail="test_session_id is required"
             )
         
+        # Get reset connection flag (default to True for backward compatibility)
+        reset_connection = request_data.get('reset_connection', True)
+        
         # Get services
         testing_session_manager = get_testing_session_manager()
         testing_harness = get_testing_harness()
         ws_manager = get_websocket_manager()
         
-        # Get the session before ending it to retrieve client_id
+        # Get session before ending it to retrieve client_id
         session = testing_session_manager.get_session(test_session_id)
         if not session:
             raise HTTPException(
@@ -419,25 +439,29 @@ async def handle_end_test_session(request_data: Dict[str, Any], logger: logging.
         
         client_id = session['client_id']
         
-        # Send WebSocket message to frontend to indicate test session has ended WITH reset flag
+        # Send WebSocket message to frontend to indicate test session has ended
+        # Include reset_connection flag so frontend knows whether to disconnect
         await ws_manager.send_to_client(client_id, {
             'type': 'test_session_end',
             'data': {
                 'test_session_id': test_session_id,
-                'reset_connection': True,
+                'reset_connection': reset_connection,
                 'timestamp': datetime.now().isoformat()
             }
         })
         
-        # Force disconnect WebSocket connection (default behavior for clean state)
-        try:
-            await ws_manager.disconnect(client_id)
-            logger.info(f"Forced WebSocket disconnect for client {client_id} during test session end")
-        except Exception as e:
-            logger.warning(f"Failed to disconnect WebSocket for {client_id}: {e}")
+        # Force disconnect WebSocket connection only if reset_connection is True
+        if reset_connection:
+            try:
+                await ws_manager.disconnect(client_id)
+                logger.info(f"Forced WebSocket disconnect for client {client_id} during test session end")
+            except Exception as e:
+                logger.warning(f"Failed to disconnect WebSocket for {client_id}: {e}")
+        else:
+            logger.info(f"Test session {test_session_id} ended for client {client_id} without WebSocket reset")
         
-        # End session
-        result = testing_harness.end_test(test_session_id, testing_session_manager)
+        # End session (await since end_test is now async)
+        result = await testing_harness.end_test(test_session_id, testing_session_manager)
         
         if not result['success']:
             raise HTTPException(

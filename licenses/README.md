@@ -159,12 +159,12 @@ Forked relay server for Foundry REST API providing WebSocket communication and m
 - **BSD 3-Clause License**: Uvicorn, Gunicorn, Cryptography, Flask, python-dotenv, WebSockets
 
 ### Compatibility Assessment
-✅ **MIT License**: Fully compatible with CC-BY-NC-SA 4.0
+OK **MIT License**: Fully compatible with CC-BY-NC-SA 4.0
 - MIT is permissive and allows sublicensing under CC-BY-NC-SA
 - No copyleft conflicts
 - Attribution requirements compatible
 
-✅ **BSD 3-Clause License**: Fully compatible with CC-BY-NC-SA 4.0
+OK **BSD 3-Clause License**: Fully compatible with CC-BY-NC-SA 4.0
 - BSD is permissive and allows sublicensing under CC-BY-NC-SA
 - No copyleft conflicts
 - Attribution requirements compatible

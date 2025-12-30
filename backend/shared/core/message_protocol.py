@@ -29,6 +29,11 @@ class MessageProtocol:
     TYPE_ERROR = "error"
     TYPE_STATUS = "status"
     TYPE_BROADCAST = "broadcast"
+    TYPE_EXECUTE_ROLL = "execute_roll"
+    TYPE_ROLL_RESULT = "roll_result"
+    TYPE_COMBAT_STATE = "combat_state"
+    TYPE_COMBAT_STATE_REFRESH = "combat_state_refresh"
+    TYPE_GAME_DELTA = "game_delta"
     
     # Protocol version
     PROTOCOL_VERSION = "1.0"

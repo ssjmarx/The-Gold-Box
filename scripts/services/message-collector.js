@@ -507,15 +507,10 @@ class MessageCollector {
   }
 
   /**
-   * Set SettingsManager reference and update maxMessages from settings
+   * Set SettingsManager reference
    */
   setSettingsManager(settingsManager) {
     this.settingsManager = settingsManager;
-    // Update maxMessages from settings
-    if (this.settingsManager) {
-      this.maxMessages = this.settingsManager.getSetting('maxMessageContext', 15);
-      console.log(`MessageCollector: Updated maxMessages to ${this.maxMessages} from settings`);
-    }
   }
 
   /**

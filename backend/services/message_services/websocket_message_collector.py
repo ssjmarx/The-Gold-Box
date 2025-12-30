@@ -29,6 +29,8 @@ class WebSocketMessageCollector:
         self.client_messages: Dict[str, List[Dict[str, Any]]] = {}
         self.client_rolls: Dict[str, List[Dict[str, Any]]] = {}
         self.client_last_processed: Dict[str, int] = {}  # Track last processed timestamp per client
+        self.client_combat_state: Dict[str, Dict[str, Any]] = {}  # Cache combat state per client
+        self.client_game_delta: Dict[str, Optional[Dict[str, Any]]] = {}  # Store game delta per client
         self.max_messages_per_client = 100
         self.max_rolls_per_client = 50
         
@@ -244,6 +246,9 @@ class WebSocketMessageCollector:
             # Combine all items
             all_items = messages + rolls
             
+            # Filter out combat_context messages (should only come from get_encounter tool)
+            all_items = [item for item in all_items if item.get('type') != 'combat_context']
+            
             # Apply delta filtering if session_id is provided
             if session_id and self.delta_service:
                 all_items = self._apply_delta_filtering(session_id, all_items)
@@ -332,6 +337,123 @@ class WebSocketMessageCollector:
             logger.error(f"Error getting delta stats for client {client_id}: {e}")
             return {'delta_filtering_enabled': False, 'error': str(e)}
     
+    def set_combat_state(self, client_id: str, combat_state: Dict[str, Any]) -> bool:
+        """
+        Set or update combat state for a client
+        
+        Args:
+            client_id: WebSocket client identifier
+            combat_state: Combat state data from frontend
+            
+        Returns:
+            True if set successfully
+        """
+        try:
+            # Store combat state with timestamp
+            self.client_combat_state[client_id] = {
+                **combat_state,
+                'last_updated': int(time.time() * 1000)
+            }
+            
+            logger.info(f"Updated combat state for client {client_id}: in_combat={combat_state.get('in_combat')}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error setting combat state for client {client_id}: {e}")
+            return False
+    
+    def get_cached_combat_state(self, client_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get cached combat state for a client
+        
+        Args:
+            client_id: WebSocket client identifier
+            
+        Returns:
+            Cached combat state or None if not available
+        """
+        try:
+            return self.client_combat_state.get(client_id)
+            
+        except Exception as e:
+            logger.error(f"Error getting combat state for client {client_id}: {e}")
+            return None
+    
+    def clear_combat_state(self, client_id: str) -> bool:
+        """
+        Clear combat state for a client
+        
+        Args:
+            client_id: WebSocket client identifier
+            
+        Returns:
+            True if cleared successfully
+        """
+        try:
+            self.client_combat_state.pop(client_id, None)
+            logger.debug(f"Cleared combat state for client {client_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error clearing combat state for client {client_id}: {e}")
+            return False
+    
+    def set_game_delta(self, client_id: str, delta: Dict[str, Any]) -> bool:
+        """
+        Store game delta object from frontend
+        
+        Args:
+            client_id: WebSocket client identifier
+            delta: Game delta object from FrontendDeltaService
+            
+        Returns:
+            True if set successfully
+        """
+        try:
+            self.client_game_delta[client_id] = delta
+            logger.info(f"Game delta stored for client {client_id}: {delta}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error setting game delta for client {client_id}: {e}")
+            return False
+    
+    def get_game_delta(self, client_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get stored game delta for a client
+        
+        Args:
+            client_id: WebSocket client identifier
+            
+        Returns:
+            Game delta object or None if not available
+        """
+        try:
+            return self.client_game_delta.get(client_id)
+            
+        except Exception as e:
+            logger.error(f"Error getting game delta for client {client_id}: {e}")
+            return None
+    
+    def clear_game_delta(self, client_id: str) -> bool:
+        """
+        Clear game delta for a client (after AI turn completes)
+        
+        Args:
+            client_id: WebSocket client identifier
+            
+        Returns:
+            True if cleared successfully
+        """
+        try:
+            self.client_game_delta.pop(client_id, None)
+            logger.debug(f"Cleared game delta for client {client_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error clearing game delta for client {client_id}: {e}")
+            return False
+    
     def clear_client_data(self, client_id: str) -> bool:
         """
         Clear all data for a specific client
@@ -346,6 +468,8 @@ class WebSocketMessageCollector:
             self.client_messages.pop(client_id, None)
             self.client_rolls.pop(client_id, None)
             self.client_last_processed.pop(client_id, None)
+            self.client_combat_state.pop(client_id, None)
+            self.client_game_delta.pop(client_id, None)
             
             logger.debug(f"Cleared data for client {client_id}")
             return True

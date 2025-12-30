@@ -89,7 +89,8 @@ async def api_chat(http_request: Request, request: APIChatRequest):
             logger.info("Processing API chat request with original request data")
         
         # Use UniversalSettings as single source of truth - no fallbacks
-        universal_settings = extract_universal_settings(request, "api_chat")
+        # Pass settings dict (not Pydantic model) to extract_universal_settings
+        universal_settings = extract_universal_settings(settings, "api_chat")
         logger.info("Using UniversalSettings as single source of truth")
         
         # Extract client ID from validated settings
@@ -224,14 +225,14 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         
         # Step 5.5: For function calling mode, strip chat context from system prompt
         # Function calling mode should only send system prompt + role instructions + combat context
-        # AI will use get_messages tool to retrieve chat context
+        # AI will use get_message_history tool to retrieve chat context
         disable_function_calling = universal_settings.get('disable function calling', False)
         enable_function_calling = not disable_function_calling
         
         if enable_function_calling:
             # Generate system prompt without chat context messages
             # Only include system prompt + role instructions + combat context
-            # AI will use get_messages tool to retrieve chat messages
+            # AI will use get_message_history tool to retrieve chat messages
             combat_context_messages = [msg for msg in compact_messages if msg.get('type') == 'combat_context']
             system_prompt = unified_processor.generate_enhanced_system_prompt(ai_role, combat_context_messages)
         # Standard mode includes chat context in system prompt (no special handling needed)
@@ -385,51 +386,27 @@ async def process_with_function_calling_or_standard(
         provider_config = get_provider_config(universal_settings, use_tactical=False)
         
         # Build initial messages for function calling loop
-        # Function calling mode: Only system prompt (AI will use get_messages tool)
+        # Function calling mode: Only system prompt (AI will use get_message_history tool)
         # Standard mode: System prompt + chat context
         import json
         
         if enable_function_calling:
             # FUNCTION CALLING MODE: System prompt + simple user instruction
-            # AI will use get_messages tool to retrieve chat messages
+            # AI will use get_message_history tool to retrieve chat messages
             # User message needed to trigger AI response
             
-            # Get delta counts from request
-            message_delta = universal_settings.get('message_delta', {})
-            new_count = message_delta.get('new_messages', 0)
-            deleted_count = message_delta.get('deleted_messages', 0)
+            # Use shared utility for consistent delta injection
+            from shared.utils.ai_prompt_builder import build_initial_messages_with_delta
             
-            # Build delta display and append to system_prompt
-            delta_display = f"""
-
-Changes since last prompt: [New Messages: {new_count}, Deleted Messages: {deleted_count}]
-"""
-            
-            # Add delta to system prompt
-            system_prompt_with_delta = system_prompt + delta_display
-            
-            # Get AI role from settings to make message role-aware
-            ai_role = universal_settings.get('ai role', 'gm').lower()
-            
-            # Map role to appropriate user message
-            role_messages = {
-                'gm': 'Take your turn as Game Master.',
-                "gm's assistant": 'Take your turn as GM\'s Assistant.',
-                'player': 'Take your turn as Player.'
-            }
-            
-            user_message = role_messages.get(ai_role, 'Take your turn as Game Master.')
-            
-            initial_messages = [
-                {"role": "system", "content": system_prompt_with_delta},
-                {"role": "user", "content": user_message}
-            ]
+            initial_messages = build_initial_messages_with_delta(
+                universal_settings=universal_settings,
+                system_prompt=system_prompt
+            )
             
             # Debug logging: Show complete initial_messages array (everything sent to AI)
             # Decode escape sequences in content strings for better readability
             decoded_messages = _decode_messages_for_display(initial_messages)
             logger.info(f"===== SENDING INITIAL MESSAGES TO AI =====")
-            logger.info(f"Delta Counts: New={new_count}, Deleted={deleted_count}")
             logger.info(f"Complete initial_messages array:\n{json.dumps(decoded_messages, indent=2, ensure_ascii=False)}")
             logger.info(f"===== END SENDING INITIAL MESSAGES =====")
         else:
@@ -452,6 +429,24 @@ Changes since last prompt: [New Messages: {new_count}, Deleted Messages: {delete
         )
         
         logger.info(f"AI Orchestrator completed function calling loop: {ai_response_data.get('iterations', 0)} iterations")
+        
+        # Send ai_turn_complete message to client via WebSocket
+        if ai_response_data.get('complete', False):
+            try:
+                ws_manager = get_websocket_manager()
+                completion_message = {
+                    "type": "ai_turn_complete",
+                    "data": {
+                        "success": True,
+                        "tokens_used": ai_response_data.get('tokens_used', 0),
+                        "iterations": ai_response_data.get('iterations', 0)
+                    }
+                }
+                await ws_manager.send_to_client(client_id, completion_message)
+                logger.info(f"Sent ai_turn_complete message to client {client_id}")
+            except Exception as e:
+                logger.error(f"Error sending ai_turn_complete message: {e}")
+        
         return ai_response_data
         
     else:

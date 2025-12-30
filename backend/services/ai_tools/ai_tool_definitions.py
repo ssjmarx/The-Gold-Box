@@ -15,7 +15,7 @@ def get_tool_definitions() -> list:
         {
             "type": "function",
             "function": {
-                "name": "get_messages",
+                "name": "get_message_history",
                 "description": "Retrieve recent chat messages from Foundry chat for context. Use once at the start of a turn to get new messages.",
                 "parameters": {
                     "type": "object",
@@ -35,7 +35,7 @@ def get_tool_definitions() -> list:
         {
             "type": "function",
             "function": {
-                "name": "post_messages",
+                "name": "post_message",
                 "description": "Send one or more chat messages or chat cards to Foundry as your response. Messages can be chat text, or structured chat cards with Foundry-specific formatting. This function accepts markdown styling.",
                 "parameters": {
                     "type": "object",
@@ -87,6 +87,48 @@ def get_tool_definitions() -> list:
                         }
                     },
                     "required": ["messages"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "roll_dice",
+                "description": "Roll one or more Foundry-formatted dice formulas. Each roll can include optional flavor text. The rolls are executed in Foundry and the results are returned.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "rolls": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "formula": {
+                                        "type": "string",
+                                        "description": "Foundry dice formula (e.g., '1d20+5', '2d6', '4d6kh3')"
+                                    },
+                                    "flavor": {
+                                        "type": "string",
+                                        "description": "Flavor text for the roll (optional)"
+                                    }
+                                },
+                                "required": ["formula"]
+                            },
+                            "description": "Array of dice roll requests"
+                        }
+                    },
+                    "required": ["rolls"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_encounter",
+                "description": "Gets the current combat state. Returns standard 'no active encounter' response if out of combat.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {}
                 }
             }
         }

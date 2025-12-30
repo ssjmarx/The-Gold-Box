@@ -14,11 +14,11 @@
       "AI_FUNCTIONALITY_COMING_SOON": "The Gold Box: AI functionality coming soon!",
       "MODULE_INITIALIZED": "The Gold Box module initialized successfully",
       "MODULE_READY": "The Gold Box is ready for AI adventures!",
-      "CONNECTION_VERIFIED": "✅ Backend connection verified!",
+      "CONNECTION_VERIFIED": "OK Backend connection verified!",
       "CONNECTION_FAILED": "❌ No backend server found. Please start backend server.",
       "DISCOVERY_FAILED": "🚫 Backend discovery failed - {error}",
-      "SESSION_EXPIRING": "⚠️ Session expiring soon! Server connection may be unstable. Please refresh the page.",
-      "CRITICAL_SESSION": "⚠️ Session expiring soon! Server connection may be unstable. Please refresh the page."
+      "SESSION_EXPIRING": "WARNING Session expiring soon! Server connection may be unstable. Please refresh the page.",
+      "CRITICAL_SESSION": "WARNING Session expiring soon! Server connection may be unstable. Please refresh the page."
     },
     
     "DIALOG": {

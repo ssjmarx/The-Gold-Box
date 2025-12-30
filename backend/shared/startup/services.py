@@ -88,10 +88,17 @@ def initialize_websocket_manager():
                     return False
             
             async def handle_message(self, client_id: str, message: Dict[str, Any]):
-                """Handle incoming WebSocket message"""
+                """Handle incoming WebSocket message with fast-path/slow-path pattern"""
                 try:
                     import time
                     message_type = message.get("type")
+                    
+                    # Log all incoming message types (except ping/pong for performance)
+                    if message_type != "ping":
+                        logger.info(f"WebSocket: Received message type '{message_type}' from client {client_id}")
+                    
+                    # FAST PATH: Handle immediate messages without blocking
+                    # These must complete quickly and synchronously
                     
                     # Handle ping messages silently (don't log raw ping/pong data)
                     if message_type == "ping":
@@ -101,27 +108,53 @@ def initialize_websocket_manager():
                         })
                         return
                     
-                    # Handle settings sync from frontend (frontend is source of truth)
+                    # Handle roll results from frontend (for AI tool roll_dice) - CRITICAL FAST PATH
+                    # This must be processed immediately to avoid timeouts in AI tool execution
+                    if message_type == "roll_result":
+                        logger.info(f"WebSocket: [FAST PATH] Routing roll_result message to handler for client {client_id}")
+                        await self._handle_roll_result(client_id, message)
+                        return
+                    
+                    # Handle settings sync from frontend (frontend is source of truth) - FAST PATH
                     if message_type == "settings_sync":
+                        logger.info(f"WebSocket: [FAST PATH] Handling settings_sync for client {client_id}")
                         await self._handle_settings_sync(client_id, message)
                         return
                     
+                    # SLOW PATH: Handle long-running messages as background tasks
+                    # These can take significant time and must not block the message loop
+                    
                     # Handle individual chat messages from frontend
                     if message_type == "chat_message":
-                        await self._handle_chat_message(client_id, message)
+                        logger.info(f"WebSocket: [SLOW PATH] Creating background task for chat_message")
+                        asyncio.create_task(self._handle_chat_message(client_id, message))
                         return
                     
                     # Handle individual dice rolls from frontend
                     if message_type == "dice_roll":
-                        await self._handle_dice_roll(client_id, message)
+                        logger.info(f"WebSocket: [SLOW PATH] Creating background task for dice_roll")
+                        asyncio.create_task(self._handle_dice_roll(client_id, message))
                         return
                     
                     # Handle combat context messages from frontend
                     if message_type == "combat_context":
-                        await self._handle_combat_context(client_id, message)
+                        logger.info(f"WebSocket: [SLOW PATH] Creating background task for combat_context")
+                        asyncio.create_task(self._handle_combat_context(client_id, message))
                         return
                     
-                    # Handle chat requests - check for active test session first
+                    # Handle combat state messages from frontend - FAST PATH
+                    if message_type == "combat_state":
+                        logger.info(f"WebSocket: [FAST PATH] Handling combat_state for client {client_id}")
+                        await self._handle_combat_state(client_id, message)
+                        return
+                    
+                    # Handle game delta messages from frontend - FAST PATH
+                    if message_type == "game_delta":
+                        logger.info(f"WebSocket: [FAST PATH] Handling game_delta for client {client_id}")
+                        await self._handle_game_delta(client_id, message)
+                        return
+                    
+                    # Handle chat requests - check for active test session first - SLOW PATH
                     if message_type == "chat_request":
                         # Check if there's an active test session for this client
                         from services.system_services.service_factory import get_testing_session_manager
@@ -129,257 +162,17 @@ def initialize_websocket_manager():
                         active_test_session = testing_session_manager.get_session_by_client(client_id)
                         
                         if active_test_session:
-                            # Route to testing harness instead of AI service
-                            await self._handle_test_chat_request(client_id, message, active_test_session)
+                            # Route to testing harness instead of AI service - fire and forget
+                            logger.info(f"WebSocket: [SLOW PATH] Creating background task for test_chat_request")
+                            asyncio.create_task(self._handle_test_chat_request(client_id, message, active_test_session))
                             return
                         
-                        # No active test session - use normal AI service logic
-                        # Import full message processing logic from original file
-                        from shared.core.message_protocol import MessageProtocol
-                        from services.message_services.message_collector import add_client_message, add_client_roll, get_combined_client_messages, clear_client_data
-                        from services.system_services.universal_settings import extract_universal_settings, get_provider_config
-                        from services.ai_services.ai_service import get_ai_service
-                        from shared.core.unified_message_processor import get_unified_processor
-                        
-                        message_data = MessageProtocol.extract_message_data(message)
-                        if not message_data:
-                            await self.send_to_client(client_id, {
-                                "type": "error",
-                                "data": {
-                                    "error": "Invalid chat request data",
-                                    "timestamp": time.time()
-                                }
-                            })
-                            return
-                        
-                        # Handle combat state from WebSocket message data (same as API chat endpoint)
-                        combat_state = message_data.get("combat_state")
-                        if combat_state:
-                            # Update CombatEncounterService with latest combat state
-                            try:
-                                from services.system_services.service_factory import get_combat_encounter_service
-                                combat_service = get_combat_encounter_service()
-                                update_success = combat_service.update_combat_state(combat_state)
-                                if update_success:
-                                    # logger.info(f"CombatEncounterService updated with combat state from WebSocket: {combat_state}")
-                                    pass
-                                else:
-                                    logger.warning(f"Failed to update CombatEncounterService with combat state from WebSocket: {combat_state}")
-                            except Exception as e:
-                                logger.error(f"Error updating CombatEncounterService from WebSocket: {e}")
-                        
-                        # Handle message collection from WebSocket clients
-                        messages = message_data.get("messages", [])
-                        # No fallbacks - require explicit context_count parameter
-                        if "context_count" not in message_data and "contextCount" not in message_data and "count" not in message_data:
-                            raise ValueError("context_count parameter is required - no fallback values allowed")
-                        
-                        context_count = (
-                            message_data.get("context_count") or 
-                            message_data.get("contextCount") or 
-                            message_data.get("count")
-                        )
-                        
-                        if not isinstance(context_count, int) or context_count <= 0:
-                            raise ValueError(f"Invalid context_count: {context_count}. Must be a positive integer.")
-                        scene_id = message_data.get("scene_id")
-                        
-                        # Log actual context count being used for debugging
-                        logger.debug(f"Using context count: {context_count} (from message_data keys: {list(message_data.keys())})")
-                        
-                        # Use new WebSocket message collector with delta filtering
-                        from services.message_services.websocket_message_collector import (
-                            add_client_message_with_delta, add_client_roll_with_delta, get_combined_client_messages, clear_client_data
-                        )
-                        
-                        # Get frontend settings for processing first (frontend is source of truth)
-                        from services.system_services.frontend_settings_handler import get_all_frontend_settings
-                        try:
-                            stored_settings = get_all_frontend_settings()
-                        except Exception as e:
-                            logger.error(f"Failed to get frontend settings: {e}")
-                            await self.send_to_client(client_id, {
-                                "type": "error",
-                                "data": {
-                                    "error": "Failed to retrieve frontend settings",
-                                    "timestamp": time.time()
-                                }
-                            })
-                            return
-                        
-                        # Extract universal settings with proper request data structure
-                        request_data_for_settings = {
-                            'settings': stored_settings
-                        }
-                        universal_settings = extract_universal_settings(request_data_for_settings, "websocket_chat")
-                        
-                        # Don't clear client data - let delta service handle filtering
-                        # clear_client_data(client_id)
-                        
-                        # Get or create AI session first before using session_id
-                        from services.system_services.service_factory import get_ai_session_manager, get_message_delta_service
-                        
-                        ai_session_manager = get_ai_session_manager()
-                        message_delta_service = get_message_delta_service()
-                        
-                        # Backend manages sessions entirely based on client_id
-                        force_full_context = universal_settings.get('force_full_context', False)
-                        
-                        # Get provider config for session uniqueness
-                        provider_config = get_provider_config(universal_settings, use_tactical=False)
-                        provider = provider_config.get('provider')
-                        model = provider_config.get('model')
-                        
-                        # Get or create AI session based on client_id + provider + model
-                        session_id = ai_session_manager.create_or_get_session(client_id, None, provider, model)
-                        # logger.info(f"AI session for WebSocket client {client_id}: {session_id} ({provider}/{model})")
-                        
-                        # Force full context if requested
-                        if force_full_context:
-                            logger.info(f"Force full context for session {session_id} - bypassing delta filtering")
-                            message_delta_service.force_full_context(session_id)
-                        
-                        # Add each message to WebSocket message collector for this client with delta filtering
-                        for msg in messages:
-                            if isinstance(msg, dict):
-                                # Simplified dice roll detection - delegate to unified processor
-                                msg_type = msg.get("type", "")
-                                content = msg.get("content", "")
-                                
-                                # Check if this is a dice roll message (basic type check only)
-                                is_dice_roll = (msg_type == "roll")
-                                
-                                if is_dice_roll:
-                                    # This is a dice roll - add to rolls collection with delta filtering
-                                    logger.debug(f"Detected dice roll: {content} (type: {msg_type})")
-                                    add_client_roll_with_delta(client_id, msg, session_id)
-                                else:
-                                    # This is a regular chat message - add with delta filtering
-                                    add_client_message_with_delta(client_id, msg, session_id)
-                            elif isinstance(msg, str):
-                                # Convert string messages to dict format and add with delta filtering
-                                add_client_message_with_delta(client_id, {
-                                    "content": msg,
-                                    "type": "chat",
-                                    "timestamp": int(time.time() * 1000)
-                                }, session_id)
-                        
-                        # Get delta-filtered messages from WebSocket message collector for processing
-                        from services.message_services.websocket_message_collector import get_delta_filtered_client_messages
-                        stored_messages = get_delta_filtered_client_messages(client_id, session_id, context_count)
-                        
-                        # Log actual message count for debugging
-                        logger.debug(f"Retrieved {len(stored_messages)} messages from WebSocket collector (requested: {context_count})")
-                        
-                        # Add session ID to universal settings for response delivery
-                        universal_settings['ai_session_id'] = session_id
-                        
-                        # Add client ID to universal settings for response delivery
-                        universal_settings['relay client id'] = client_id
-                        
-                        # Import AI service directly - this will use singleton get_ai_service() 
-                        # which has been fixed to use key manager's provider manager
-                        ai_service = get_ai_service()
-                        processor = get_unified_processor()
-                        
-                        # Step 1.5: Convert raw HTML messages to compact JSON for AI service
-                        compact_stored_messages = self._convert_raw_html_to_compact(stored_messages)
-                        
-                        # Delta filtering already logged by get_delta_filtered_client_messages()
-                        # Force full context if requested
-                        if force_full_context:
-                            logger.info(f"Force full context for WebSocket session {session_id} - bypassing delta filtering")
-                            message_delta_service.force_full_context(session_id)
-                        
-                        # Use compact messages (AI service will handle conversation history)
-                        compact_messages = compact_stored_messages
-                        
-                        # Get fresh combat context from CombatEncounterService for AI (same as API chat endpoint)
-                        try:
-                            from services.system_services.service_factory import get_combat_encounter_service
-                            combat_service = get_combat_encounter_service()
-                            combat_context = combat_service.get_combat_context()
-                            
-                            # Add combat context to messages with fresh data from service
-                            combat_context_message = {
-                                'type': 'combat_context',
-                                'combat_context': combat_context
-                            }
-                            
-                            # Remove any existing combat context messages and add fresh one
-                            compact_messages = [msg for msg in compact_messages if msg.get('type') != 'combat_context']
-                            compact_messages.append(combat_context_message)
-                            
-                            # logger.info(f"Fresh combat context from service for WebSocket: in_combat={combat_context.get('in_combat', False)}")
-                            
-                        except Exception as e:
-                            logger.error(f"Error getting combat context from service for WebSocket: {e}")
-                        
-                        # Get AI role from settings for enhanced role-based prompt generation
-                        ai_role = universal_settings.get('ai role', 'gm')
-                        
-                        # Generate enhanced system prompt based on AI role using unified processor
-                        system_prompt = processor.generate_enhanced_system_prompt(ai_role, compact_messages)
-                        import json
-                        compact_json_context = json.dumps(compact_messages, indent=2)
-                        
-                        # Generate dynamic combat-aware prompt
-                        from services.ai_services.combat_prompt_generator import get_combat_prompt_generator
-                        
-                        combat_prompt_generator = get_combat_prompt_generator()
-                        combat_context = combat_context if combat_context else {}
-                        combat_state = combat_state if combat_state else {}
-                        
-                        dynamic_prompt = combat_prompt_generator.generate_prompt(combat_context, combat_state)
-                        
-                        # Prepare AI messages (old logic - NOT sent to AI when function calling is enabled)
-                        ai_messages = [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": f"Chat Context (Compact JSON Format):\n{compact_json_context}\n\n{dynamic_prompt}"}
-                        ]
-                        
-                        # Import shared function for AI processing (function calling or standard)
-                        from api.api_chat import process_with_function_calling_or_standard
-                        
-                        # Extract message_delta from WebSocket request data for function calling mode
-                        # Log all keys in message_data for debugging
-                        logger.debug(f"WebSocket message_data keys: {list(message_data.keys())}")
-                        logger.debug(f"WebSocket message_data content: {json.dumps({k: v for k, v in message_data.items() if k not in ['messages']}, indent=2)}")
-                        
-                        message_delta = message_data.get("message_delta", {})
-                        if message_delta:
-                            universal_settings['message_delta'] = message_delta
-                            logger.info(f"Frontend delta counts received: New={message_delta.get('new_messages', 0)}, Deleted={message_delta.get('deleted_messages', 0)}")
-                        else:
-                            logger.warning(f"No message_delta found in WebSocket request. Available keys: {list(message_data.keys())}")
-                        
-                        # Use shared function for AI processing (function calling or standard)
-                        # This logic is shared with HTTP API endpoint to avoid duplication
-                        ai_response_data = await process_with_function_calling_or_standard(
-                            universal_settings=universal_settings,
-                            compact_messages=compact_messages,
-                            system_prompt=system_prompt,
-                            session_id=session_id,
-                            client_id=client_id
-                        )
-                        
-                        ai_response = ai_response_data.get("response", "")
-                        
-                        # Use unified processor to properly process AI responses
-                        api_formatted = processor.process_ai_response(ai_response, compact_messages)
-                        
-                        # Send processed messages to Foundry via WebSocket
-                        # AI response is already stored by ai_service.process_compact_context()
-                        if api_formatted and api_formatted.get("success", False):
-                            client_id_for_ws = universal_settings.get('relay client id')
-                            if client_id_for_ws:
-                                from api.api_chat import _send_messages_to_websocket
-                                await _send_messages_to_websocket(api_formatted, client_id_for_ws)
-                            else:
-                                logger.warning("No client ID available - cannot send messages to Foundry")
-                        else:
-                            logger.error("Failed to process AI response to API format")
+                        # No active test session - use normal AI service logic - fire and forget
+                        logger.info(f"WebSocket: [SLOW PATH] Creating background task for chat_request")
+                        asyncio.create_task(self._handle_chat_request_full(client_id, message))
+                        return
                     
+                    # Unknown message type
                     else:
                         logger.warning(f"Unhandled message type {message_type} from {client_id}")
                         await self.send_to_client(client_id, {
@@ -547,10 +340,10 @@ def initialize_websocket_manager():
                     logger.error(f"Error handling chat message from client {client_id}: {e}")
                     await self.send_to_client(client_id, {
                         "type": "error",
-                        "data": {
-                            "error": f"Chat message handling failed: {str(e)}",
-                            "timestamp": time.time()
-                        }
+                            "data": {
+                                "error": f"Chat message handling failed: {str(e)}",
+                                "timestamp": time.time()
+                            }
                     })
             
             async def _handle_dice_roll(self, client_id: str, message: Dict[str, Any]):
@@ -679,6 +472,122 @@ def initialize_websocket_manager():
                 
                 return parsed
             
+            async def _handle_combat_state(self, client_id: str, message: Dict[str, Any]):
+                """Handle combat_state message from frontend"""
+                try:
+                    message_data = message.get("data", {})
+                    combat_state = message_data.get("combat_state")
+                    request_id = message.get("request_id")
+                    
+                    if not combat_state:
+                        logger.warning(f"Received combat_state message without combat_state data from client {client_id}")
+                        return
+                    
+                    # Check if this is a response to a combat_state_refresh request
+                    # Access pending requests from ai_tool_executor module
+                    if request_id:
+                        from services.ai_tools.ai_tool_executor import _pending_roll_requests
+                        if request_id in _pending_roll_requests:
+                            future = _pending_roll_requests[request_id]
+                            if not future.done():
+                                logger.info(f"Resolving pending combat_state_refresh request {request_id}")
+                                future.set_result(combat_state)
+                            else:
+                                logger.warning(f"Pending request {request_id} already done")
+                    
+                    # Store combat state directly in WebSocket message collector class
+                    # Access via service factory to avoid circular import
+                    from services.system_services.service_factory import get_message_collector
+                    message_collector = get_message_collector()
+                    
+                    success = message_collector.set_combat_state(client_id, combat_state)
+                    if success:
+                        logger.info(f"Combat state stored for client {client_id}: in_combat={combat_state.get('in_combat')}")
+                    else:
+                        logger.warning(f"Failed to store combat state for client {client_id}")
+                    
+                except Exception as e:
+                    logger.error(f"Error handling combat_state from client {client_id}: {e}", exc_info=True)
+            
+            async def _handle_game_delta(self, client_id: str, message: Dict[str, Any]):
+                """Handle game_delta message from frontend - store in message collector"""
+                try:
+                    logger.info(f"_handle_game_delta called for client {client_id}")
+                    game_delta = message.get("data", {})
+                    
+                    if not game_delta:
+                        logger.warning("Received game_delta without data")
+                        return
+                    
+                    # Store game delta in WebSocket message collector
+                    from services.message_services.websocket_message_collector import get_websocket_message_collector
+                    collector = get_websocket_message_collector()
+                    
+                    success = collector.set_game_delta(client_id, game_delta)
+                    if success:
+                        logger.info(f"Game delta stored for client {client_id}: hasChanges={game_delta.get('hasChanges', False)}")
+                    else:
+                        logger.warning(f"Failed to store game delta for client {client_id}")
+                    
+                except Exception as e:
+                    logger.error(f"Error handling game_delta for client {client_id}: {e}")
+            
+            def _convert_single_message_to_compact(self, message: Dict[str, Any]) -> Dict[str, Any]:
+                """Convert a single raw HTML message to compact JSON format - DELEGATE TO UNIFIED PROCESSOR"""
+                # Import unified processor at function level to avoid circular import issues
+                from shared.core.unified_message_processor import get_unified_processor
+                
+                content = message.get("content", "")
+                original_timestamp = message.get("timestamp")
+                
+                # Skip empty messages
+                if not content or not content.strip():
+                    return None
+                
+                # Use unified processor for all HTML parsing - no duplicate logic
+                processor = get_unified_processor()
+                parsed = processor.html_to_compact_json(content)
+                
+                # Override with original timestamp if provided, otherwise use current time
+                if 'ts' in parsed:
+                    if original_timestamp is not None:
+                        parsed['ts'] = original_timestamp
+                else:
+                    # Generate timestamp from message if not provided
+                    parsed['ts'] = int(time.time() * 1000)
+                
+                return parsed
+            
+            async def _handle_roll_result(self, client_id: str, message: Dict[str, Any]):
+                """Handle roll_result message from frontend (for AI tool roll_dice)"""
+                try:
+                    logger.info(f"_handle_roll_result called for client {client_id}")
+                    logger.info(f"Full roll_result message: {message}")
+                    
+                    # Extract request_id and results from message
+                    request_id = message.get("request_id")
+                    result_data = message.get("data", {})
+                    results = result_data.get("results", [])
+                    
+                    logger.info(f"Extracted from roll_result message: request_id={request_id}, results_count={len(results)}")
+                    
+                    if not request_id:
+                        logger.warning(f"Received roll_result without request_id from client {client_id}")
+                        logger.warning(f"Full message: {message}")
+                        return
+                    
+                    logger.info(f"Received roll_result for request {request_id} with {len(results)} results")
+                    logger.info(f"Result data structure: {result_data}")
+                    
+                    # Forward to AI tool executor to resolve pending request
+                    from services.ai_tools.ai_tool_executor import handle_roll_result
+                    logger.info(f"Calling handle_roll_result() for request {request_id}")
+                    handle_roll_result(request_id, result_data)
+                    logger.info(f"handle_roll_result() completed for request {request_id}")
+                    
+                except Exception as e:
+                    logger.error(f"Error handling roll_result from client {client_id}: {e}", exc_info=True)
+            
             async def _handle_test_chat_request(self, client_id: str, message: Dict[str, Any], active_test_session: Dict[str, Any]):
                 """Handle chat_request when there's an active test session - route to testing harness"""
                 try:
@@ -700,7 +609,16 @@ def initialize_websocket_manager():
                         })
                         return
                     
-                    # IMPORTANT: Store the messages in WebSocket message collector
+                    # Store message_delta in WebSocketMessageCollector for test session
+                    # This allows admin endpoint to retrieve it later
+                    message_delta = message_data.get("message_delta", {})
+                    if message_delta:
+                        from services.message_services.websocket_message_collector import get_websocket_message_collector
+                        collector = get_websocket_message_collector()
+                        collector.set_game_delta(client_id, message_delta)
+                        logger.info(f"Game delta stored for client {client_id} in test chat request: hasChanges={message_delta.get('hasChanges', False)}")
+                    
+                    # IMPORTANT: Store messages in WebSocket message collector
                     # This ensures get_messages can retrieve them later
                     # Same logic as normal chat_request handling
                     from services.system_services.service_factory import get_ai_session_manager
@@ -757,6 +675,268 @@ def initialize_websocket_manager():
                         }
                     })
             
+            async def _handle_chat_request_full(self, client_id: str, message: Dict[str, Any]):
+                """Handle full chat_request with AI processing (runs as background task)"""
+                try:
+                    # Import full message processing logic from original file
+                    from shared.core.message_protocol import MessageProtocol
+                    from services.message_services.message_collector import add_client_message, add_client_roll, get_combined_client_messages, clear_client_data
+                    from services.system_services.universal_settings import extract_universal_settings, get_provider_config
+                    from services.ai_services.ai_service import get_ai_service
+                    from shared.core.unified_message_processor import get_unified_processor
+                    
+                    message_data = MessageProtocol.extract_message_data(message)
+                    if not message_data:
+                        await self.send_to_client(client_id, {
+                            "type": "error",
+                            "data": {
+                                "error": "Invalid chat request data",
+                                "timestamp": time.time()
+                            }
+                        })
+                        return
+                    
+                    # Handle combat state from WebSocket message data (same as API chat endpoint)
+                    combat_state = message_data.get("combat_state")
+                    if combat_state:
+                        # Update CombatEncounterService with latest combat state
+                        try:
+                            from services.system_services.service_factory import get_combat_encounter_service
+                            combat_service = get_combat_encounter_service()
+                            update_success = combat_service.update_combat_state(combat_state)
+                            if update_success:
+                                # logger.info(f"CombatEncounterService updated with combat state from WebSocket: {combat_state}")
+                                pass
+                            else:
+                                logger.warning(f"Failed to update CombatEncounterService with combat state from WebSocket: {combat_state}")
+                        except Exception as e:
+                            logger.error(f"Error updating CombatEncounterService from WebSocket: {e}")
+                    
+                    # Handle message collection from WebSocket clients
+                    messages = message_data.get("messages", [])
+                    # No fallbacks - require explicit context_count parameter
+                    if "context_count" not in message_data and "contextCount" not in message_data and "count" not in message_data:
+                        raise ValueError("context_count parameter is required - no fallback values allowed")
+                    
+                    context_count = (
+                        message_data.get("context_count") or 
+                        message_data.get("contextCount") or 
+                        message_data.get("count")
+                    )
+                        
+                    if not isinstance(context_count, int) or context_count <= 0:
+                        raise ValueError(f"Invalid context_count: {context_count}. Must be a positive integer.")
+                    scene_id = message_data.get("scene_id")
+                    
+                    # Log actual context count being used for debugging
+                    logger.debug(f"Using context count: {context_count} (from message_data keys: {list(message_data.keys())})")
+                    
+                    # Use new WebSocket message collector with delta filtering
+                    from services.message_services.websocket_message_collector import (
+                        add_client_message_with_delta, add_client_roll_with_delta, get_combined_client_messages, clear_client_data
+                    )
+                    
+                    # Get frontend settings for processing first (frontend is source of truth)
+                    from services.system_services.frontend_settings_handler import get_all_frontend_settings
+                    try:
+                        stored_settings = get_all_frontend_settings()
+                    except Exception as e:
+                        logger.error(f"Failed to get frontend settings: {e}")
+                        await self.send_to_client(client_id, {
+                            "type": "error",
+                            "data": {
+                                "error": "Failed to retrieve frontend settings",
+                                "timestamp": time.time()
+                            }
+                        })
+                        return
+                    
+                    # Extract universal settings with proper request data structure
+                    request_data_for_settings = {
+                        'settings': stored_settings
+                    }
+                    universal_settings = extract_universal_settings(request_data_for_settings, "websocket_chat")
+                    
+                    # Don't clear client data - let delta service handle filtering
+                    # clear_client_data(client_id)
+                    
+                    # Get or create AI session first before using session_id
+                    from services.system_services.service_factory import get_ai_session_manager, get_message_delta_service
+                    
+                    ai_session_manager = get_ai_session_manager()
+                    message_delta_service = get_message_delta_service()
+                    
+                    # Backend manages sessions entirely based on client_id
+                    force_full_context = universal_settings.get('force_full_context', False)
+                    
+                    # Get provider config for session uniqueness
+                    provider_config = get_provider_config(universal_settings, use_tactical=False)
+                    provider = provider_config.get('provider')
+                    model = provider_config.get('model')
+                    
+                    # Get or create AI session based on client_id + provider + model
+                    session_id = ai_session_manager.create_or_get_session(client_id, None, provider, model)
+                    # logger.info(f"AI session for WebSocket client {client_id}: {session_id} ({provider}/{model})")
+                    
+                    # Force full context if requested
+                    if force_full_context:
+                        logger.info(f"Force full context for session {session_id} - bypassing delta filtering")
+                        message_delta_service.force_full_context(session_id)
+                    
+                    # Add each message to WebSocket message collector for this client with delta filtering
+                    for msg in messages:
+                        if isinstance(msg, dict):
+                            # Simplified dice roll detection - delegate to unified processor
+                            msg_type = msg.get("type", "")
+                            content = msg.get("content", "")
+                            
+                            # Check if this is a dice roll message (basic type check only)
+                            is_dice_roll = (msg_type == "roll")
+                            
+                            if is_dice_roll:
+                                # This is a dice roll - add to rolls collection with delta filtering
+                                logger.debug(f"Detected dice roll: {content} (type: {msg_type})")
+                                add_client_roll_with_delta(client_id, msg, session_id)
+                            else:
+                                # This is a regular chat message - add with delta filtering
+                                add_client_message_with_delta(client_id, msg, session_id)
+                        elif isinstance(msg, str):
+                            # Convert string messages to dict format and add with delta filtering
+                            add_client_message_with_delta(client_id, {
+                                "content": msg,
+                                "type": "chat",
+                                "timestamp": int(time.time() * 1000)
+                            }, session_id)
+                    
+                    # Get delta-filtered messages from WebSocket message collector for processing
+                    from services.message_services.websocket_message_collector import get_delta_filtered_client_messages
+                    stored_messages = get_delta_filtered_client_messages(client_id, session_id, context_count)
+                    
+                    # Log actual message count for debugging
+                    logger.debug(f"Retrieved {len(stored_messages)} messages from WebSocket collector (requested: {context_count})")
+                    
+                    # Add session ID to universal settings for response delivery
+                    universal_settings['ai_session_id'] = session_id
+                    
+                    # Add client ID to universal settings for response delivery
+                    universal_settings['relay_client_id'] = client_id
+                    
+                    # Import AI service directly - this will use singleton get_ai_service() 
+                    # which has been fixed to use key manager's provider manager
+                    ai_service = get_ai_service()
+                    processor = get_unified_processor()
+                    
+                    # Step 1.5: Convert raw HTML messages to compact JSON for AI service
+                    compact_stored_messages = self._convert_raw_html_to_compact(stored_messages)
+                    
+                    # Delta filtering already logged by get_delta_filtered_client_messages()
+                    # Force full context if requested
+                    if force_full_context:
+                        logger.info(f"Force full context for session {session_id} - bypassing delta filtering")
+                        message_delta_service.force_full_context(session_id)
+                    
+                    # Use compact messages (AI service will handle conversation history)
+                    compact_messages = compact_stored_messages
+                    
+                    # Get fresh combat context from CombatEncounterService for AI (same as API chat endpoint)
+                    try:
+                        from services.system_services.service_factory import get_combat_encounter_service
+                        combat_service = get_combat_encounter_service()
+                        combat_context = combat_service.get_combat_context()
+                        
+                        # Add combat context to messages with fresh data from service
+                        combat_context_message = {
+                            'type': 'combat_context',
+                            'combat_context': combat_context
+                        }
+                        
+                        # Remove any existing combat context messages and add fresh one
+                        compact_messages = [msg for msg in compact_messages if msg.get('type') != 'combat_context']
+                        compact_messages.append(combat_context_message)
+                        
+                        # logger.info(f"Fresh combat context from service for WebSocket: in_combat={combat_context.get('in_combat', False)}")
+                        
+                    except Exception as e:
+                        logger.error(f"Error getting combat context from service for WebSocket: {e}")
+                    
+                    # Get AI role from settings for enhanced role-based prompt generation
+                    ai_role = universal_settings.get('ai_role', 'gm')
+                    
+                    # Generate enhanced system prompt based on AI role using unified processor
+                    system_prompt = processor.generate_enhanced_system_prompt(ai_role, compact_messages)
+                    import json
+                    compact_json_context = json.dumps(compact_messages, indent=2)
+                    
+                    # Generate dynamic combat-aware prompt
+                    from services.ai_services.combat_prompt_generator import get_combat_prompt_generator
+                    
+                    combat_prompt_generator = get_combat_prompt_generator()
+                    combat_context = combat_context if combat_context else {}
+                    combat_state = combat_state if combat_state else {}
+                    
+                    dynamic_prompt = combat_prompt_generator.generate_prompt(combat_context, combat_state)
+                    
+                    # Prepare AI messages (old logic - NOT sent to AI when function calling is enabled)
+                    ai_messages = [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": f"Chat Context (Compact JSON Format):\n{compact_json_context}\n\n{dynamic_prompt}"}
+                    ]
+                    
+                    # Import shared function for AI processing (function calling or standard)
+                    from api.api_chat import process_with_function_calling_or_standard
+                    
+                    # Extract message_delta from WebSocket request data for function calling mode
+                    # Log all keys in message_data for debugging
+                    logger.debug(f"WebSocket message_data keys: {list(message_data.keys())}")
+                    logger.debug(f"WebSocket message_data content: {json.dumps({k: v for k, v in message_data.items() if k not in ['messages']}, indent=2)}")
+                    
+                    message_delta = message_data.get("message_delta", {})
+                    if message_delta:
+                        universal_settings['message_delta'] = message_delta
+                        # Store delta in WebSocketMessageCollector for AI Orchestrator to retrieve
+                        from services.message_services.websocket_message_collector import get_websocket_message_collector
+                        collector = get_websocket_message_collector()
+                        collector.set_game_delta(client_id, message_delta)
+                        logger.info(f"Game delta stored for client {client_id} from chat_request: hasChanges={message_delta.get('hasChanges', False)}")
+                    else:
+                        logger.warning(f"No message_delta found in WebSocket request. Available keys: {list(message_data.keys())}")
+                    
+                    # Use shared function for AI processing (function calling or standard)
+                    # This logic is shared with HTTP API endpoint to avoid duplication
+                    ai_response_data = await process_with_function_calling_or_standard(
+                        universal_settings=universal_settings,
+                        compact_messages=compact_messages,
+                        system_prompt=system_prompt,
+                        session_id=session_id,
+                        client_id=client_id
+                    )
+                    
+                    ai_response = ai_response_data.get("response", "")
+                    
+                    # Use unified processor to properly process AI responses
+                    api_formatted = processor.process_ai_response(ai_response, compact_messages)
+                    
+                    # Send processed messages to Foundry via WebSocket
+                    # AI response is already stored by ai_service.process_compact_context()
+                    if api_formatted and api_formatted.get("success", False):
+                        client_id_for_ws = universal_settings.get('relay_client_id')
+                        if client_id_for_ws:
+                            from api.api_chat import _send_messages_to_websocket
+                            await _send_messages_to_websocket(api_formatted, client_id_for_ws)
+                        else:
+                            logger.warning("No client ID available - cannot send messages to Foundry")
+                    else:
+                        logger.error("Failed to process AI response to API format")
+                    
+                except Exception as e:
+                    logger.error(f"Error in _handle_chat_request_full for client {client_id}: {e}", exc_info=True)
+                    await self.send_to_client(client_id, {
+                        "type": "error",
+                        "data": {
+                            "error": f"Chat request processing failed: {str(e)}",
+                            "timestamp": time.time()
+                        }
+                    })
         
         
         websocket_manager = WebSocketConnectionManager()
@@ -882,7 +1062,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register frontend settings handler")
         else:
             services['frontend_settings_handler'] = frontend_settings_handler
-            logger.info("✅ Frontend settings handler initialized and registered")
+            logger.info("OK Frontend settings handler initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize frontend settings handler: {e}")
         raise StartupServicesException(f"Frontend settings handler initialization failed: {e}")
@@ -899,7 +1079,7 @@ def get_global_services() -> Dict[str, Any]:
             raise StartupServicesException("Client manager registration failed")
         else:
             services['client_manager'] = client_manager
-            logger.info("✅ Client manager initialized and registered")
+            logger.info("OK Client manager initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize client manager: {e}")
         raise StartupServicesException(f"Client manager initialization failed: {e}")
@@ -919,7 +1099,7 @@ def get_global_services() -> Dict[str, Any]:
         else:
             services['websocket_message_collector'] = websocket_message_collector
             services['message_collector'] = websocket_message_collector
-            logger.info("✅ WebSocket message collector initialized and registered (as both websocket_message_collector and message_collector)")
+            logger.info("OK WebSocket message collector initialized and registered (as both websocket_message_collector and message_collector)")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize websocket message collector: {e}")
         raise StartupServicesException(f"WebSocket message collector initialization failed: {e}")
@@ -980,7 +1160,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register combat encounter service")
         else:
             services['combat_encounter_service'] = combat_encounter_service
-            logger.info("✅ Combat encounter service initialized and registered")
+            logger.info("OK Combat encounter service initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize combat encounter service: {e}")
         raise StartupServicesException(f"Combat encounter service initialization failed: {e}")
@@ -996,7 +1176,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register whisper service")
         else:
             services['whisper_service'] = whisper_service
-            logger.info("✅ Whisper service initialized and registered")
+            logger.info("OK Whisper service initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize whisper service: {e}")
         raise StartupServicesException(f"Whisper service initialization failed: {e}")
@@ -1014,7 +1194,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register chat card translation cache")
         else:
             services['chat_card_translation_cache'] = translation_cache
-            logger.info("✅ Chat card translation cache initialized and registered")
+            logger.info("OK Chat card translation cache initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize chat card translation cache: {e}")
         raise StartupServicesException(f"Chat card translation cache initialization failed: {e}")
@@ -1032,7 +1212,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register chat card translator")
         else:
             services['chat_card_translator'] = chat_card_translator
-            logger.info("✅ Chat card translator initialized and registered")
+            logger.info("OK Chat card translator initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize chat card translator: {e}")
         raise StartupServicesException(f"Chat card translator initialization failed: {e}")
@@ -1048,7 +1228,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register AI session manager")
         else:
             services['ai_session_manager'] = ai_session_manager
-            logger.info("✅ AI session manager initialized and registered")
+            logger.info("OK AI session manager initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize AI session manager: {e}")
         raise StartupServicesException(f"AI session manager initialization failed: {e}")
@@ -1064,7 +1244,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register message delta service")
         else:
             services['message_delta_service'] = message_delta_service
-            logger.info("✅ Message delta service initialized and registered")
+            logger.info("OK Message delta service initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize message delta service: {e}")
         raise StartupServicesException(f"Message delta service initialization failed: {e}")
@@ -1080,7 +1260,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register AI tool executor")
         else:
             services['ai_tool_executor'] = ai_tool_executor
-            logger.info("✅ AI tool executor initialized and registered")
+            logger.info("OK AI tool executor initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize AI tool executor: {e}")
         raise StartupServicesException(f"AI tool executor initialization failed: {e}")
@@ -1096,7 +1276,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register AI orchestrator")
         else:
             services['ai_orchestrator'] = ai_orchestrator
-            logger.info("✅ AI orchestrator initialized and registered")
+            logger.info("OK AI orchestrator initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize AI orchestrator: {e}")
         raise StartupServicesException(f"AI orchestrator initialization failed: {e}")
@@ -1112,7 +1292,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register testing session manager")
         else:
             services['testing_session_manager'] = testing_session_manager
-            logger.info("✅ Testing session manager initialized and registered")
+            logger.info("OK Testing session manager initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize testing session manager: {e}")
         raise StartupServicesException(f"Testing session manager initialization failed: {e}")
@@ -1128,7 +1308,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register testing harness")
         else:
             services['testing_harness'] = testing_harness
-            logger.info("✅ Testing harness initialized and registered")
+            logger.info("OK Testing harness initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize testing harness: {e}")
         raise StartupServicesException(f"Testing harness initialization failed: {e}")
@@ -1144,7 +1324,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register testing command processor")
         else:
             services['testing_command_processor'] = testing_command_processor
-            logger.info("✅ Testing command processor initialized and registered")
+            logger.info("OK Testing command processor initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize testing command processor: {e}")
         raise StartupServicesException(f"Testing command processor initialization failed: {e}")
@@ -1195,7 +1375,7 @@ def get_global_services() -> Dict[str, Any]:
                     services['services_valid'] = False
                 else:
                     services['ai_service'] = ai_service
-                    logger.info("✅ AI service initialized and registered")
+                    logger.info("OK AI service initialized and registered")
             else:
                 logger.error("Failed to create AI service")
                 services['services_valid'] = False
@@ -1207,13 +1387,13 @@ def get_global_services() -> Dict[str, Any]:
             raise StartupServicesException(f"Unexpected AI service error: {e}")
         
         if services['services_valid']:
-            logger.info("✅ All global services initialized and registered")
+            logger.info("OK All global services initialized and registered")
             # Mark registry as fully initialized
             ServiceRegistry.initialize_complete()
         else:
-            logger.warning("⚠️ Some global services failed to initialize")
+            logger.warning("WARNING  Some global services failed to initialize")
     else:
-        logger.warning("⚠️ Core services failed to initialize")
+        logger.warning("WARNING  Core services failed to initialize")
     
     return services
 
@@ -1232,7 +1412,7 @@ async def run_server_startup() -> bool:
         
         # Check if all services initialized successfully
         if services.get('services_valid', False):
-            logger.info("✅ Server startup completed successfully")
+            logger.info("OK Server startup completed successfully")
             return True
         else:
             logger.error("❌ Server startup failed - some services did not initialize properly")

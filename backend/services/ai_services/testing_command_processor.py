@@ -16,9 +16,9 @@ class TestingCommandProcessor:
     Parses simplified curl commands and converts to AI tool calls
     
     Available Simple Commands:
-    - get_messages [count] - Retrieve chat messages (default: 15)
+    - get_message_history [count] - Retrieve chat messages (default: 15)
     - post "message content" - Post simple chat message
-    - post_messages <json> - Post full message structure
+    - post_message <json> - Post full message structure
     - tool_name param1=value1 param2=value2 - Call any AI tool
     - stop - End testing session
     - status - Show current test session state
@@ -28,9 +28,9 @@ class TestingCommandProcessor:
     def __init__(self):
         """Initialize testing command processor"""
         self._available_commands = [
-            'get_messages',
+            'get_message_history',
             'post',
-            'post_messages',
+            'post_message',
             'stop',
             'status',
             'help'
@@ -76,13 +76,13 @@ class TestingCommandProcessor:
                 'arguments': None
             }
         
-        # Try to parse as get_messages
-        get_messages_match = re.match(r'^get_messages\s*(\d+)?$', command_string, re.IGNORECASE)
-        if get_messages_match:
-            count = int(get_messages_match.group(1)) if get_messages_match.group(1) else 15
+        # Try to parse as get_message_history
+        get_message_history_match = re.match(r'^get_message_history\s*(\d+)?$', command_string, re.IGNORECASE)
+        if get_message_history_match:
+            count = int(get_message_history_match.group(1)) if get_message_history_match.group(1) else 15
             return {
-                'command': 'get_messages',
-                'tool_name': 'get_messages',
+                'command': 'get_message_history',
+                'tool_name': 'get_message_history',
                 'arguments': {'count': count}
             }
         
@@ -92,7 +92,7 @@ class TestingCommandProcessor:
             message_content = post_match.group(1)
             return {
                 'command': 'post',
-                'tool_name': 'post_messages',
+                'tool_name': 'post_message',
                 'arguments': {
                     'messages': [
                         {
@@ -103,19 +103,19 @@ class TestingCommandProcessor:
                 }
             }
         
-        # Try to parse as post_messages with JSON
-        post_messages_match = re.match(r'^post_messages\s+(.+)$', command_string, re.IGNORECASE)
-        if post_messages_match:
-            json_str = post_messages_match.group(1)
+        # Try to parse as post_message with JSON
+        post_message_match = re.match(r'^post_message\s+(.+)$', command_string, re.IGNORECASE)
+        if post_message_match:
+            json_str = post_message_match.group(1)
             try:
                 messages = json.loads(json_str)
                 return {
-                    'command': 'post_messages',
-                    'tool_name': 'post_messages',
+                    'command': 'post_message',
+                    'tool_name': 'post_message',
                     'arguments': {'messages': messages}
                 }
             except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse JSON in post_messages: {e}")
+                logger.error(f"Failed to parse JSON in post_message: {e}")
                 return None
         
         # Try to parse as generic tool call
@@ -125,8 +125,12 @@ class TestingCommandProcessor:
             tool_name = tool_match.group(1)
             args_string = tool_match.group(2).strip()
             
+            logger.info(f"Parsed tool call: tool_name={tool_name}, args_string='{args_string}'")
+            
             # Parse arguments
             arguments = self._parse_arguments(args_string)
+            
+            logger.info(f"Parsed arguments: {arguments}")
             
             return {
                 'command': 'tool_call',
@@ -142,7 +146,7 @@ class TestingCommandProcessor:
         Parse arguments from command string
         
         Args:
-            args_string: Arguments string (e.g., 'count=15 "name=value"')
+            args_string: Arguments string (e.g., 'count=15 "name=value"' or 'rolls=[{"formula":"1d20"}]')
             
         Returns:
             Dictionary of parsed arguments
@@ -158,9 +162,43 @@ class TestingCommandProcessor:
         except json.JSONDecodeError:
             pass
         
-        # Parse as key=value pairs
+        # Try to parse as key=value pairs with JSON values
+        # Handle cases like: rolls=[{"formula":"1d20"}]
+        # Pattern: key=value where value can be complex JSON
+        key_value_pattern = r'^(\w+)=(.+)$'
+        kv_match = re.match(key_value_pattern, args_string.strip())
+        
+        if kv_match:
+            key = kv_match.group(1)
+            value_str = kv_match.group(2).strip()
+            
+            # Try to parse value as JSON
+            try:
+                value = json.loads(value_str)
+                arguments[key] = value
+            except json.JSONDecodeError:
+                # Not JSON, treat as simple value
+                # Remove quotes if present
+                if value_str.startswith('"') and value_str.endswith('"'):
+                    value_str = value_str[1:-1]
+                elif value_str.startswith("'") and value_str.endswith("'"):
+                    value_str = value_str[1:-1]
+                
+                # Try to convert to int or float
+                try:
+                    value = int(value_str)
+                except ValueError:
+                    try:
+                        value = float(value_str)
+                    except ValueError:
+                        value = value_str  # Keep as string
+                
+                arguments[key] = value
+            
+            return arguments
+        
+        # Fallback to simple key=value parsing for multiple arguments
         # Handle quoted values
-        # Pattern: key="quoted value" or key=value
         pattern = r'(\w+)=("[^"]*"|\'[^\']*\'|\S+)'
         matches = re.findall(pattern, args_string)
         
@@ -247,20 +285,20 @@ class TestingCommandProcessor:
             
             arguments = parsed_command.get('arguments', {})
             
-            # Validate get_messages arguments
-            if tool_name == 'get_messages':
+            # Validate get_message_history arguments
+            if tool_name == 'get_message_history':
                 count = arguments.get('count', 15)
                 if not isinstance(count, int) or count < 1 or count > 50:
-                    return False, "get_messages count must be an integer between 1 and 50"
+                    return False, "get_message_history count must be an integer between 1 and 50"
             
-            # Validate post_messages arguments
-            if tool_name == 'post_messages':
+            # Validate post_message arguments
+            if tool_name == 'post_message':
                 messages = arguments.get('messages', [])
                 if not isinstance(messages, list):
-                    return False, "post_messages requires a 'messages' array"
+                    return False, "post_message requires a 'messages' array"
                 
                 if len(messages) == 0:
-                    return False, "post_messages requires at least one message"
+                    return False, "post_message requires at least one message"
                 
                 for i, msg in enumerate(messages):
                     if not isinstance(msg, dict):
@@ -290,23 +328,23 @@ class TestingCommandProcessor:
         help_text = """
 Available Testing Commands:
 
-1. get_messages [count]
+1. get_message_history [count]
    Retrieve recent chat messages from Foundry
-   Example: get_messages 15
+   Example: get_message_history 15
    Default count: 15
 
 2. post "message content"
    Post a simple chat message to Foundry
    Example: post "Hello from testing!"
 
-3. post_messages <json>
+3. post_message <json>
    Post full message structure with options
-   Example: post_messages messages=[{"content": "Hello", "type": "chat-message"}]
+   Example: post_message messages=[{"content": "Hello", "type": "chat-message"}]
 
 4. <tool_name> param1=value1 param2=value2
    Call any AI tool with parameters
-   Example: get_messages count=20
-   Example: post_messages messages=[{"content": "Test", "type": "chat-card"}]
+   Example: get_message_history count=20
+   Example: post_message messages=[{"content": "Test", "type": "chat-card"}]
 
 5. stop
    End the testing session
@@ -338,7 +376,7 @@ Tips:
         Returns:
             Formatted response dictionary
         """
-        if tool_name == 'get_messages':
+        if tool_name == 'get_message_history':
             # Tool executor returns 'content' field, not 'messages'
             messages = result.get('content', [])
             return {
@@ -349,7 +387,7 @@ Tips:
                 }
             }
         
-        elif tool_name == 'post_messages':
+        elif tool_name == 'post_message':
             # Tool executor returns 'sent_count' and 'results', not 'messages_sent' and 'message_ids'
             return {
                 'success': True,
