@@ -63,8 +63,18 @@ class WebSocketHandler:
             token = connect_message.get("token")
             
             if not client_id or not token:
+                # Send user-friendly authentication error message
+                error_message = {
+                    "type": "error",
+                    "data": {
+                        "error": "Authentication failed",
+                        "message": "Please set your backend server password in The Gold Box settings. Navigate to Configure Settings -> The Gold Box -> Backend Password.",
+                        "code": "AUTH_REQUIRED"
+                    }
+                }
+                await websocket.send_json(error_message)
                 await websocket.close(code=1008, reason="Missing client_id or token")
-                logger.warning("WebSocket: Missing client_id or token")
+                logger.warning(f"WebSocket: Missing client_id or token for connection attempt")
                 return
             
             # Check for duplicate connections

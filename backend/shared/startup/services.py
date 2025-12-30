@@ -1062,7 +1062,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register frontend settings handler")
         else:
             services['frontend_settings_handler'] = frontend_settings_handler
-            logger.info("✅ Frontend settings handler initialized and registered")
+            logger.info("OK Frontend settings handler initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize frontend settings handler: {e}")
         raise StartupServicesException(f"Frontend settings handler initialization failed: {e}")
@@ -1079,7 +1079,7 @@ def get_global_services() -> Dict[str, Any]:
             raise StartupServicesException("Client manager registration failed")
         else:
             services['client_manager'] = client_manager
-            logger.info("✅ Client manager initialized and registered")
+            logger.info("OK Client manager initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize client manager: {e}")
         raise StartupServicesException(f"Client manager initialization failed: {e}")
@@ -1099,7 +1099,7 @@ def get_global_services() -> Dict[str, Any]:
         else:
             services['websocket_message_collector'] = websocket_message_collector
             services['message_collector'] = websocket_message_collector
-            logger.info("✅ WebSocket message collector initialized and registered (as both websocket_message_collector and message_collector)")
+            logger.info("OK WebSocket message collector initialized and registered (as both websocket_message_collector and message_collector)")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize websocket message collector: {e}")
         raise StartupServicesException(f"WebSocket message collector initialization failed: {e}")
@@ -1160,7 +1160,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register combat encounter service")
         else:
             services['combat_encounter_service'] = combat_encounter_service
-            logger.info("✅ Combat encounter service initialized and registered")
+            logger.info("OK Combat encounter service initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize combat encounter service: {e}")
         raise StartupServicesException(f"Combat encounter service initialization failed: {e}")
@@ -1176,7 +1176,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register whisper service")
         else:
             services['whisper_service'] = whisper_service
-            logger.info("✅ Whisper service initialized and registered")
+            logger.info("OK Whisper service initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize whisper service: {e}")
         raise StartupServicesException(f"Whisper service initialization failed: {e}")
@@ -1194,7 +1194,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register chat card translation cache")
         else:
             services['chat_card_translation_cache'] = translation_cache
-            logger.info("✅ Chat card translation cache initialized and registered")
+            logger.info("OK Chat card translation cache initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize chat card translation cache: {e}")
         raise StartupServicesException(f"Chat card translation cache initialization failed: {e}")
@@ -1212,7 +1212,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register chat card translator")
         else:
             services['chat_card_translator'] = chat_card_translator
-            logger.info("✅ Chat card translator initialized and registered")
+            logger.info("OK Chat card translator initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize chat card translator: {e}")
         raise StartupServicesException(f"Chat card translator initialization failed: {e}")
@@ -1228,7 +1228,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register AI session manager")
         else:
             services['ai_session_manager'] = ai_session_manager
-            logger.info("✅ AI session manager initialized and registered")
+            logger.info("OK AI session manager initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize AI session manager: {e}")
         raise StartupServicesException(f"AI session manager initialization failed: {e}")
@@ -1244,7 +1244,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register message delta service")
         else:
             services['message_delta_service'] = message_delta_service
-            logger.info("✅ Message delta service initialized and registered")
+            logger.info("OK Message delta service initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize message delta service: {e}")
         raise StartupServicesException(f"Message delta service initialization failed: {e}")
@@ -1260,7 +1260,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register AI tool executor")
         else:
             services['ai_tool_executor'] = ai_tool_executor
-            logger.info("✅ AI tool executor initialized and registered")
+            logger.info("OK AI tool executor initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize AI tool executor: {e}")
         raise StartupServicesException(f"AI tool executor initialization failed: {e}")
@@ -1276,7 +1276,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register AI orchestrator")
         else:
             services['ai_orchestrator'] = ai_orchestrator
-            logger.info("✅ AI orchestrator initialized and registered")
+            logger.info("OK AI orchestrator initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize AI orchestrator: {e}")
         raise StartupServicesException(f"AI orchestrator initialization failed: {e}")
@@ -1292,7 +1292,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register testing session manager")
         else:
             services['testing_session_manager'] = testing_session_manager
-            logger.info("✅ Testing session manager initialized and registered")
+            logger.info("OK Testing session manager initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize testing session manager: {e}")
         raise StartupServicesException(f"Testing session manager initialization failed: {e}")
@@ -1308,7 +1308,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register testing harness")
         else:
             services['testing_harness'] = testing_harness
-            logger.info("✅ Testing harness initialized and registered")
+            logger.info("OK Testing harness initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize testing harness: {e}")
         raise StartupServicesException(f"Testing harness initialization failed: {e}")
@@ -1324,7 +1324,7 @@ def get_global_services() -> Dict[str, Any]:
             logger.error("Failed to register testing command processor")
         else:
             services['testing_command_processor'] = testing_command_processor
-            logger.info("✅ Testing command processor initialized and registered")
+            logger.info("OK Testing command processor initialized and registered")
     except (ImportError, RuntimeError) as e:
         logger.error(f"Failed to initialize testing command processor: {e}")
         raise StartupServicesException(f"Testing command processor initialization failed: {e}")
@@ -1375,7 +1375,7 @@ def get_global_services() -> Dict[str, Any]:
                     services['services_valid'] = False
                 else:
                     services['ai_service'] = ai_service
-                    logger.info("✅ AI service initialized and registered")
+                    logger.info("OK AI service initialized and registered")
             else:
                 logger.error("Failed to create AI service")
                 services['services_valid'] = False
@@ -1387,13 +1387,13 @@ def get_global_services() -> Dict[str, Any]:
             raise StartupServicesException(f"Unexpected AI service error: {e}")
         
         if services['services_valid']:
-            logger.info("✅ All global services initialized and registered")
+            logger.info("OK All global services initialized and registered")
             # Mark registry as fully initialized
             ServiceRegistry.initialize_complete()
         else:
-            logger.warning("⚠️  Some global services failed to initialize")
+            logger.warning("WARNING  Some global services failed to initialize")
     else:
-        logger.warning("⚠️  Core services failed to initialize")
+        logger.warning("WARNING  Core services failed to initialize")
     
     return services
 
@@ -1412,7 +1412,7 @@ async def run_server_startup() -> bool:
         
         # Check if all services initialized successfully
         if services.get('services_valid', False):
-            logger.info("✅ Server startup completed successfully")
+            logger.info("OK Server startup completed successfully")
             return True
         else:
             logger.error("❌ Server startup failed - some services did not initialize properly")

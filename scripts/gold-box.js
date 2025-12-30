@@ -8,7 +8,9 @@
  * Refactored: Now uses unified WebSocketCommunicator
  */
 class GoldBoxAPI {
-  constructor() {
+  constructor(uiManager) {
+    // UI Manager reference for button state management
+    this.uiManager = uiManager;
     // Use unified WebSocket communicator
     this.communicator = new WebSocketCommunicator();
     // SettingsManager will be set from module
@@ -74,18 +76,14 @@ class GoldBoxAPI {
       if (response.success) {
         // WebSocket mode - response comes via WebSocket message handler
         console.log('The Gold Box: WebSocket request sent, waiting for async response via WebSocket handler');
-        // Set up a timeout to reset button if no response comes
-        setTimeout(() => {
-          if (buttonElement && buttonElement.disabled) {
-            console.warn('The Gold Box: WebSocket response timeout, resetting button state');
-            this.setButtonProcessingState(buttonElement, false);
-            moduleInstance.uiManager.displayErrorResponse('AI response timeout - no response received via WebSocket');
-          }
-        }, timeout * 1000);
         return; // Don't reset button yet - wait for WebSocket response
       } else {
         // Display error response
         moduleInstance.uiManager.displayErrorResponse(response.error || 'Unknown error occurred');
+        // Reset button on error
+        if (buttonElement) {
+          this.setButtonProcessingState(buttonElement, false);
+        }
       }
       
     } catch (error) {
@@ -126,16 +124,34 @@ class GoldBoxAPI {
       window.FrontendDeltaService?.resetDeltaCounts();
     }
   }
+
+  /**
+   * Unified cleanup handler for turn completion
+   * Handles both button state reset and delta counter reset
+   * Called when AI turn completes or test session ends
+   */
+  handleTurnCompletion() {
+    console.log('The Gold Box: Handling turn completion - resetting button state and delta counters');
+    
+    // Reset button state via state machine
+    this.uiManager.aiTurnButtonHandler.onAITurnEnded();
+    
+    // Reset delta counters
+    window.FrontendDeltaService?.resetDeltaCounts();
+    
+    console.log('The Gold Box: Turn completion handled successfully');
+  }
 }
 
 class GoldBoxModule {
   constructor() {
     this.hooks = [];
-    this.api = new GoldBoxAPI();
     // Initialize Settings Manager
     this.settingsManager = new SettingsManager();
     // Initialize UI Manager
     this.uiManager = new GoldBoxUIManager(this.settingsManager, this);
+    // Initialize API with UI Manager reference
+    this.api = new GoldBoxAPI(this.uiManager);
   }
 
   /**
@@ -173,6 +189,9 @@ class GoldBoxModule {
   async initializeWebSocketConnection() {
     console.log('The Gold Box: Initializing native WebSocket connection...');
     
+    // Set button to disconnected state initially
+    this.uiManager.aiTurnButtonHandler.onWebSocketDisconnected();
+    
     // Check if WebSocket client is available
     if (typeof GoldBoxWebSocketClient !== 'undefined') {
       try {
@@ -184,7 +203,9 @@ class GoldBoxModule {
         this.webSocketClient = new GoldBoxWebSocketClient(
           wsUrl,
           (message) => this.handleWebSocketMessage(message),
-          (error) => this.handleWebSocketError(error)
+          (error) => this.handleWebSocketError(error),
+          () => this.uiManager.aiTurnButtonHandler.onWebSocketConnected(),  // onConnected callback
+          () => this.uiManager.aiTurnButtonHandler.onWebSocketDisconnected() // onDisconnected callback
         );
 
         // Initialize message collector
@@ -214,6 +235,9 @@ class GoldBoxModule {
           // Store WebSocket client reference in API for message collection
           this.api.webSocketClient = this.webSocketClient;
           
+          // Set button to connected state
+          this.uiManager.aiTurnButtonHandler.onWebSocketConnected();
+          
           console.log('The Gold Box: WebSocket connection ready');
           console.log('The Gold Box: WebSocket client details:', this.webSocketClient.getConnectionStatus());
           return true;
@@ -223,6 +247,10 @@ class GoldBoxModule {
           if (this.messageCollector) {
             this.messageCollector.stop();
           }
+          // Explicitly keep button in DISCONNECTED state on failed connection
+          setTimeout(() => {
+            this.uiManager.aiTurnButtonHandler.onWebSocketDisconnected();
+          }, 100);
           return false;
         }
         
@@ -232,11 +260,19 @@ class GoldBoxModule {
         if (this.messageCollector) {
           this.messageCollector.stop();
         }
+        // Explicitly keep button in DISCONNECTED state on connection error
+        setTimeout(() => {
+          this.uiManager.aiTurnButtonHandler.onWebSocketDisconnected();
+        }, 100);
         return false;
       }
     } else {
       console.warn('The Gold Box: GoldBoxWebSocketClient class not available - WebSocket client module may not be loaded');
       this.webSocketClient = null;
+      // Explicitly keep button in DISCONNECTED state when class not available
+      setTimeout(() => {
+        this.uiManager.aiTurnButtonHandler.onWebSocketDisconnected();
+      }, 100);
       return false;
     }
   }
@@ -246,6 +282,10 @@ class GoldBoxModule {
    */
   async initializeWithConnectionManager() {
     console.log('The Gold Box: Initializing with WebSocket Communicator...');
+    
+    // Set button to DISCONNECTED state BEFORE any connection attempt
+    // This ensures button is correct state regardless of success/failure
+    this.uiManager.aiTurnButtonHandler.onWebSocketDisconnected();
     
     try {
       // Step 1: Initialize WebSocket Communicator
@@ -275,6 +315,7 @@ class GoldBoxModule {
     } catch (error) {
       console.error('The Gold Box: Initialization failed:', error);
       console.log('The Gold Box: Initialization complete - error state');
+      // Button already set to DISCONNECTED at start of method
       return false;
     }
   }
@@ -462,8 +503,8 @@ class GoldBoxModule {
       return;
     }
     
-    // Set processing state
-    this.api.setButtonProcessingState(button, true);
+    // Set processing state using state machine
+    this.uiManager.aiTurnButtonHandler.onAITurnStarted();
     
     try {
       // WebSocket-only: collect messages from Foundry chat and send via WebSocket
@@ -611,14 +652,10 @@ class GoldBoxModule {
       
       switch (message.type) {
         case 'chat_response':
-          // Reset button state when response is received via WebSocket
-          const button = document.getElementById('gold-box-ai-turn-btn');
-          if (button && button.disabled) {
-            this.api.setButtonProcessingState(button, false);
-            console.log('The Gold Box: Reset button state after WebSocket response received');
-          }
-          
           // Handle AI response from WebSocket - NEW: support structured message data
+          // NOTE: Do NOT reset button here - wait for ai_turn_complete message
+          console.log('The Gold Box: Received chat_response (not resetting button yet)');
+          
           if (message.data && message.data.message) {
             const msgData = message.data.message;
             
@@ -652,13 +689,21 @@ class GoldBoxModule {
           }
           break;
           
+        case 'ai_turn_complete':
+          // Use unified cleanup handler for turn completion
+          // This is the ONLY place where we reset the button state
+          this.api.handleTurnCompletion();
+          console.log('The Gold Box: Turn completion handled via WebSocket ai_turn_complete message');
+          
+          if (message.data && message.data.test_mode) {
+            console.log('The Gold Box: Test mode turn completed');
+          }
+          break;
+          
         case 'error':
           // Reset button state on error as well
-          const errorButton = document.getElementById('gold-box-ai-turn-btn');
-          if (errorButton && errorButton.disabled) {
-            this.api.setButtonProcessingState(errorButton, false);
-            console.log('The Gold Box: Reset button state after WebSocket error received');
-          }
+          this.uiManager.aiTurnButtonHandler.onAITurnError(message.data);
+          console.log('The Gold Box: Reset button state after WebSocket error received');
           
           // Handle error from WebSocket
           if (message.data && message.data.error) {
@@ -676,11 +721,8 @@ class GoldBoxModule {
     } catch (error) {
       console.error('The Gold Box: Error handling WebSocket message:', error);
       // Reset button state on error in message handling as well
-      const errorButton = document.getElementById('gold-box-ai-turn-btn');
-      if (errorButton && errorButton.disabled) {
-        this.api.setButtonProcessingState(errorButton, false);
-        console.log('The Gold Box: Reset button state after message handling error');
-      }
+      this.uiManager.aiTurnButtonHandler.onAITurnError(error);
+      console.log('The Gold Box: Reset button state after message handling error');
     }
   }
 
@@ -690,8 +732,14 @@ class GoldBoxModule {
   handleWebSocketError(error) {
     console.error('The Gold Box: WebSocket error:', error);
     
-    // Show error notification to user
-    this.uiManager.showErrorNotification('WebSocket connection error: ' + (error.message || error));
+    // Check if it's an authentication error with user-friendly message
+    if (error && error.includes && error.includes('Please set your backend server password')) {
+      // Display as permanent notification since user needs to take action
+      this.uiManager.showErrorNotification(error);
+    } else {
+      // Show generic error notification for other errors
+      this.uiManager.showErrorNotification('WebSocket connection error: ' + (error.message || error));
+    }
   }
 
   /**

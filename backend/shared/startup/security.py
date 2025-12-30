@@ -85,7 +85,7 @@ def initialize_session_manager():
         if not ServiceRegistry.register('session_manager', session_validator):
             logger.error("Failed to register session manager with ServiceRegistry")
         else:
-            logger.info("✅ Session manager registered with ServiceRegistry")
+            logger.info("OK Session manager registered with ServiceRegistry")
         
         logger.info("Session manager initialized")
         return session_validator

@@ -460,8 +460,8 @@ async def handle_end_test_session(request_data: Dict[str, Any], logger: logging.
         else:
             logger.info(f"Test session {test_session_id} ended for client {client_id} without WebSocket reset")
         
-        # End session
-        result = testing_harness.end_test(test_session_id, testing_session_manager)
+        # End session (await since end_test is now async)
+        result = await testing_harness.end_test(test_session_id, testing_session_manager)
         
         if not result['success']:
             raise HTTPException(

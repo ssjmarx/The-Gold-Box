@@ -377,7 +377,7 @@ class SessionManager {
 
     // Try to show user notification
     if (typeof ui !== 'undefined' && ui.notifications) {
-      ui.notifications.error('⚠️ Session expiring soon! Server connection may be unstable. Please refresh the page.', {
+      ui.notifications.error('WARNING: Session expiring soon! Server connection may be unstable. Please refresh page.', {
         permanent: true
       });
     }
@@ -390,7 +390,7 @@ class SessionManager {
             <strong>The Gold Box - Critical Session Warning</strong>
           </div>
           <div class="gold-box-content">
-            <p><strong>⚠️ Session expiring soon!</strong></p>
+            <p><strong>WARNING: Session expiring soon!</strong></p>
             <p>The backend connection is unstable and may fail soon. Please refresh the page to restore connection.</p>
             <p><em>If this persists, the backend server may be down or experiencing issues.</em></p>
           </div>

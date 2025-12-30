@@ -8,9 +8,57 @@ License: CC-BY-NC-SA 4.0 (compatible with dependencies)
 
 import os
 import logging
+import json
 from typing import Dict, Any, List
 from pathlib import Path
 from dotenv import load_dotenv
+
+
+class JSONPrettyFormatter(logging.Formatter):
+    """
+    Custom logging formatter that automatically detects and pretty-prints JSON objects
+    with proper indentation for better readability in logs.
+    """
+    
+    def format(self, record):
+        message = super().format(record)
+        
+        # Try to detect and pretty-print JSON
+        try:
+            # Check if message contains JSON-like patterns
+            if '{' in message and '}' in message:
+                # Extract and format JSON portions
+                lines = message.split('\n')
+                formatted_lines = []
+                
+                for line in lines:
+                    # Simple heuristic: if line starts with dict-like structure
+                    stripped_line = line.strip()
+                    if (stripped_line.startswith('{') or stripped_line.startswith('[')) and not stripped_line.startswith('#'):
+                        try:
+                            # Attempt to parse as JSON
+                            parsed = json.loads(stripped_line)
+                            # Pretty-print with 2-space indentation
+                            formatted_json = json.dumps(parsed, indent=2, ensure_ascii=False)
+                            # Indent the JSON to match original line indentation
+                            original_indent = len(line) - len(line.lstrip())
+                            indented_json = '\n'.join(
+                                ' ' * original_indent + json_line
+                                for json_line in formatted_json.split('\n')
+                            )
+                            formatted_lines.append(indented_json)
+                        except (json.JSONDecodeError, ValueError):
+                            # Not valid JSON, keep original line
+                            formatted_lines.append(line)
+                    else:
+                        formatted_lines.append(line)
+                
+                message = '\n'.join(formatted_lines)
+        except Exception:
+            # If anything goes wrong, return original message
+            pass
+        
+        return message
 
 def get_absolute_path(relative_path: str) -> Path:
     """
@@ -85,7 +133,7 @@ def setup_cors_origins(flask_env: str) -> List[str]:
 
 def configure_logging(log_level: str, log_file: str) -> bool:
     """
-    Configure logging for the application.
+    Configure logging for the application with JSONPrettyFormatter.
     
     Args:
         log_level: Logging level (INFO, DEBUG, etc.)
@@ -96,14 +144,26 @@ def configure_logging(log_level: str, log_file: str) -> bool:
     """
     try:
         log_level_obj = getattr(logging, log_level.upper(), logging.WARNING)
+        
+        # Create JSONPrettyFormatter with custom format
+        formatter = JSONPrettyFormatter(
+            fmt='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        
+        # Configure root logger with custom formatter
         logging.basicConfig(
             level=log_level_obj,
-            format='%(asctime)s - %(levelname)s - %(message)s',
             handlers=[
                 logging.FileHandler(log_file),
                 logging.StreamHandler()
             ]
         )
+        
+        # Apply JSONPrettyFormatter to all handlers
+        for handler in logging.root.handlers:
+            handler.setFormatter(formatter)
+        
         return True
     except Exception as e:
         print(f"Failed to configure logging: {e}")

@@ -193,7 +193,8 @@ class AIOrchestrator:
                 'success': True,
                 'response': response_data.get('response', ''),
                 'iterations': iteration,
-                'tokens_used': response_data.get('tokens_used', 0)
+                'tokens_used': response_data.get('tokens_used', 0),
+                'complete': True  # Signal that AI turn is complete
             }
         
         # Max iterations reached - execute current tool calls, then pause

@@ -89,7 +89,8 @@ async def api_chat(http_request: Request, request: APIChatRequest):
             logger.info("Processing API chat request with original request data")
         
         # Use UniversalSettings as single source of truth - no fallbacks
-        universal_settings = extract_universal_settings(request, "api_chat")
+        # Pass settings dict (not Pydantic model) to extract_universal_settings
+        universal_settings = extract_universal_settings(settings, "api_chat")
         logger.info("Using UniversalSettings as single source of truth")
         
         # Extract client ID from validated settings
@@ -428,6 +429,24 @@ async def process_with_function_calling_or_standard(
         )
         
         logger.info(f"AI Orchestrator completed function calling loop: {ai_response_data.get('iterations', 0)} iterations")
+        
+        # Send ai_turn_complete message to client via WebSocket
+        if ai_response_data.get('complete', False):
+            try:
+                ws_manager = get_websocket_manager()
+                completion_message = {
+                    "type": "ai_turn_complete",
+                    "data": {
+                        "success": True,
+                        "tokens_used": ai_response_data.get('tokens_used', 0),
+                        "iterations": ai_response_data.get('iterations', 0)
+                    }
+                }
+                await ws_manager.send_to_client(client_id, completion_message)
+                logger.info(f"Sent ai_turn_complete message to client {client_id}")
+            except Exception as e:
+                logger.error(f"Error sending ai_turn_complete message: {e}")
+        
         return ai_response_data
         
     else:

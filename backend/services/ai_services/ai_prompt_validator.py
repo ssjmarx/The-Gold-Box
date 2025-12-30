@@ -383,7 +383,7 @@ class AIPromptValidator:
         errors = self.validation_results['errors'][:3]  # Show first 3 errors
         warnings = self.validation_results['warnings'][:2]  # Show first 2 warnings
         
-        message_parts = ["🚫 **AI Prompt Blocked - Data Quality Issues**\n"]
+        message_parts = ["**AI Prompt Blocked - Data Quality Issues**\n"]
         
         if errors:
             message_parts.append("**Errors:**\n")
@@ -450,7 +450,7 @@ class AIPromptValidator:
         if not self.validation_results:
             return "No validation performed"
         
-        status = "✅ VALID" if self.validation_results['is_valid'] else "❌ INVALID"
+        status = "VALID" if self.validation_results['is_valid'] else "INVALID"
         return (f"{status} | Quality: {self.validation_results['data_quality_score']:.1f}% | "
                 f"Context: {self.validation_results['context_completeness']:.1f}% | "
                 f"Fresh: {self.validation_results['data_freshness']:.1f}% | "

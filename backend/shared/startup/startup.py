@@ -187,7 +187,7 @@ class ServerStartup:
                 logger.error("Failed to register provider manager with service registry")
                 return False
             
-            logger.info("✅ Key manager and provider manager registered with service registry (direct initialization)")
+            logger.info("OK Key manager and provider manager registered with service registry (direct initialization)")
             
             # Handle key management
             if not manage_keys(self.manager, self.config['GOLD_BOX_KEYCHANGE']):
@@ -284,7 +284,7 @@ class ServerStartup:
             # Server startup information
             print(f"FastAPI Server starting on http://localhost:{self.available_port}")
             print("=" * 60)
-            print("🔒 Universal Security Middleware is now active and protecting all endpoints")
+            print("Universal Security Middleware is now active and protecting all endpoints")
             print("=" * 60)
             
         except Exception as e:
@@ -303,7 +303,7 @@ class ServerStartup:
             from .services import start_websocket_chat_handler
             websocket_started = asyncio.run(start_websocket_chat_handler())
             if not websocket_started:
-                print("⚠️  Warning: Failed to initialize WebSocket endpoint. Native chat functionality may not work.")
+                print("WARNING  Warning: Failed to initialize WebSocket endpoint. Native chat functionality may not work.")
             
             # Start FastAPI server with uvicorn
             uvicorn.run(

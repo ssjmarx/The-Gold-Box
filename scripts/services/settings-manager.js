@@ -55,7 +55,8 @@ class SettingsManager {
       scope: "world",
       config: false, // Not editable by user
       type: String,
-      default: "checking..."
+      default: "checking...",
+      group: "general"
     });
   }
 
@@ -70,7 +71,8 @@ class SettingsManager {
         scope: "world",
         config: true,
         type: String,
-        default: ""
+        default: "",
+        group: "general"
       });
       console.log('SettingsManager: Successfully registered backendPassword setting');
     } catch (error) {
@@ -88,7 +90,8 @@ class SettingsManager {
       scope: "world",
       config: true,
       type: Number,
-      default: 5000
+      default: 5000,
+      group: "general"
     });
   }
 
@@ -103,7 +106,8 @@ class SettingsManager {
       scope: "world",
       config: true,
       type: Number,
-      default: 60
+      default: 60,
+      group: "general"
     });
   }
 
@@ -122,7 +126,8 @@ class SettingsManager {
         "dm_assistant": "DM Assistant",
         "player": "Player"
       },
-      default: "dm"
+      default: "dm",
+      group: "general"
     });
   }
 
@@ -136,7 +141,8 @@ class SettingsManager {
       scope: "world",
       config: true,
       type: Boolean,
-      default: false
+      default: false,
+      group: "general"
     });
   }
 
@@ -151,7 +157,8 @@ class SettingsManager {
       scope: "world",
       config: true,
       type: String,
-      default: ""
+      default: "",
+      group: "general_llm"
     });
 
     // General LLM Base URL
@@ -161,7 +168,8 @@ class SettingsManager {
       scope: "world",
       config: true,
       type: String,
-      default: ""
+      default: "",
+      group: "general_llm"
     });
 
     // General LLM Model
@@ -171,7 +179,8 @@ class SettingsManager {
       scope: "world",
       config: true,
       type: String,
-      default: ""
+      default: "",
+      group: "general_llm"
     });
 
     // General LLM Version
@@ -181,7 +190,8 @@ class SettingsManager {
       scope: "world",
       config: true,
       type: String,
-      default: "v1"
+      default: "v1",
+      group: "general_llm"
     });
 
 
@@ -192,7 +202,8 @@ class SettingsManager {
       scope: "world",
       config: true,
       type: Number,
-      default: 3
+      default: 3,
+      group: "general_llm"
     });
 
     // General LLM Custom Headers
@@ -202,7 +213,8 @@ class SettingsManager {
       scope: "world",
       config: true,
       type: String,
-      default: ""
+      default: "",
+      group: "general_llm"
     });
   }
 
@@ -217,7 +229,8 @@ class SettingsManager {
       scope: "world",
       config: true,
       type: String,
-      default: ""
+      default: "",
+      group: "tactical_llm"
     });
 
     // Tactical LLM Base URL
@@ -227,7 +240,8 @@ class SettingsManager {
       scope: "world",
       config: true,
       type: String,
-      default: ""
+      default: "",
+      group: "tactical_llm"
     });
 
     // Tactical LLM Model
@@ -237,7 +251,8 @@ class SettingsManager {
       scope: "world",
       config: true,
       type: String,
-      default: ""
+      default: "",
+      group: "tactical_llm"
     });
 
     // Tactical LLM Version
@@ -247,7 +262,8 @@ class SettingsManager {
       scope: "world",
       config: true,
       type: String,
-      default: "v1"
+      default: "v1",
+      group: "tactical_llm"
     });
 
 
@@ -258,7 +274,8 @@ class SettingsManager {
       scope: "world",
       config: true,
       type: Number,
-      default: 3
+      default: 3,
+      group: "tactical_llm"
     });
 
     // Tactical LLM Custom Headers
@@ -268,7 +285,8 @@ class SettingsManager {
       scope: "world",
       config: true,
       type: String,
-      default: ""
+      default: "",
+      group: "tactical_llm"
     });
   }
 
@@ -360,13 +378,13 @@ class SettingsManager {
         'general llm model': this.getSetting('generalLlmModel', ''),
         'general llm version': this.getSetting('generalLlmVersion', 'v1'),
         'general llm timeout': this.getSetting('aiResponseTimeout', 60),
-        'general llm max retries': this.getSetting('generalLlmMaxRetries',3),
+        'general llm max retries': this.getSetting('generalLlmMaxRetries', 3),
         'general llm custom headers': this.getSetting('generalLlmCustomHeaders', ''),
         'tactical llm provider': this.getSetting('tacticalLlmProvider', ''),
         'tactical llm base url': this.getSetting('tacticalLlmBaseUrl', ''),
         'tactical llm model': this.getSetting('tacticalLlmModel', ''),
         'tactical llm version': this.getSetting('tacticalLlmVersion', 'v1'),
-        'tactical llm max retries': this.getSetting('tacticalLlmMaxRetries',3),
+        'tactical llm max retries': this.getSetting('tacticalLlmMaxRetries', 3),
         'tactical llm custom headers': this.getSetting('tacticalLlmCustomHeaders', ''),
         'backend password': this.getSetting('backendPassword', '')
       };

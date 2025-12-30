@@ -11,13 +11,13 @@
 This document captures speculative enhancements discussed during architecture analysis. These are NOT planned for implementation, but preserved for reference when considering future improvements. The current implementation is sound and well-designed for the project's specific requirements.
 
 **Current Architecture Strengths**:
-- ✅ Single server → Single Foundry deployment
-- ✅ One AI at a time (natural concurrency limit)
-- ✅ User-triggered only (human rate limiting)
-- ✅ Poll-based AI (request/response pattern)
-- ✅ Roll results via Foundry (multi-step function call workflow)
-- ✅ Fast/slow path WebSocket separation
-- ✅ Hybrid WebSocket + HTTP communication
+- OK Single server → Single Foundry deployment
+- OK One AI at a time (natural concurrency limit)
+- OK User-triggered only (human rate limiting)
+- OK Poll-based AI (request/response pattern)
+- OK Roll results via Foundry (multi-step function call workflow)
+- OK Fast/slow path WebSocket separation
+- OK Hybrid WebSocket + HTTP communication
 
 ---
 
@@ -952,11 +952,11 @@ async def get_metrics(request: Request):
 
 ### Current Architecture Strengths
 
-✅ **Fast path for roll_result is critical and well-implemented**
-✅ **Fire-and-forget for slow path is appropriate (single AI + human-triggered)**
-✅ **Hybrid WebSocket + HTTP communication is optimal**
-✅ **Settings sync on "Take AI Turn" is efficient**
-✅ **Don't over-engineer - constraints make complex solutions unnecessary**
+OK **Fast path for roll_result is critical and well-implemented**
+OK **Fire-and-forget for slow path is appropriate (single AI + human-triggered)**
+OK **Hybrid WebSocket + HTTP communication is optimal**
+OK **Settings sync on "Take AI Turn" is efficient**
+OK **Don't over-engineer - constraints make complex solutions unnecessary**
 
 ### Focus Areas
 

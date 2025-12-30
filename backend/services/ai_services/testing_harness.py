@@ -290,7 +290,7 @@ class TestingHarness:
         
         return mock_response
     
-    def end_test(self, test_session_id: str, testing_session_manager) -> Dict[str, Any]:
+    async def end_test(self, test_session_id: str, testing_session_manager) -> Dict[str, Any]:
         """
         End test session and return summary
         
@@ -304,6 +304,27 @@ class TestingHarness:
         session_summary = testing_session_manager.end_session(test_session_id)
         
         if session_summary:
+            # Send ai_turn_complete message to client via WebSocket
+            try:
+                from services.system_services.service_factory import get_websocket_manager
+                ws_manager = get_websocket_manager()
+                
+                client_id = session_summary.get('client_id')
+                if client_id:
+                    completion_message = {
+                        "type": "ai_turn_complete",
+                        "data": {
+                            "success": True,
+                            "tokens_used": 0,
+                            "iterations": session_summary.get('commands_executed', 0),
+                            "test_mode": True
+                        }
+                    }
+                    await ws_manager.send_to_client(client_id, completion_message)
+                    logger.info(f"Sent ai_turn_complete message to client {client_id} for test session {test_session_id}")
+            except Exception as e:
+                logger.error(f"Error sending ai_turn_complete message for test session: {e}")
+            
             # Clean up session
             testing_session_manager.cleanup_session(test_session_id)
             
@@ -318,9 +339,9 @@ class TestingHarness:
                 'error': 'Test session not found'
             }
     
-    def _handle_stop_command(self, test_session_id: str, testing_session_manager) -> Dict[str, Any]:
+    async def _handle_stop_command(self, test_session_id: str, testing_session_manager) -> Dict[str, Any]:
         """Handle stop command"""
-        return self.end_test(test_session_id, testing_session_manager)
+        return await self.end_test(test_session_id, testing_session_manager)
     
     def _handle_status_command(self, test_session_id: str, testing_session_manager) -> Dict[str, Any]:
         """Handle status command"""

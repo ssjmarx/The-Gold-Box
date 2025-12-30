@@ -25,14 +25,24 @@ exec_curl() {
   
   echo "$response" | jq '.'
   
-  # Extract session ID if present
-  if echo "$response" | jq -e '.test_session_id' > /dev/null; then
-    TEST_SESSION_ID=$(echo "$response" | jq -r '.test_session_id')
-    TEST_CLIENT_ID=$(echo "$response" | jq -r '.client_id')
-    echo "$TEST_SESSION_ID" > .test_session_id
-    echo "$TEST_CLIENT_ID" > .test_client_id
-    echo ""
-    echo "💾 Saved: session_id=$TEST_SESSION_ID, client_id=$TEST_CLIENT_ID"
+  # Extract and save session ID only for start_test_session command
+  if echo "$response" | jq -e '.command' > /dev/null; then
+    local command=$(echo "$response" | jq -r '.command')
+    if [ "$command" = "start_test_session" ]; then
+      TEST_SESSION_ID=$(echo "$response" | jq -r '.test_session_id')
+      TEST_CLIENT_ID=$(echo "$response" | jq -r '.client_id')
+      
+      # Only save if values are not null or empty
+      if [ "$TEST_SESSION_ID" != "null" ] && [ -n "$TEST_SESSION_ID" ]; then
+        echo "$TEST_SESSION_ID" > .test_session_id
+      fi
+      if [ "$TEST_CLIENT_ID" != "null" ] && [ -n "$TEST_CLIENT_ID" ]; then
+        echo "$TEST_CLIENT_ID" > .test_client_id
+      fi
+      
+      echo ""
+      echo "Saved: session_id=$TEST_SESSION_ID, client_id=$TEST_CLIENT_ID"
+    fi
   fi
   
   echo ""

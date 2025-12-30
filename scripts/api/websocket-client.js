@@ -3,21 +3,24 @@
  * Replaces Relay Server dependency with direct WebSocket communication
  */
 
-/**
- * Gold Box WebSocket Client Class
- */
+  /**
+   * Gold Box WebSocket Client Class
+   */
 class GoldBoxWebSocketClient {
-  constructor(baseUrl, onMessage, onError) {
+  constructor(baseUrl, onMessage, onError, onConnected, onDisconnected) {
     this.baseUrl = baseUrl;
     this.onMessage = onMessage;
     this.onError = onError;
+    this.onConnected = onConnected;
+    this.onDisconnected = onDisconnected;
     this.ws = null;
     this.clientId = this.generateClientId();
     this.isConnected = false;
     this.reconnectAttempts = 0;
-    this.maxReconnectAttempts =5;
+    this.maxReconnectAttempts = 3; // Changed from 5 to 3
     this.reconnectDelay = 1000;
     this.reconnectTimer = null;
+    this.isReconnecting = false;
     this.pingInterval = null;
     this.messageHandlers = new Map();
     this.pendingRequests = new Map(); // request_id -> Promise resolver
@@ -110,9 +113,14 @@ class GoldBoxWebSocketClient {
    */
   async connect() {
     try {
-      if (this.isConnected) {
+      if (this.isConnected && !this.isReconnecting) {
         console.warn('WebSocket already connected');
         return true;
+      }
+
+      // Reset reconnect attempts for manual connections
+      if (!this.isReconnecting) {
+        this.reconnectAttempts = 0;
       }
 
       // WebSocket connection available to all users
@@ -132,7 +140,7 @@ class GoldBoxWebSocketClient {
       // Create WebSocket connection
       this.ws = new WebSocket(wsUrl);
 
-      // Set up event handlers
+      // Set up event handlers (will be overridden in promise for connection attempt)
       this.ws.onopen = () => this.handleOpen();
       this.ws.onmessage = (event) => this.handleMessage(event);
       this.ws.onclose = (event) => this.handleClose(event);
@@ -140,22 +148,25 @@ class GoldBoxWebSocketClient {
 
       return new Promise((resolve, reject) => {
         const timeout = setTimeout(() => {
+          console.error('WebSocket connection timeout');
           reject(new Error('Connection timeout'));
-        },10000); // 10 second timeout
+        }, 10000); // 10 second timeout
 
-        // Override: onopen handler for this promise
-        const originalOnopen = this.ws.onopen;
-        this.ws.onopen = () => {
+        // Override onopen handler for this promise to resolve when connected
+        const originalHandleOpen = this.handleOpen.bind(this);
+        this.ws.onopen = (event) => {
           clearTimeout(timeout);
-          console.log('WebSocket connection established, sending connection message...');
-          this.handleOpen();
+          originalHandleOpen();
           resolve(true);
         };
 
-        this.ws.onerror = (error) => {
+        // Override onerror handler for this promise to reject with error
+        const originalHandleError = this.handleError.bind(this);
+        this.ws.onerror = (event) => {
           clearTimeout(timeout);
-          console.error('WebSocket connection error:', error);
-          reject(error);
+          console.error('WebSocket connection error during connect attempt');
+          originalHandleError(event);
+          reject(event);
         };
       });
 
@@ -174,6 +185,12 @@ class GoldBoxWebSocketClient {
       console.log('WebSocket connection opened');
       this.isConnected = true;
       this.reconnectAttempts = 0;
+      this.isReconnecting = false;
+
+      // Notify connection established
+      if (this.onConnected) {
+        this.onConnected();
+      }
 
       // Send connection message
       const connectMessage = {
@@ -415,10 +432,10 @@ class GoldBoxWebSocketClient {
         
         console.log('Gold Box: Test mode deactivated');
         
-        // Re-enable AI turn button
-        if (goldBoxInstance._aiTurnButton) {
-          goldBoxInstance._aiTurnButton.disabled = false;
-          console.log('Gold Box: AI turn button re-enabled');
+        // Use unified cleanup handler for turn completion
+        // This ensures both button state and delta counters are reset
+        if (goldBoxInstance.api && goldBoxInstance.api.handleTurnCompletion) {
+          goldBoxInstance.api.handleTurnCompletion();
         }
       }
       
@@ -477,6 +494,11 @@ class GoldBoxWebSocketClient {
     this.isConnected = false;
     this.stopPingInterval();
 
+    // Notify disconnection
+    if (this.onDisconnected) {
+      this.onDisconnected();
+    }
+
     // Clear pending requests
     for (const [requestId, resolver] of this.pendingRequests) {
       resolver({
@@ -486,9 +508,12 @@ class GoldBoxWebSocketClient {
     }
     this.pendingRequests.clear();
 
-    // Attempt reconnection if not a normal closure
-    if (event.code !== 1000 && this.reconnectAttempts < this.maxReconnectAttempts) {
+    // Attempt reconnection (always, regardless of close code)
+    if (this.reconnectAttempts < this.maxReconnectAttempts) {
       this.scheduleReconnect();
+    } else {
+      console.error('WebSocket reconnection failed after 3 attempts');
+      ui.notifications?.error('WebSocket connection lost after 3 reconnection attempts. Please refresh the page.', {permanent: true});
     }
   }
 
@@ -499,7 +524,18 @@ class GoldBoxWebSocketClient {
     console.error('WebSocket error:', error);
     this.isConnected = false;
     this.stopPingInterval();
-    this.onError?.(error);
+    
+    // Notify disconnection on error (for failed initial connections)
+    if (this.onDisconnected) {
+      this.onDisconnected();
+    }
+    
+    // Check if it's an authentication error
+    if (error.data?.code === 'AUTH_REQUIRED') {
+      this.onError?.(error.data.message);
+    } else {
+      this.onError?.(error);
+    }
   }
 
   /**
@@ -511,14 +547,29 @@ class GoldBoxWebSocketClient {
     }
 
     this.reconnectAttempts++;
-    const delay = Math.min(30000, this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1));
+    this.isReconnecting = true;
+
+    // Exponential backoff: 1s, 2s, 4s
+    const delay = Math.min(4000, this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1));
 
     console.log(`Scheduling WebSocket reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+    ui.notifications?.info(`WebSocket reconnecting in ${delay/1000}s... (attempt ${this.reconnectAttempts}/3)`);
 
-    this.reconnectTimer = setTimeout(() => {
+    this.reconnectTimer = setTimeout(async () => {
       this.reconnectTimer = null;
-      console.log('Attempting WebSocket reconnect...');
-      this.connect();
+      try {
+        console.log('Attempting WebSocket reconnect...');
+        await this.connect();
+        this.reconnectAttempts = 0; // Reset on success
+        this.isReconnecting = false;
+        console.log('WebSocket reconnected successfully');
+        ui.notifications?.success('WebSocket reconnected successfully');
+      } catch (error) {
+        console.error('WebSocket reconnection failed:', error);
+        if (this.reconnectAttempts < this.maxReconnectAttempts) {
+          this.scheduleReconnect();
+        }
+      }
     }, delay);
   }
 

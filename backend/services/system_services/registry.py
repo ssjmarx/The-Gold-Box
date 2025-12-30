@@ -76,7 +76,7 @@ class ServiceRegistry:
         try:
             if name not in cls._services:
                 if default is not None:
-                    logger.warning(f"⚠️ Service '{name}' not found, returning default")
+                    logger.warning(f"WARNING Service '{name}' not found, returning default")
                     return default
                 
                 available_services = list(cls._services.keys())
@@ -86,7 +86,7 @@ class ServiceRegistry:
                 )
             
             service = cls._services[name]
-            logger.debug(f"🔧 Retrieved service: {name} ({type(service).__name__})")
+            logger.debug(f"Retrieved service: {name} ({type(service).__name__})")
             return service
             
         except ValueError:
@@ -108,7 +108,7 @@ class ServiceRegistry:
             True if service is registered, False otherwise
         """
         is_registered = name in cls._services
-        logger.debug(f"🔍 Service '{name}' registered: {is_registered}")
+        logger.debug(f"Service '{name}' registered: {is_registered}")
         return is_registered
     
     @classmethod
@@ -120,7 +120,7 @@ class ServiceRegistry:
             List of registered service names
         """
         service_list = list(cls._services.keys())
-        logger.debug(f"📋 Registered services: {service_list}")
+        logger.debug(f"Registered services: {service_list}")
         return service_list
     
     @classmethod
@@ -173,7 +173,7 @@ class ServiceRegistry:
             True if registry is initialized, False otherwise
         """
         is_ready = cls._initialized
-        logger.debug(f"🟢 Registry ready: {is_ready}")
+        logger.debug(f"Registry ready: {is_ready}")
         return is_ready
     
     @classmethod
@@ -197,7 +197,7 @@ class ServiceRegistry:
             logger.error(f"❌ Available services: {cls.list_services()}")
             return False
         
-        logger.info(f"✅ All required services registered: {required_services}")
+        logger.info(f"OK All required services registered: {required_services}")
         return True
     
     @classmethod
@@ -222,7 +222,7 @@ class ServiceRegistry:
             cls._services.clear()
             cls._initialized = False
             cls._startup_order.clear()
-            logger.warning("🔄 Service Registry reset")
+            logger.warning("Service Registry reset")
             return True
         except Exception as e:
             logger.error(f"❌ Failed to reset registry: {e}")
