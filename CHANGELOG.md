@@ -5,6 +5,164 @@ All notable changes to The Gold Box project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0/).
 
+## [0.3.9] - 2025-12-30
+
+### Major Release: The Foundation
+
+#### Core AI Tools & Infrastructure
+
+**Feature 1: Tool Naming Alignment**
+- **Renamed Tools** - Updated tool names to match ROADMAP.md specification:
+  - `get_messages` → `get_message_history`
+  - `post_messages` → `post_message`
+- **Updated All References** - All backend files updated to use new tool names
+- **No Functional Changes** - Tool behavior unchanged, only names updated
+- **Breaking Change** - Tool name changes affect API compatibility
+
+**Feature 2: Dice Rolling Infrastructure**
+- **AI Dice Roll Tool** - New `roll_dice` tool allows AI to execute dice rolls in Foundry
+- **Two-Way Communication** - Complete round-trip: AI → Backend → Frontend → Foundry → Result → AI
+- **Multiple Rolls Per Call** - Supports executing multiple dice formulas in single tool call
+- **Flavor Text Support** - AI can add flavor text to dice rolls (e.g., "Attack Roll", "Damage")
+- **Foundry Native Execution** - Uses Foundry's native dice rolling API
+- **Roll Result Capture** - Captures formula, total result, individual dice results, flavor text, timestamp
+- **WebSocket Communication** - New message types: `execute_roll` and `roll_result`
+
+**Feature 3: Combat Status Infrastructure**
+- **AI Combat Query Tool** - New `get_encounter` tool allows AI to query current combat state
+- **CombatMonitor Integration** - Leverages existing CombatMonitor for state tracking
+- **Fresh State Requests** - AI requests fresh combat state on-demand (not periodic polling)
+- **Initial State Capture** - CombatMonitor captures state on module load if combat already active
+- **Automatic Updates** - All combat events trigger immediate state transmission
+- **Combat State Fields** - Returns in_combat flag, turn order, combatants, scene info
+- **No-Combat Response** - Returns `{"in_combat": false, "message": "No active encounter"}` when out of combat
+- **WebSocket Messages** - New message types: `combat_state` and `combat_state_refresh`
+
+**Bug Fixes: Initialization Stability**
+- **Health Check Timeout Increase** - Increased from 2s to 5s to handle slow development laptops
+- **WebSocket Port Fix** - WebSocket now uses discovered port (5000/5001/5002) instead of hardcoded 5000
+- **Race Condition Fix** - Added `isInitializing` flag to prevent concurrent initialization attempts
+- **Connection Stability** - All three fixes improve backend connection reliability
+
+**Feature 4: Enhanced Delta Tracking**
+- **Smart Delta Filtering** - Zero/null values automatically omitted from delta output
+- **No-Changes Detection** - `hasChanges` flag indicates no game state changes
+- **Delta Fields Tracked**:
+  - `NewMessages` - New chat messages since last AI turn
+  - `DeletedMessages` - Deleted chat messages since last AI turn
+  - `NewDiceRolls` - Dice rolls executed since last AI turn
+  - `EncounterStarted` - Combat encounter started event
+  - `EncounterEnded` - Combat encounter ended event
+- **Delta Injection Logic** - Full JSON delta when hasChanges=true, text message when false
+- **Shared Utility** - `ai_prompt_builder.py` ensures consistent delta injection across AI service and testing harness
+- **Testing Harness Integration** - Async polling mechanism (up to 3s) to retrieve delta from background task
+- **Delta Cleanup** - Deltas cleared after AI turn completes
+
+**Feature 5: Initial Context System**
+- **First Turn vs Successive Turn** - Mutual exclusivity: full context on first turn, deltas on subsequent turns
+- **ContextBuilder Service** - New service builds comprehensive world state overview
+- **World State Synchronization** - Frontend sends complete world state via WebSocket
+- **Context Fields Provided**:
+  - `session_info` - Game system, GM name, players
+  - `party_compendium` - Player-controlled characters
+  - `active_scene` - Scene data with tokens, notes, light_sources
+  - `compendium_index` - Available compendium packs
+  - `active_encounter` - Combat state if active
+- **Fallback Behavior** - Placeholder data when world_state unavailable
+- **Context Selection Logic** - AI Orchestrator enforces mutual exclusivity (never both full context AND deltas)
+- **Section Headers** - "World State Overview" (first turn) vs "Recent changes to game" (successive turns)
+
+**Feature 5.5: World State Synchronization**
+- **Frontend World State Collector** - New `WorldStateCollector` service in frontend
+- **WebSocket Transmission** - World state sent on connection, scene change, combat events
+- **Backend Storage** - Per-client world state storage in `websocket_message_collector`
+- **Refresh Requests** - Backend can request fresh world state via `world_state_refresh` message
+- **Message Types** - New types: `world_state_sync` and `world_state_refresh`
+- **Data Extraction Methods**:
+  - `getSessionInfo()` - Game system, GM name, players
+  - `getPartyCompendium()` - Player-owned actors
+  - `getActiveScene()` - Scene with notes and lights
+  - `getCompendiumIndex()` - Available compendium packs
+
+**Feature 6: Testing Infrastructure**
+- **Comprehensive Function Check Script** - `function_check.sh` with 10 automated test commands
+- **Test Coverage**:
+  - Renamed tools: `get_message_history`, `post_message`
+  - Dice rolling: Single roll, multiple rolls, roll without flavor
+  - Combat status: In-combat and out-of-combat queries
+  - Delta tracking: First turn (full context) vs subsequent turn (deltas)
+  - Multi-command execution: Execute multiple commands in single API call
+  - WebSocket reset: Automatic reconnection with new client ID
+- **Testing Harness Scope Verified** - Acts as mock AI service only, NO feature implementation
+- **Test Scripts**:
+  - `function_check.sh` - Automated testing suite
+  - `server_test.sh` - Server/API health and security validation
+  - `test_harness_helpers.sh` - Interactive testing helper functions
+- **Documentation** - Comprehensive testing guide in `backend/testing/TESTING.md`
+- **Verification Checklist** - Post-test verification steps in function_check.sh
+
+#### Extras Plans Completion
+
+**0.3.9-the-foundation-extras-1: Combat Status Polish**
+- **Combat State Auto-Refresh Fix** - Removed automatic combat_state transmissions (reduces logspam)
+- **Timeout Increase** - Changed get_encounter timeout from 2s to 5s, changed log level to DEBUG
+- **Combat State Logging** - Consolidated to single log line (removed duplicate)
+- **Tool Availability Logging** - Moved to DEBUG level (not spamming logs)
+- **Roll Result Logging** - Consolidated from 6 lines to 2-3 lines per roll
+- **Combat Context Filtering** - Filtered `combat_context` messages from `get_message_history`
+
+**0.3.9-the-foundation-extras-2: Minor Issue Fixes**
+- **Deprecated maxMessageContext Removal** - Removed all references to deprecated setting
+- **Settings Sync Handler** - Added handler for `settings_sync_response` WebSocket messages
+- **Console Cleanup** - Eliminated console warnings for deprecated setting and unknown message type
+
+**0.3.9-the-foundation-extras-3: UI Improvements**
+- **AI Turn Button State Machine** - Complete rewrite with 3 states: DISCONNECTED, CONNECTED, THINKING
+- **Ellipsis Animation** - "Thinking." → "Thinking.." → "Thinking..." animation
+- **State Transitions** - Methods for connection, disconnection, turn start/end, errors
+- **WebSocket Integration** - Connection callbacks for button state updates
+- **Automatic Reconnection** - 3 attempts with exponential backoff (1s, 2s, 4s)
+- **User Notifications** - Reconnection status notifications
+- **Graceful Failure** - Permanent notification after 3 failed attempts
+
+#### New Backend Services
+- `backend/services/message_services/context_builder.py` - Context building service
+- `backend/services/ai_services/testing_command_processor.py` - Command parsing and validation
+- `backend/services/system_services/testing_session_manager.py` - Test session management
+- `backend/shared/utils/ai_prompt_builder.py` - Shared delta injection utility
+
+#### New Frontend Services
+- `scripts/services/dice-roll-executor.js` - Dice roll execution and result capture
+- `scripts/services/world-state-collector.js` - World state collection and transmission
+
+#### Updated Files (Major Changes)
+- `backend/services/ai_tools/ai_tool_definitions.py` - Tool name updates, new tools
+- `backend/services/ai_tools/ai_tool_executor.py` - Tool executors for all new tools
+- `backend/services/ai_services/ai_orchestrator.py` - Context selection logic
+- `backend/services/message_services/websocket_message_collector.py` - World state storage, delta tracking
+- `backend/shared/core/message_protocol.py` - New message types
+- `scripts/api/websocket-client.js` - Connection callbacks, message handlers
+- `scripts/api/websocket-communicator.js` - Message routing, initialization fixes
+- `scripts/api/combat-monitor.js` - Initial state capture, turn detection fixes
+- `scripts/shared/ui-manager.js` - AI Turn button state machine
+
+#### Breaking Changes
+- **Tool Names** - `get_messages` → `get_message_history`, `post_messages` → `post_message`
+- **Context Format** - Initial context now includes all fields when world_state available
+- **Delta Format** - `hasChanges` flag determines format (JSON vs text message)
+
+#### Migration Notes
+- **Automatic Upgrade** - Existing installations will automatically use new tool names
+- **No Manual Migration** - Tool name changes handled automatically
+- **Context Enhancement** - Initial context will use world_state if available, fallback to placeholders
+- **Settings Update** - Existing settings remain compatible, no changes required
+
+#### Implementation Status
+- **Features Completed**: 6/7 (86%)
+- **Testing Complete**: Yes - All tools tested via function_check.sh
+- **Documentation Complete**: Yes - Feature 7 completed
+- **Ready for 0.3.10**: Yes - All foundational features implemented and documented
+
 ## [0.3.8] - 2025-12-26
 
 ### Testing Harness Implementation
