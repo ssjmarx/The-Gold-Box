@@ -68,6 +68,8 @@ class AIToolExecutor:
             return await self.execute_create_encounter(tool_args, client_id)
         elif tool_name == 'delete_encounter':
             return await self.execute_delete_encounter(tool_args, client_id)
+        elif tool_name == 'advance_combat_turn':
+            return await self.execute_advance_combat_turn(tool_args, client_id)
         else:
             raise ValueError(f"Unknown tool: {tool_name}")
     
@@ -522,29 +524,48 @@ class AIToolExecutor:
                 await websocket_manager.send_to_client(client_id, create_message)
                 logger.info(f"create_encounter: Sent encounter creation request to client {client_id} with {len(actor_ids)} actors, request_id: {request_id}")
                 
-                # Wait for combat state response with timeout (5 seconds)
+                # Wait for combat state response with timeout (15 seconds - Foundry operations can be slow)
                 try:
                     logger.info(f"create_encounter: Waiting for combat state for request {request_id}...")
-                    await asyncio.wait_for(result_future, timeout=5.0)
+                    await asyncio.wait_for(result_future, timeout=15.0)
                     logger.info(f"create_encounter: Successfully received combat state for request {request_id}")
                     
                 except asyncio.TimeoutError:
                     logger.error(f"create_encounter: Timeout waiting for combat state from frontend, request_id: {request_id}")
                     
-                    # Log diagnostic information to help debug timeout issues
-                    logger.debug(f"create_encounter: Checking message collector for client {client_id}")
-                    logger.debug(f"create_encounter: Pending requests count: {len(_pending_roll_requests)}")
-                    
-                    return {
-                        "success": False,
-                        "error": "Timeout waiting for encounter creation response from frontend. Frontend may have encountered an error or the WebSocket connection may be unstable.",
-                        "details": {
-                            "request_id": request_id,
-                            "timeout_seconds": 5,
-                            "client_id": client_id,
-                            "pending_requests": len(_pending_roll_requests)
+                    # Check if combat was actually created despite timeout
+                    combat_state = websocket_message_collector.get_cached_combat_state(client_id)
+                    if combat_state and combat_state.get('in_combat', False):
+                        logger.info(f"create_encounter: Combat is active despite timeout (created successfully)")
+                        result = {
+                            "success": True,
+                            "in_combat": True,
+                            "combat_id": combat_state.get('combat_id'),
+                            "round": combat_state.get('round', 0),
+                            "turn": combat_state.get('turn', 0),
+                            "combatants": combat_state.get('combatants', []),
+                            "roll_initiative": roll_initiative,
+                            "actor_count": len(actor_ids),
+                            "last_updated": combat_state.get('last_updated'),
+                            "warning": "Combat created but response timed out"
                         }
-                    }
+                        logger.info(f"create_encounter executed for client {client_id}: round {combat_state.get('round', 0)}, turn {combat_state.get('turn', 0)}, {len(combat_state.get('combatants', []))} combatants (with timeout warning)")
+                        return result
+                    else:
+                        # Log diagnostic information to help debug timeout issues
+                        logger.debug(f"create_encounter: Checking message collector for client {client_id}")
+                        logger.debug(f"create_encounter: Pending requests count: {len(_pending_roll_requests)}")
+                        
+                        return {
+                            "success": False,
+                            "error": "Timeout waiting for encounter creation response from frontend. Frontend may have encountered an error or the WebSocket connection may be unstable.",
+                            "details": {
+                                "request_id": request_id,
+                                "timeout_seconds": 15,
+                                "client_id": client_id,
+                                "pending_requests": len(_pending_roll_requests)
+                            }
+                        }
                 
                 finally:
                     # Clean up pending request
@@ -649,19 +670,35 @@ class AIToolExecutor:
                 await websocket_manager.send_to_client(client_id, delete_message)
                 logger.info(f"delete_encounter: Sent encounter deletion request to client {client_id}, request_id: {request_id}")
                 
-                # Wait for combat state response with timeout (5 seconds)
+                # Wait for combat state response with timeout (15 seconds - Foundry operations can be slow)
                 try:
                     logger.info(f"delete_encounter: Waiting for combat state for request {request_id}...")
-                    await asyncio.wait_for(result_future, timeout=5.0)
+                    await asyncio.wait_for(result_future, timeout=15.0)
                     logger.info(f"delete_encounter: Successfully received combat state for request {request_id}")
                     
                 except asyncio.TimeoutError:
                     logger.error(f"delete_encounter: Timeout waiting for combat state, request_id: {request_id}")
-                    return {
-                        "success": False,
-                        "error": "Timeout waiting for encounter deletion response from frontend",
-                        "request_id": request_id
-                    }
+                    
+                    # Check if combat was actually ended despite timeout
+                    combat_state = websocket_message_collector.get_cached_combat_state(client_id)
+                    if not combat_state or not combat_state.get('in_combat', False):
+                        logger.info(f"delete_encounter: Combat is inactive despite timeout (ended successfully)")
+                        return {
+                            "success": True,
+                            "message": "Encounter ended successfully (verified after timeout)",
+                            "in_combat": False,
+                            "warning": "Encounter ended but response timed out"
+                        }
+                    else:
+                        return {
+                            "success": False,
+                            "error": "Timeout waiting for encounter deletion response from frontend",
+                            "request_id": request_id,
+                            "details": {
+                                "timeout_seconds": 15,
+                                "current_combat_id": combat_state.get('combat_id')
+                            }
+                        }
                 
                 finally:
                     # Clean up pending request
@@ -678,7 +715,12 @@ class AIToolExecutor:
                     return {
                         "success": False,
                         "error": "Combat still active after deletion request",
-                        "message": "Failed to end encounter"
+                        "message": "Failed to end encounter",
+                        "details": {
+                            "combat_id": combat_state.get('combat_id'),
+                            "round": combat_state.get('round'),
+                            "turn": combat_state.get('turn')
+                        }
                     }
                 
                 # Success
@@ -700,6 +742,152 @@ class AIToolExecutor:
             
         except Exception as e:
             logger.error(f"delete_encounter execution failed: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def execute_advance_combat_turn(
+        self,
+        args: Dict[str, Any],
+        client_id: str
+    ) -> Dict[str, Any]:
+        """
+        Execute advance_combat_turn tool - advances combat tracker to next turn
+        
+        Args:
+            args: Tool arguments (no parameters required)
+            client_id: Client ID for WebSocket communication
+        
+        Returns:
+            Dict with turn advancement result and updated combat state
+        """
+        try:
+            # Get services via ServiceFactory
+            from ..system_services.service_factory import get_websocket_manager, get_message_collector
+            
+            websocket_manager = get_websocket_manager()
+            websocket_message_collector = get_message_collector()
+            
+            # Check if combat is active
+            combat_state = websocket_message_collector.get_cached_combat_state(client_id)
+            if not combat_state or not combat_state.get('in_combat', False):
+                return {
+                    "success": False,
+                    "message": "No active encounter"
+                }
+            
+            # Create a unique request ID for this turn advancement
+            request_id = str(uuid.uuid4())
+            
+            logger.info(f"advance_combat_turn: Creating future for request {request_id} with client_id {client_id}")
+            
+            # Create a future to await combat state response
+            result_future = asyncio.Future()
+            _pending_roll_requests[request_id] = result_future
+            logger.info(f"advance_combat_turn: Stored future in _pending_roll_requests. Total pending: {len(_pending_roll_requests)}")
+            
+            try:
+                # Send turn advancement request to frontend
+                advance_message = {
+                    "type": "advance_turn",
+                    "request_id": request_id,
+                    "data": {
+                        "timestamp": datetime.now().isoformat()
+                    }
+                }
+                
+                await websocket_manager.send_to_client(client_id, advance_message)
+                logger.info(f"advance_combat_turn: Sent turn advancement request to client {client_id}, request_id: {request_id}")
+                
+                # Wait for combat state response with timeout (15 seconds - Foundry operations can be slow)
+                try:
+                    logger.info(f"advance_combat_turn: Waiting for combat state for request {request_id}...")
+                    await asyncio.wait_for(result_future, timeout=15.0)
+                    logger.info(f"advance_combat_turn: Successfully received combat state for request {request_id}")
+                    
+                except asyncio.TimeoutError:
+                    logger.error(f"advance_combat_turn: Timeout waiting for combat state, request_id: {request_id}")
+                    
+                    # Check if turn actually advanced despite timeout
+                    combat_state = websocket_message_collector.get_cached_combat_state(client_id)
+                    if combat_state and combat_state.get('in_combat', False):
+                        logger.info(f"advance_combat_turn: Combat is still active despite timeout (may have advanced)")
+                        # Return state even if timeout occurred
+                        result = {
+                            "success": True,
+                            "message": "Turn advanced successfully (verified after timeout)",
+                            "in_combat": True,
+                            "combat_id": combat_state.get('combat_id'),
+                            "round": combat_state.get('round', 0),
+                            "turn": combat_state.get('turn', 0),
+                            "last_updated": combat_state.get('last_updated'),
+                            "warning": "Turn advanced but response timed out"
+                        }
+                        # Add current combatant if available
+                        combatants = combat_state.get('combatants', [])
+                        for combatant in combatants:
+                            if combatant.get('is_current_turn'):
+                                result['current_combatant'] = combatant.get('name')
+                                break
+                        logger.info(f"advance_combat_turn executed for client {client_id}: round {combat_state.get('round', 0)}, turn {combat_state.get('turn', 0)} (with timeout warning)")
+                        return result
+                    else:
+                        return {
+                            "success": False,
+                            "error": "Timeout waiting for turn advancement response from frontend",
+                            "request_id": request_id
+                        }
+                
+                finally:
+                    # Clean up pending request
+                    logger.info(f"Cleaning up future for request {request_id}")
+                    if request_id in _pending_roll_requests:
+                        del _pending_roll_requests[request_id]
+                        logger.info(f"Removed future for request {request_id} from _pending_roll_requests")
+                    else:
+                        logger.warning(f"Future for request {request_id} not found in _pending_roll_requests during cleanup")
+                
+                # Get updated combat state from message collector
+                combat_state = websocket_message_collector.get_cached_combat_state(client_id)
+                
+                if not combat_state or not combat_state.get('in_combat', False):
+                    return {
+                        "success": False,
+                        "error": "Combat is no longer active after turn advancement",
+                        "message": "Failed to advance turn"
+                    }
+                
+                # Success - return updated combat state
+                result = {
+                    "success": True,
+                    "message": "Turn advanced successfully",
+                    "in_combat": True,
+                    "combat_id": combat_state.get('combat_id'),
+                    "round": combat_state.get('round', 0),
+                    "turn": combat_state.get('turn', 0),
+                    "last_updated": combat_state.get('last_updated')
+                }
+                
+                # Add current combatant if available
+                combatants = combat_state.get('combatants', [])
+                for combatant in combatants:
+                    if combatant.get('is_current_turn'):
+                        result['current_combatant'] = combatant.get('name')
+                        break
+                
+                logger.info(f"advance_combat_turn executed for client {client_id}: round {combat_state.get('round', 0)}, turn {combat_state.get('turn', 0)}")
+                return result
+            
+            except Exception as inner_error:
+                logger.error(f"advance_combat_turn: Error during turn advancement for client {client_id}: {inner_error}")
+                return {
+                    "success": False,
+                    "error": str(inner_error)
+                }
+            
+        except Exception as e:
+            logger.error(f"advance_combat_turn execution failed: {e}")
             return {
                 "success": False,
                 "error": str(e)

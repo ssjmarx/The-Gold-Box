@@ -165,5 +165,16 @@ def get_tool_definitions() -> list:
                     "properties": {}
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "advance_combat_turn",
+                "description": "Advance the combat tracker to the next turn. Use this to move through turn order for multiple combatants efficiently. Multiple calls can be made in a single response (e.g., advance turn, move and attack, advance turn, move and attack, for NPCs with adjacent turns).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }
         }
     ]

@@ -35,6 +35,7 @@ class MessageProtocol:
     TYPE_COMBAT_STATE_REFRESH = "combat_state_refresh"
     TYPE_CREATE_ENCOUNTER = "create_encounter"
     TYPE_DELETE_ENCOUNTER = "delete_encounter"
+    TYPE_ADVANCE_TURN = "advance_turn"
     TYPE_GAME_DELTA = "game_delta"
     TYPE_WORLD_STATE_SYNC = "world_state_sync"
     TYPE_WORLD_STATE_REFRESH = "world_state_refresh"

@@ -87,17 +87,36 @@ class CombatMonitor {
                 const combat = await Combat.create(combatData);
                 console.log('Combat Monitor: Combat created with', actorIds.length, 'combatants');
                 
-                // Roll initiative if requested
+                // Roll initiative if requested with smart timeout fallback
                 if (rollInitiative) {
-                    console.log('Combat Monitor: Rolling initiative for all combatants');
-                    await combat.rollAll();
+                    console.log('Combat Monitor: Attempting automatic initiative rolling with timeout fallback');
                     
-                    // Advance to first turn
-                    await combat.nextRound();
-                    console.log('Combat Monitor: Advanced to turn 1');
+                    try {
+                        // Try to roll initiative with 3-second timeout
+                        // If system supports automatic initiative, it will complete quickly
+                        // If system blocks with dialog, timeout will trigger and we proceed without initiative
+                        const initiativePromise = combat.rollAll();
+                        const timeoutPromise = new Promise((_, reject) => 
+                            setTimeout(() => reject(new Error('Initiative roll timed out after 3 seconds - likely blocked by dialog')), 3000)
+                        );
+                        
+                        await Promise.race([initiativePromise, timeoutPromise]);
+                        
+                        // Initiative rolled successfully within timeout - advance to first turn
+                        await combat.nextRound();
+                        console.log('Combat Monitor: Initiative rolled successfully, advanced to turn 1');
+                        
+                    } catch (error) {
+                        // Initiative roll was blocked by dialog or timed out
+                        // Proceed with blank initiatives - users can roll manually if needed
+                        console.log('Combat Monitor: Initiative roll blocked/timed out, proceeding with blank initiatives:', error.message);
+                        
+                        // Combat is still created and active, just without initiative values
+                        // System will update when users enter initiative manually
+                    }
                 }
                 
-                // Transmit updated combat state (will include the request_id)
+                // Transmit combat state immediately (with or without initiative values)
                 await this.transmitCombatState();
                 
             } catch (error) {
@@ -134,6 +153,42 @@ class CombatMonitor {
                 
             } catch (error) {
                 console.error('Combat Monitor: Error handling delete_encounter:', error);
+            }
+        });
+        
+        // Handler for advance_turn messages
+        wsClient.onMessageType('advance_turn', async (message) => {
+            console.log('Combat Monitor: Received advance_turn request', message);
+            
+            try {
+                // Store request_id so transmitCombatState can include it
+                const requestId = message.request_id;
+                if (requestId) {
+                    this.lastRequestId = requestId;
+                    console.log('Combat Monitor: Stored request_id for advance_turn:', requestId);
+                }
+                
+                // Check if combat is active
+                if (!game.combat || !game.combat.started) {
+                    console.warn('Combat Monitor: No active combat to advance');
+                    // Transmit current combat state (should show in_combat: false)
+                    await this.transmitCombatState();
+                    return;
+                }
+                
+                // Advance to next turn using Foundry's native API
+                await game.combat.nextTurn();
+                console.log('Combat Monitor: Advanced to next turn');
+                
+                // Wait a moment for Foundry to update combat state and fire hooks
+                // This ensures we capture the updated turn information
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                // Transmit updated combat state
+                await this.transmitCombatState();
+                
+            } catch (error) {
+                console.error('Combat Monitor: Error handling advance_turn:', error);
             }
         });
         
@@ -177,7 +232,10 @@ class CombatMonitor {
             console.log('Combat round:', combat, round);
             // When new round starts, first combatant is index 0
             // Pass turn 0 explicitly since combatTurn won't fire with it
-            this.updateCombatState(combat, 0);
+            // Force a small delay to ensure Foundry has updated combat.turn
+            setTimeout(() => {
+                this.updateCombatState(combat, 0);
+            }, 50);
         });
         
         // Listen for combat turn events
