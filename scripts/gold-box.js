@@ -250,6 +250,18 @@ class GoldBoxModule {
           // Store WebSocket client reference in API for message collection
           this.api.webSocketClient = this.webSocketClient;
           
+          // Register WebSocket handlers for Combat Monitor
+          if (window.CombatMonitor && typeof window.CombatMonitor.registerWebSocketHandlers === 'function') {
+            const handlersRegistered = window.CombatMonitor.registerWebSocketHandlers();
+            if (handlersRegistered) {
+              console.log('The Gold Box: Combat Monitor handlers registered successfully');
+            } else {
+              console.warn('The Gold Box: Combat Monitor handler registration returned false');
+            }
+          } else {
+            console.warn('The Gold Box: Combat Monitor or registerWebSocketHandlers not available');
+          }
+          
           // Set button to connected state
           this.uiManager.aiTurnButtonHandler.onWebSocketConnected();
           

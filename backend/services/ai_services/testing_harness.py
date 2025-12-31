@@ -423,11 +423,14 @@ class TestingHarness:
                 'error': 'Test session not found'
             }
         
+        # Get conversation history safely
+        conversation_history = session.get('conversation_history', [])
+        
         session_state = {
             'test_session_id': test_session_id,
             'client_id': session['client_id'],
             'state': session['state'],
-            'conversation_length': len(session.get('conversation_history', [])),
+            'conversation_length': len(conversation_history) if conversation_history else 0,
             'commands_executed': session.get('commands_executed', 0),
             'tools_used': session.get('tools_used', []),
             'start_time': session['start_time'].isoformat(),

@@ -246,7 +246,15 @@ class GoldBoxWebSocketClient {
       const message = JSON.parse(event.data);
       console.log('Received WebSocket message:', message);
 
-      // Handle different message types
+      // PRIORITY: Check for registered custom handlers FIRST
+      // This ensures handlers registered after connection (like CombatMonitor) are recognized
+      if (this.messageHandlers.has(message.type)) {
+        const handler = this.messageHandlers.get(message.type);
+        handler(message);
+        return; // Exit early, don't fall through to switch
+      }
+
+      // Then handle built-in message types
       switch (message.type) {
         case 'connected':
           console.log('WebSocket connection confirmed:', message.data);
@@ -289,18 +297,23 @@ class GoldBoxWebSocketClient {
           // Settings sync completed, no action needed
           break;
 
+        case 'combat_state':
+          console.log('WebSocket combat_state received:', message.data);
+          // Combat state confirmation received from backend
+          // Forward to registered handler
+          if (this.onMessage) {
+            this.onMessage(message);
+          }
+          break;
+
         case 'game_delta':
           console.log('WebSocket game_delta confirmation received:', message.data);
           // Game delta processed by backend, no action needed
           break;
 
         default:
-          // Handle custom message types
-          if (this.messageHandlers.has(message.type)) {
-            this.messageHandlers.get(message.type)(message);
-          } else {
-            console.warn('Unknown message type:', message.type);
-          }
+          // No handler found for this message type
+          console.warn('Unknown message type:', message.type);
       }
 
     } catch (error) {

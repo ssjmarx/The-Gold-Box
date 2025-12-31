@@ -148,6 +148,12 @@ def initialize_websocket_manager():
                         await self._handle_combat_state(client_id, message)
                         return
                     
+                    # Handle error messages from frontend - FAST PATH
+                    if message_type == "error":
+                        logger.info(f"WebSocket: [FAST PATH] Routing error message to handler for client {client_id}")
+                        await self._handle_error_message(client_id, message)
+                        return
+                    
                     # Handle ai_turn_complete messages from backend - FAST PATH
                     if message_type == "ai_turn_complete":
                         logger.info(f"WebSocket: [FAST PATH] Handling ai_turn_complete for client {client_id}")
@@ -520,6 +526,39 @@ def initialize_websocket_manager():
                     
                 except Exception as e:
                     logger.error(f"Error handling combat_state from client {client_id}: {e}", exc_info=True)
+            
+            async def _handle_error_message(self, client_id: str, message: Dict[str, Any]):
+                """Handle error message from frontend - resolve pending request with error"""
+                try:
+                    logger.info(f"_handle_error_message called for client {client_id}")
+                    
+                    # Extract request_id and error data from message
+                    request_id = message.get("request_id")
+                    error_data = message.get("data", {})
+                    error_message = error_data.get("error", "Unknown error")
+                    error_code = error_data.get("error_code", "UNKNOWN_ERROR")
+                    
+                    logger.info(f"Extracted from error message: request_id={request_id}, error={error_message}, error_code={error_code}")
+                    
+                    if not request_id:
+                        logger.warning(f"Received error message without request_id from client {client_id}")
+                        return
+                    
+                    # Forward to AI tool executor to reject pending request
+                    from services.ai_tools.ai_tool_executor import _pending_roll_requests
+                    if request_id in _pending_roll_requests:
+                        future = _pending_roll_requests[request_id]
+                        if not future.done():
+                            logger.info(f"Rejecting pending request {request_id} with error: {error_message}")
+                            # Reject future with exception containing error data
+                            future.set_exception(Exception(f"Frontend error: {error_message} (code: {error_code})"))
+                        else:
+                            logger.warning(f"Pending request {request_id} already done")
+                    else:
+                        logger.warning(f"Received error for unknown request_id: {request_id}")
+                    
+                except Exception as e:
+                    logger.error(f"Error handling error message from client {client_id}: {e}", exc_info=True)
             
             async def _handle_ai_turn_complete(self, client_id: str, message: Dict[str, Any]):
                 """Handle ai_turn_complete message from backend - reset AI button state"""

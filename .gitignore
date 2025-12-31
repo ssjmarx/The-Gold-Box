@@ -36,6 +36,7 @@ rate_limits.json
 sessions.json
 .test_client_id
 .test_session_id
+.last_response.json
 
 # IDE and editor files
 .vscode/

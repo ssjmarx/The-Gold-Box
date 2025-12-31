@@ -11,7 +11,8 @@ echo "=========================================="
 echo ""
 
 # Helper: Execute curl and show result
-exec_curl() {
+# Helper: Execute curl and save response
+exec_curl_and_save() {
   local desc="$1"
   local data="$2"
   
@@ -24,13 +25,14 @@ exec_curl() {
     -d "$data")
   
   echo "$response" | jq '.'
+  echo "$response" > .last_response.json
   
   # Extract and save session ID only for start_test_session command
   if echo "$response" | jq -e '.command' > /dev/null; then
     local command=$(echo "$response" | jq -r '.command')
     if [ "$command" = "start_test_session" ]; then
-      TEST_SESSION_ID=$(echo "$response" | jq -r '.test_session_id')
-      TEST_CLIENT_ID=$(echo "$response" | jq -r '.client_id')
+      export TEST_SESSION_ID=$(echo "$response" | jq -r '.test_session_id')
+      export TEST_CLIENT_ID=$(echo "$response" | jq -r '.client_id')
       
       # Only save if values are not null or empty
       if [ "$TEST_SESSION_ID" != "null" ] && [ -n "$TEST_SESSION_ID" ]; then
@@ -49,6 +51,72 @@ exec_curl() {
   sleep 1
 }
 
+# Helper: Execute curl and show result
+exec_curl() {
+  local desc="$1"
+  local data="$2"
+  
+  echo "━━━ $desc ━━━"
+  echo ""
+  
+  response=$(curl -s -X POST "$API_ENDPOINT" \
+    -H "Content-Type: application/json" \
+    -H "X-Admin-Password: swag" \
+    -d "$data")
+  
+  echo "$response" | jq '.'
+  
+  # Extract and save session ID only for start_test_session command
+  if echo "$response" | jq -e '.command' > /dev/null; then
+    local command=$(echo "$response" | jq -r '.command')
+    if [ "$command" = "start_test_session" ]; then
+      export TEST_SESSION_ID=$(echo "$response" | jq -r '.test_session_id')
+      export TEST_CLIENT_ID=$(echo "$response" | jq -r '.client_id')
+      
+      # Only save if values are not null or empty
+      if [ "$TEST_SESSION_ID" != "null" ] && [ -n "$TEST_SESSION_ID" ]; then
+        echo "$TEST_SESSION_ID" > .test_session_id
+      fi
+      if [ "$TEST_CLIENT_ID" != "null" ] && [ -n "$TEST_CLIENT_ID" ]; then
+        echo "$TEST_CLIENT_ID" > .test_client_id
+      fi
+      
+      echo ""
+      echo "Saved: session_id=$TEST_SESSION_ID, client_id=$TEST_CLIENT_ID"
+    fi
+  fi
+  
+  echo ""
+  sleep 1
+}
+
+# Helper: Execute curl with encounter command (uses Python helper to avoid JSON issues)
+exec_curl_encounter() {
+  local desc="$1"
+  local actor_ids="$2"
+  local test_session_id="$3"
+  local roll_initiative="$4"
+  
+  echo "━━━ $desc ━━━"
+  echo ""
+  
+  # Use Python script to construct the complete JSON request
+  request_json=$(python3 ./create_encounter_helper.py "$actor_ids" "$test_session_id" $roll_initiative)
+  
+  response=$(curl -s -X POST "$API_ENDPOINT" \
+    -H "Content-Type: application/json" \
+    -H "X-Admin-Password: swag" \
+    -d "$request_json")
+  
+  echo "$response" | jq '.'
+  
+  # Save the response
+  echo "$response" > .last_response.json
+  
+  echo ""
+  sleep 1
+}
+
 echo "Step 1: Start Test Session (First AI Turn - Initial Context)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "📝 NOTE: This is the FIRST AI turn for this session"
@@ -56,7 +124,7 @@ echo "   • AI will receive FULL WORLD STATE OVERVIEW"
 echo "   • Look for 'World State Overview' section in initial_prompt"
 echo "   • NO deltas will be included on first turn"
 echo ""
-exec_curl "Start Test Session" '{
+exec_curl_and_save "Start Test Session" '{
   "command": "start_test_session"
 }'
 
@@ -108,7 +176,98 @@ exec_curl "Get Encounter" '{
   "test_command": "get_encounter"
 }'
 
-echo "Step 5: Test Multi-Command Execution"
+echo "Step 5: Test Encounter Management (Feature 1 - Patch 0.3.10)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "📝 NOTE: Extracting actor IDs from initial world state"
+echo ""
+
+# Extract actor_ids from the saved world state response
+# The world state includes tokens with actor_ids in active_scene.tokens
+# Use Python to reliably extract JSON from the content field
+ACTOR_IDS=$(python3 <<'PYTHON_SCRIPT'
+import json
+import sys
+
+try:
+    with open('.last_response.json', 'r') as f:
+        data = json.load(f)
+    
+    # Get the content string from initial_messages[0]
+    content = data['initial_messages'][0]['content']
+    
+    # Find the JSON portion after "World State Overview:\n"
+    marker = "World State Overview:\n"
+    if marker in content:
+        json_str = content.split(marker, 1)[1]
+        world_data = json.loads(json_str)
+        
+        # Extract actor_ids from tokens
+        tokens = world_data.get('active_scene', {}).get('tokens', [])
+        actor_ids = [t['actor_id'] for t in tokens if 'actor_id' in t]
+        
+        # Output as JSON array
+        print(json.dumps(actor_ids))
+    else:
+        print("[]")
+except Exception as e:
+    sys.stderr.write(f"Error: {e}\n")
+    print("[]")
+PYTHON_SCRIPT
+)
+
+# Check if we found actor IDs
+if [ "$ACTOR_IDS" != "null" ] && [ "$ACTOR_IDS" != "[]" ]; then
+  echo "✅ Found $(echo "$ACTOR_IDS" | jq 'length') actor IDs in world state"
+  echo "   Actor IDs: $ACTOR_IDS"
+  echo ""
+  
+  # Test 1: Create encounter with initiative
+  exec_curl_encounter "Create Encounter with Initiative" "$ACTOR_IDS" "$TEST_SESSION_ID" "--roll_initiative"
+  
+  # Verify combat was created using get_encounter
+  exec_curl "Verify Combat Created" '{
+    "command": "test_command",
+    "test_session_id": "'"$TEST_SESSION_ID"'",
+    "test_command": "get_encounter"
+  }'
+  
+  # Test 2: Try to create encounter while combat is active (should fail)
+  exec_curl_encounter "Create Encounter (Already Active - Should Fail)" "$ACTOR_IDS" "$TEST_SESSION_ID" "--no_initiative"
+  
+  # Test 3: Delete encounter
+  exec_curl_and_save "Delete Encounter" '{
+    "command": "test_command",
+    "test_session_id": "'"$TEST_SESSION_ID"'",
+    "test_command": "delete_encounter"
+  }'
+  
+  # Verify combat was deleted using get_encounter
+  exec_curl "Verify Combat Deleted" '{
+    "command": "test_command",
+    "test_session_id": "'"$TEST_SESSION_ID"'",
+    "test_command": "get_encounter"
+  }'
+  
+  # Test 4: Try to delete encounter when no combat (should fail)
+  exec_curl "Delete Encounter (No Combat - Should Fail)" '{
+    "command": "test_command",
+    "test_session_id": "'"$TEST_SESSION_ID"'",
+    "test_command": "delete_encounter"
+  }'
+  
+  echo ""
+  echo "✅ Encounter management tests completed"
+  echo "   • Verified combat creation with get_encounter"
+  echo "   • Verified combat deletion with get_encounter"
+  echo "   • Tested error cases (duplicate creation, delete when no combat)"
+  echo ""
+else
+  echo "⚠️  No actor IDs found in world state"
+  echo "   Skipping encounter management tests"
+  echo ""
+fi
+
+echo "Step 6: Test Multi-Command Execution"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 exec_curl "Execute Multiple Commands" '{
   "command": "execute_test_commands",
@@ -121,7 +280,7 @@ exec_curl "Execute Multiple Commands" '{
   ]
 }'
 
-echo "Step 6: End Test Session WITHOUT Reset (Prepare for Delta Test)"
+echo "Step 7: End Test Session WITHOUT Reset (Prepare for Delta Test)"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 exec_curl "End Session (No WebSocket Reset)" '{
   "command": "end_test_session",
@@ -130,7 +289,7 @@ exec_curl "End Session (No WebSocket Reset)" '{
 }'
 
 echo ""
-echo "Step 7: Test Delta Tracking (Feature 4) - Subsequent AI Turn"
+echo "Step 8: Test Delta Tracking (Feature 4) - Subsequent AI Turn"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 echo "📝 NOTE: This is SUBSEQUENT AI turn (same client_id)"
@@ -183,7 +342,7 @@ echo "   • Should see full delta JSON if you made changes"
 echo "   • Should see 'No changes to game state' if you didn't"
 echo ""
 
-echo "Step 8: End Test Session with WebSocket Reset"
+echo "Step 9: End Test Session with WebSocket Reset"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 exec_curl "End Test Session (WebSocket Reset)" '{
   "command": "end_test_session",
