@@ -219,13 +219,14 @@ def create_admin_router(global_config):
 # Testing harness command handlers
 
 async def handle_start_test_session(request_data: Dict[str, Any], logger: logging.Logger) -> Dict[str, Any]:
-    """Handle start_test_session command"""
+    """Handle start_test_session command - creates transparent AI interceptor"""
     try:
         from services.system_services.service_factory import (
             get_testing_session_manager,
             get_testing_harness,
             get_websocket_manager
         )
+        from services.ai_services.ai_session_manager import get_ai_session_manager
         from services.system_services.universal_settings import extract_universal_settings
         
         # Get client ID (auto-detect if not provided)
@@ -250,9 +251,9 @@ async def handle_start_test_session(request_data: Dict[str, Any], logger: loggin
         testing_session_manager = get_testing_session_manager()
         testing_harness = get_testing_harness()
         ws_manager = get_websocket_manager()
+        ai_session_manager = get_ai_session_manager()
         
         # Clear any stale delta from previous test session
-        # This ensures we only get the fresh delta from the upcoming chat_request
         try:
             from services.message_services.websocket_message_collector import get_websocket_message_collector
             message_collector = get_websocket_message_collector()
@@ -275,27 +276,52 @@ async def handle_start_test_session(request_data: Dict[str, Any], logger: loggin
         
         logger.info(f"Sent test_session_start to client {client_id}")
         
-        # NOTE: We don't try to retrieve delta here because:
-        # 1. There's a race condition - AI service may clear delta before we can retrieve it
-        # 2. The testing harness will retrieve the delta at the exact right moment
-        # 3. This ensures testing harness gets the same delta as AI service would receive
-        
-        # Create minimal universal_settings - testing harness will add delta when generating prompt
+        # Create universal_settings with required fields
         universal_settings = request_data.get('universal_settings', {})
         if not universal_settings:
             universal_settings = {
-                'ai role': 'gm'
-                # 'message_delta' will be added by testing harness from collector
+                'ai role': 'gm',
+                'disable function calling': False
             }
-            logger.info(f"Created minimal universal_settings for client {client_id} - testing harness will retrieve delta when generating prompt")
+            logger.info(f"Created minimal universal_settings for client {client_id}")
+        
+        # Get provider config for session uniqueness
+        from services.system_services.universal_settings import get_provider_config
+        try:
+            provider_config = get_provider_config(universal_settings, use_tactical=False)
+            provider = provider_config.get('provider', 'test')
+            model = provider_config.get('model', 'test')
+        except Exception as e:
+            logger.warning(f"Failed to get provider config, using defaults: {e}")
+            provider = 'test'
+            model = 'test'
+        
+        # Check if there's an existing active test session for this client (for session reuse)
+        existing_session = testing_session_manager.get_session_by_client(client_id)
+        if existing_session and existing_session.get('ai_session_id'):
+            # Reuse existing AI session to maintain first-turn state
+            ai_session_id = existing_session.get('ai_session_id')
+            logger.info(f"Reusing AI session {ai_session_id} for client {client_id} (existing test session)")
+        else:
+            # Create new AI session only if no existing test session
+            ai_session_id = ai_session_manager.create_or_get_session(client_id, None, provider, model)
+            logger.info(f"Created new AI session {ai_session_id} for client {client_id}")
+        
+        # Add ai_session_id to universal_settings
+        universal_settings['ai_session_id'] = ai_session_id
         
         # Create test session
         test_session_id = testing_session_manager.create_session(client_id, universal_settings)
         
-        # Generate initial prompt (now with delta if available)
+        # Store ai_session_id in test session for later reference
+        testing_session_manager.update_session(test_session_id, {'ai_session_id': ai_session_id})
+        
+        # Generate initial prompt using TRANSPARENT INTERCEPTOR
+        # This now triggers world_state_refresh and uses exact same code path as production
         initial_prompt_result = await testing_harness.generate_initial_prompt(
             client_id,
-            universal_settings
+            universal_settings,
+            ai_session_id  # Pass AI session ID for first-turn detection
         )
         
         if not initial_prompt_result['success']:
@@ -304,22 +330,26 @@ async def handle_start_test_session(request_data: Dict[str, Any], logger: loggin
                 detail=f"Failed to generate initial prompt: {initial_prompt_result.get('error')}"
             )
         
-        # Store initial prompt in session
+        # Store the exact messages that would be sent to AI
+        initial_messages = initial_prompt_result.get('initial_messages', [])
         testing_session_manager.set_initial_prompt(
             test_session_id,
             initial_prompt_result['initial_prompt']
         )
         
-        logger.info(f"Started test session {test_session_id} for client {client_id}")
+        logger.info(f"Started transparent test session {test_session_id} for client {client_id} with AI session {ai_session_id}")
         
         return {
             'status': 'success',
             'command': 'start_test_session',
             'test_session_id': test_session_id,
+            'ai_session_id': ai_session_id,
             'client_id': client_id,
-            'initial_prompt': initial_prompt_result['initial_prompt'],
+            'initial_messages': initial_messages,  # Exact OpenAI format messages AI would receive
             'session_state': 'awaiting_input',
             'ai_role': initial_prompt_result.get('ai_role'),
+            'is_first_turn': initial_prompt_result.get('is_first_turn', True),
+            'message_delta': initial_prompt_result.get('message_delta'),
             'timestamp': datetime.now().isoformat()
         }
         
