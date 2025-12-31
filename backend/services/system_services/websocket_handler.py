@@ -11,6 +11,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 import logging
 from datetime import datetime
 from typing import Dict, Any, Optional
+import asyncio
 
 # Import frontend settings handler
 from .frontend_settings_handler import get_frontend_settings_handler, FrontendSettingsException
@@ -50,8 +51,17 @@ class WebSocketHandler:
             # Accept WebSocket connection first
             await websocket.accept()
             
-            # Wait for initial connection message
-            connect_message = await websocket.receive_json()
+            # Wait for initial connection message with generous timeout
+            # This allows time for frontend to send connect message during network delays
+            try:
+                connect_message = await asyncio.wait_for(
+                    websocket.receive_json(),
+                    timeout=5.0  # 5 second timeout for connect message
+                )
+            except asyncio.TimeoutError:
+                logger.warning("WebSocket: Timeout waiting for connect message")
+                await websocket.close(code=1008, reason="Timeout waiting for connection message")
+                return
             
             # Validate connection message
             if connect_message.get("type") != "connect":
