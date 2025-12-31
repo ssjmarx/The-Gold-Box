@@ -6,6 +6,7 @@ Acts as a "mock AI service" during testing
 
 import logging
 import json
+import time
 import asyncio
 from typing import Dict, Any, Optional, List
 
@@ -34,34 +35,67 @@ class TestingHarness:
     async def generate_initial_prompt(
         self,
         client_id: str,
-        universal_settings: Dict[str, Any]
+        universal_settings: Dict[str, Any],
+        ai_session_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Generate initial prompt (same format as real AI would receive)
+        Generate initial prompt using the exact same code path as production AI service.
         
-        Uses shared utility to ensure consistency with production code.
+        This is a transparent interceptor that returns the exact messages that would be sent
+        to the AI provider in a real conversation.
         
         Args:
             client_id: The Foundry client ID
             universal_settings: Settings from frontend
+            ai_session_id: AI session ID for tracking first-turn status
             
         Returns:
-            Dictionary with initial_prompt and session data
+            Dictionary with the exact initial_messages that AI would receive
         """
         try:
-            # Retrieve game delta from WebSocketMessageCollector
-            # We need to wait for the delta because chat_request is processed asynchronously
             from services.message_services.websocket_message_collector import get_websocket_message_collector
-            message_collector = get_websocket_message_collector()
+            from services.ai_services.ai_session_manager import get_ai_session_manager
+            from shared.utils.ai_prompt_builder import build_initial_messages_with_delta
             
-            # DEBUG: Log delta retrieval
-            logger.info(f"===== TESTING HARNESS DELTA RETRIEVAL =====")
+            message_collector = get_websocket_message_collector()
+            ai_session_manager = get_ai_session_manager()
+            
+            logger.info(f"===== TESTING HARNESS - TRANSPARENT INTERCEPTOR =====")
             logger.info(f"generate_initial_prompt called for client {client_id}")
             
-            # Wait for delta to be available (chat_request is processed as background task)
-            # Poll for up to 3 seconds to get the delta from the latest chat_request
+            # Step 1: Determine if this is the first turn
+            if ai_session_id:
+                is_first_turn = not ai_session_manager.is_first_turn_complete(ai_session_id)
+                logger.info(f"First turn check for session {ai_session_id}: {is_first_turn}")
+            else:
+                # If no session ID provided, assume first turn
+                is_first_turn = True
+                logger.info(f"No session ID provided, assuming first turn: {is_first_turn}")
+            
+            # Step 2: For first turn, trigger world state refresh like production does
+            if is_first_turn:
+                try:
+                    from services.system_services.service_factory import get_websocket_manager
+                    ws_manager = get_websocket_manager()
+                    
+                    if ws_manager:
+                        await ws_manager.send_to_client(client_id, {
+                            "type": "world_state_refresh",
+                            "data": {},
+                            "timestamp": time.time()
+                        })
+                        logger.info(f"Triggered world_state_refresh for first turn (client {client_id})")
+                        
+                        # Brief pause to allow frontend to respond
+                        await asyncio.sleep(0.5)
+                    else:
+                        logger.warning(f"WebSocket manager not available for world_state_refresh")
+                except Exception as e:
+                    logger.error(f"Error triggering world_state_refresh: {e}")
+            
+            # Step 3: Retrieve game delta (same as AI orchestrator does)
             max_wait_seconds = 3
-            poll_interval = 0.1  # 100ms
+            poll_interval = 0.1
             waited_seconds = 0
             
             game_delta = message_collector.get_game_delta(client_id)
@@ -75,58 +109,71 @@ class TestingHarness:
                     logger.info(f"Found delta with hasChanges=True after {waited_seconds:.1f}s")
                     break
             
-            logger.info(f"Retrieved game_delta from collector after {waited_seconds:.1f}s: {json.dumps(game_delta, indent=2) if game_delta else 'None'}")
+            logger.info(f"Retrieved game_delta from collector after {waited_seconds:.1f}s: hasChanges={game_delta.get('hasChanges', False) if game_delta else 'None'}")
             
-            # Update universal_settings with fresh delta
+            # Step 4: Update universal_settings with delta (production code path)
             if game_delta:
                 universal_settings['message_delta'] = game_delta
-                logger.info(f"Updated universal_settings with game_delta: hasChanges={game_delta.get('hasChanges', False)}")
+                logger.info(f"Updated universal_settings with game_delta")
             else:
-                # No delta available - ensure we have default
                 if 'message_delta' not in universal_settings:
                     universal_settings['message_delta'] = {'hasChanges': False}
-                    logger.info(f"No game_delta available, using default: hasChanges=False")
+                    logger.info(f"No game_delta available, using default")
             
-            logger.info(f"universal_settings keys: {list(universal_settings.keys())}")
-            message_delta = universal_settings.get('message_delta', {})
-            logger.info(f"message_delta from universal_settings: {json.dumps(message_delta, indent=2)}")
-            logger.info(f"message_delta hasChanges: {message_delta.get('hasChanges', 'NOT SET')}")
-            logger.info(f"===== END TESTING HARNESS DELTA RETRIEVAL =====")
-            # Get combat context
+            # Step 5: Add client_id to settings (needed by ai_prompt_builder)
+            universal_settings['relay_client_id'] = client_id
+            
+            # Step 6: Get combat context
             combat_context = self._get_combat_context()
             
-            # Build combat context message
+            # Step 7: Generate base system prompt
             combat_context_message = {
                 'type': 'combat_context',
                 'combat_context': combat_context
             }
             
-            # Generate system prompt based on AI role
             ai_role = universal_settings.get('ai role', 'gm')
             system_prompt = self._unified_processor.generate_enhanced_system_prompt(
                 ai_role,
                 [combat_context_message]
             )
             
-            # CRITICAL: DO NOT inject deltas in testing harness
-            # Let AI Orchestrator decide: full context (first turn) OR deltas (subsequent turn)
-            # Testing harness should NOT pre-inject deltas into system prompt
-            initial_messages = [
-                {"role": "system", "content": system_prompt}
-            ]
+            # Step 8: Use the SHARED UTILITY to build initial messages with delta injection
+            # This is the EXACT same code path that production AI uses
+            initial_messages = build_initial_messages_with_delta(
+                universal_settings=universal_settings,
+                system_prompt=system_prompt,
+                is_first_turn=is_first_turn
+            )
             
-            # Extract initial_prompt from the messages array
-            initial_prompt = initial_messages[0]['content']
+            # Step 9: Decode messages for display (for better readability)
+            decoded_messages = self._decode_messages_for_display(initial_messages)
             
-            # Get delta from settings for return value
-            message_delta = universal_settings.get('message_delta', {})
+            logger.info(f"===== TRANSPARENT INTERCEPTOR - EXACT AI MESSAGES =====")
+            logger.info(f"Exact messages that would be sent to AI:\n{json.dumps(decoded_messages, indent=2, ensure_ascii=False)}")
+            logger.info(f"===== END TRANSPARENT INTERCEPTOR =====")
             
+            # Step 10: Mark first turn as complete (if this was first turn)
+            # In production AI flow, this happens after AI responds
+            # In testing harness, we intercept before AI response, so we mark it here
+            if is_first_turn and ai_session_id:
+                ai_session_manager.set_first_turn_complete(ai_session_id)
+                logger.info(f"Marked first turn complete for session {ai_session_id}")
+            
+            # Step 11: Clear delta after retrieval (same as AI orchestrator)
+            if game_delta:
+                message_collector.clear_game_delta(client_id)
+                logger.info(f"Cleared game_delta after retrieval")
+            
+            # Return exact messages that AI would receive
             return {
                 'success': True,
-                'initial_prompt': initial_prompt,
+                'initial_messages': initial_messages,
+                'initial_prompt': decoded_messages[0]['content'] if initial_messages else '',
                 'ai_role': ai_role,
                 'combat_context': combat_context,
-                'message_delta': message_delta
+                'message_delta': game_delta,
+                'is_first_turn': is_first_turn
             }
             
         except Exception as e:
@@ -135,6 +182,31 @@ class TestingHarness:
                 'success': False,
                 'error': str(e)
             }
+    
+    def _decode_messages_for_display(self, messages: List[Dict]) -> List[Dict]:
+        """
+        Decode escape sequences in message content strings for better display readability
+        
+        Args:
+            messages: List of message dictionaries (OpenAI format)
+            
+        Returns:
+            Decoded messages with content strings properly formatted
+        """
+        decoded_messages = []
+        for msg in messages:
+            decoded_msg = msg.copy()
+            if 'content' in decoded_msg and isinstance(decoded_msg['content'], str):
+                # Decode escape sequences
+                content = decoded_msg['content']
+                content = content.replace('\\n', '\n')
+                content = content.replace('\\r', '\r')
+                content = content.replace('\\t', '\t')
+                content = content.replace('\\"', '"')
+                content = content.replace('\\\\', '\\')
+                decoded_msg['content'] = content
+            decoded_messages.append(decoded_msg)
+        return decoded_messages
     
     async def process_command(
         self,
