@@ -200,22 +200,8 @@ class GoldBoxWebSocketClient {
         });
       }
       
-      // Notify connection established
-      if (this.onConnected) {
-        this.onConnected();
-      }
-
-      // Send initial world state
-      if (window.goldBoxWorldStateCollector && typeof window.goldBoxWorldStateCollector.sendWorldState === 'function') {
-        try {
-          await window.goldBoxWorldStateCollector.sendWorldState();
-          console.log('Gold Box WebSocket: Initial world state sent after connection');
-        } catch (error) {
-          console.warn('Gold Box WebSocket: Failed to send initial world state:', error);
-        }
-      }
-
-      // Send connection message
+      // CRITICAL FIX: Send connection message IMMEDIATELY before any other operations
+      // This prevents the backend from timing out while waiting for the connect message
       const connectMessage = {
         type: 'connect',
         client_id: this.clientId,
@@ -226,7 +212,22 @@ class GoldBoxWebSocketClient {
       };
 
       this.ws.send(JSON.stringify(connectMessage));
-      console.log('Sent connection message');
+      console.log('Sent connection message immediately');
+
+      // Notify connection established
+      if (this.onConnected) {
+        this.onConnected();
+      }
+
+      // Send initial world state AFTER connect message (non-critical operation)
+      if (window.goldBoxWorldStateCollector && typeof window.goldBoxWorldStateCollector.sendWorldState === 'function') {
+        try {
+          await window.goldBoxWorldStateCollector.sendWorldState();
+          console.log('Gold Box WebSocket: Initial world state sent after connection');
+        } catch (error) {
+          console.warn('Gold Box WebSocket: Failed to send initial world state:', error);
+        }
+      }
 
       // Start ping interval
       this.startPingInterval();
@@ -480,14 +481,15 @@ class GoldBoxWebSocketClient {
         this.manualDisconnect = true; // Prevent auto-reconnect during reset
         this.disconnect();
         
-        // Wait 1 second, then reconnect with new client ID
+        // Wait 3 seconds to allow backend cleanup, then reconnect with new client ID
+        // Increased from 1 second to prevent race conditions during reconnect
         setTimeout(() => {
           console.log('Gold Box: Generating new client ID...');
           this.clientId = this.generateClientId();
           console.log('Gold Box: New client ID:', this.clientId);
           console.log('Gold Box: Reconnecting...');
           this.connect();
-        }, 1000);
+        }, 3000);
       } else {
         // No reset, just notify
         ui.notifications?.info(`Testing session ${testData.test_session_id} ended`);
