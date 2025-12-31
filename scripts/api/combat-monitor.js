@@ -16,6 +16,7 @@ class CombatMonitor {
         
         this.cachedCombatData = null;
         this.lastCombatCheck = 0;
+        this.lastRequestId = null;  // Track the last create_encounter request_id
         
         // Initialize combat event listeners
         this.initCombatListeners();
@@ -24,9 +25,128 @@ class CombatMonitor {
     }
     
     /**
+     * Register WebSocket message handlers for encounter management
+     * Called when WebSocket client is available
+     */
+    registerWebSocketHandlers() {
+        // Get WebSocket client reference
+        const wsClient = window.goldBox?.webSocketClient;
+        
+        if (!wsClient) {
+            console.warn('Combat Monitor: WebSocket client not available, will retry...');
+            return false;
+        }
+        
+        console.log('Combat Monitor: Registering encounter management handlers');
+        
+        // Handler for create_encounter messages
+        wsClient.onMessageType('create_encounter', async (message) => {
+            console.log('Combat Monitor: Received create_encounter request', message);
+            
+            try {
+                const actorIds = message.data?.actor_ids;
+                const rollInitiative = message.data?.roll_initiative !== false; // Default to true
+                const requestId = message.request_id;  // Capture the request_id
+                
+                if (!actorIds || !Array.isArray(actorIds) || actorIds.length === 0) {
+                    console.error('Combat Monitor: Invalid actor_ids in create_encounter request');
+                    return;
+                }
+                
+                // Store the request_id so transmitCombatState can include it
+                this.lastRequestId = requestId;
+                
+                // Check if combat is already active
+                if (game.combat && game.combat.started) {
+                    console.warn('Combat Monitor: Combat already active, cannot create new encounter');
+                    // Send error response instead of combat state
+                    const wsClient = window.goldBox?.webSocketClient;
+                    if (wsClient && wsClient.isConnected) {
+                        const errorMessage = {
+                            type: 'error',
+                            request_id: requestId,  // Include request_id for correlation
+                            data: {
+                                error: 'Combat encounter already active',
+                                error_code: 'COMBAT_ALREADY_ACTIVE'
+                            },
+                            timestamp: Date.now()
+                        };
+                        await wsClient.send(errorMessage);
+                        console.log('Combat Monitor: Sent error response for create_encounter:', errorMessage);
+                    }
+                    return;
+                }
+                
+                // Create combat with specified actors
+                const combatData = {
+                    combatants: actorIds.map(actorId => ({
+                        actorId: actorId
+                    }))
+                };
+                
+                const combat = await Combat.create(combatData);
+                console.log('Combat Monitor: Combat created with', actorIds.length, 'combatants');
+                
+                // Roll initiative if requested
+                if (rollInitiative) {
+                    console.log('Combat Monitor: Rolling initiative for all combatants');
+                    await combat.rollAll();
+                    
+                    // Advance to first turn
+                    await combat.nextRound();
+                    console.log('Combat Monitor: Advanced to turn 1');
+                }
+                
+                // Transmit updated combat state (will include the request_id)
+                await this.transmitCombatState();
+                
+            } catch (error) {
+                console.error('Combat Monitor: Error handling create_encounter:', error);
+            }
+        });
+        
+        // Handler for delete_encounter messages
+        wsClient.onMessageType('delete_encounter', async (message) => {
+            console.log('Combat Monitor: Received delete_encounter request', message);
+            
+            try {
+                // Store request_id so transmitCombatState can include it
+                const requestId = message.request_id;
+                if (requestId) {
+                    this.lastRequestId = requestId;
+                    console.log('Combat Monitor: Stored request_id for delete_encounter:', requestId);
+                }
+                
+                // Check if combat is active
+                if (!game.combat || !game.combat.started) {
+                    console.warn('Combat Monitor: No active combat to end');
+                    // Transmit current combat state (should show in_combat: false)
+                    await this.transmitCombatState();
+                    return;
+                }
+                
+                // Delete combat directly (bypasses confirmation dialog)
+                await game.combat.delete();
+                console.log('Combat Monitor: Combat deleted');
+                
+                // Transmit updated combat state (should show in_combat: false)
+                await this.transmitCombatState();
+                
+            } catch (error) {
+                console.error('Combat Monitor: Error handling delete_encounter:', error);
+            }
+        });
+        
+        console.log('Combat Monitor: WebSocket encounter management handlers initialized');
+    }
+    
+    /**
      * Initialize Foundry combat event listeners
      */
     initCombatListeners() {
+        // WebSocket handlers will be registered separately when WebSocket client is available
+        // Don't register here to avoid race condition where WebSocket client isn't ready yet
+        
         // Listen for combat create events
         Hooks.on('createCombat', (combat) => {
             console.log('Combat created:', combat);
@@ -341,6 +461,7 @@ class CombatMonitor {
             // Send combat state via WebSocket
             const message = {
                 type: 'combat_state',
+                request_id: this.lastRequestId,  // Include the request_id if available
                 data: {
                     combat_state: combatState,
                     timestamp: Date.now()

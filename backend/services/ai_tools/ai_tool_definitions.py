@@ -131,5 +131,39 @@ def get_tool_definitions() -> list:
                     "properties": {}
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "create_encounter",
+                "description": "Start a new combat encounter with specified actors. Use roll_initiative parameter to control automatic initiative rolling (false for systems that handle initiative manually, e.g., card-based or dice-pool games). Creates combat and advances to turn 1 if successful.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "actor_ids": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Array of actor IDs to add to the encounter"
+                        },
+                        "roll_initiative": {
+                            "type": "boolean",
+                            "description": "Whether to roll initiative for all combatants (default: true)",
+                            "default": True
+                        }
+                    },
+                    "required": ["actor_ids"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "delete_encounter",
+                "description": "End the current combat encounter",
+                "parameters": {
+                    "type": "object",
+                    "properties": {}
+                }
+            }
         }
     ]

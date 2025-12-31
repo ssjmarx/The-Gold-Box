@@ -64,6 +64,10 @@ class AIToolExecutor:
             return await self.execute_roll_dice(tool_args, client_id)
         elif tool_name == 'get_encounter':
             return await self.execute_get_encounter(tool_args, client_id)
+        elif tool_name == 'create_encounter':
+            return await self.execute_create_encounter(tool_args, client_id)
+        elif tool_name == 'delete_encounter':
+            return await self.execute_delete_encounter(tool_args, client_id)
         else:
             raise ValueError(f"Unknown tool: {tool_name}")
     
@@ -460,6 +464,246 @@ class AIToolExecutor:
                 "success": False,
                 "error": str(e)
             }
+    
+    async def execute_create_encounter(
+        self,
+        args: Dict[str, Any],
+        client_id: str
+    ) -> Dict[str, Any]:
+        """
+        Execute create_encounter tool - creates a new combat encounter with specified actors
+        
+        Args:
+            args: Tool arguments (must contain 'actor_ids' array, optional 'roll_initiative' boolean)
+            client_id: Client ID for WebSocket communication
+        
+        Returns:
+            Dict with encounter creation result and combat state
+        """
+        try:
+            # Validate arguments
+            actor_ids = args.get('actor_ids', [])
+            if not isinstance(actor_ids, list) or not actor_ids:
+                raise ValueError("actor_ids must be a non-empty array")
+            
+            roll_initiative = args.get('roll_initiative', True)
+            if not isinstance(roll_initiative, bool):
+                raise ValueError("roll_initiative must be a boolean")
+            
+            # Get services via ServiceFactory
+            from ..system_services.service_factory import get_websocket_manager, get_message_collector
+            from shared.core.message_protocol import MessageProtocol
+            
+            websocket_manager = get_websocket_manager()
+            websocket_message_collector = get_message_collector()
+            
+            # Create a unique request ID for this encounter creation
+            request_id = str(uuid.uuid4())
+            
+            logger.info(f"create_encounter: Creating future for request {request_id} with client_id {client_id}")
+            
+            # Create a future to await combat state response
+            result_future = asyncio.Future()
+            _pending_roll_requests[request_id] = result_future
+            logger.info(f"create_encounter: Stored future in _pending_roll_requests. Total pending: {len(_pending_roll_requests)}")
+            
+            try:
+                # Send encounter creation request to frontend
+                create_message = {
+                    "type": "create_encounter",
+                    "request_id": request_id,
+                    "data": {
+                        "actor_ids": actor_ids,
+                        "roll_initiative": roll_initiative,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                }
+                
+                await websocket_manager.send_to_client(client_id, create_message)
+                logger.info(f"create_encounter: Sent encounter creation request to client {client_id} with {len(actor_ids)} actors, request_id: {request_id}")
+                
+                # Wait for combat state response with timeout (5 seconds)
+                try:
+                    logger.info(f"create_encounter: Waiting for combat state for request {request_id}...")
+                    await asyncio.wait_for(result_future, timeout=5.0)
+                    logger.info(f"create_encounter: Successfully received combat state for request {request_id}")
+                    
+                except asyncio.TimeoutError:
+                    logger.error(f"create_encounter: Timeout waiting for combat state from frontend, request_id: {request_id}")
+                    
+                    # Log diagnostic information to help debug timeout issues
+                    logger.debug(f"create_encounter: Checking message collector for client {client_id}")
+                    logger.debug(f"create_encounter: Pending requests count: {len(_pending_roll_requests)}")
+                    
+                    return {
+                        "success": False,
+                        "error": "Timeout waiting for encounter creation response from frontend. Frontend may have encountered an error or the WebSocket connection may be unstable.",
+                        "details": {
+                            "request_id": request_id,
+                            "timeout_seconds": 5,
+                            "client_id": client_id,
+                            "pending_requests": len(_pending_roll_requests)
+                        }
+                    }
+                
+                finally:
+                    # Clean up pending request
+                    logger.info(f"Cleaning up future for request {request_id}")
+                    if request_id in _pending_roll_requests:
+                        del _pending_roll_requests[request_id]
+                        logger.info(f"Removed future for request {request_id} from _pending_roll_requests")
+                    else:
+                        logger.warning(f"Future for request {request_id} not found in _pending_roll_requests during cleanup")
+                
+                # Get cached combat state from message collector
+                combat_state = websocket_message_collector.get_cached_combat_state(client_id)
+                
+                if not combat_state or not combat_state.get('in_combat', False):
+                    # Encounter creation failed
+                    return {
+                        "success": False,
+                        "error": "Failed to create encounter",
+                        "message": "Encounter creation did not result in active combat"
+                    }
+                
+                # Success - return full combat state
+                result = {
+                    "success": True,
+                    "in_combat": True,
+                    "combat_id": combat_state.get('combat_id'),
+                    "round": combat_state.get('round', 0),
+                    "turn": combat_state.get('turn', 0),
+                    "combatants": combat_state.get('combatants', []),
+                    "roll_initiative": roll_initiative,
+                    "actor_count": len(actor_ids),
+                    "last_updated": combat_state.get('last_updated')
+                }
+                
+                logger.info(f"create_encounter executed for client {client_id}: round {combat_state.get('round', 0)}, turn {combat_state.get('turn', 0)}, {len(combat_state.get('combatants', []))} combatants")
+                return result
+            
+            except Exception as inner_error:
+                logger.error(f"create_encounter: Error during encounter creation for client {client_id}: {inner_error}")
+                return {
+                    "success": False,
+                    "error": str(inner_error)
+                }
+            
+        except Exception as e:
+            logger.error(f"create_encounter execution failed: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def execute_delete_encounter(
+        self,
+        args: Dict[str, Any],
+        client_id: str
+    ) -> Dict[str, Any]:
+        """
+        Execute delete_encounter tool - ends the current combat encounter
+        
+        Args:
+            args: Tool arguments (no parameters required)
+            client_id: Client ID for WebSocket communication
+        
+        Returns:
+            Dict with encounter deletion result
+        """
+        try:
+            # Get services via ServiceFactory
+            from ..system_services.service_factory import get_websocket_manager, get_message_collector
+            
+            websocket_manager = get_websocket_manager()
+            websocket_message_collector = get_message_collector()
+            
+            # Check if combat is active
+            combat_state = websocket_message_collector.get_cached_combat_state(client_id)
+            if not combat_state or not combat_state.get('in_combat', False):
+                return {
+                    "success": False,
+                    "message": "No active encounter to end"
+                }
+            
+            # Create a unique request ID for this encounter deletion
+            request_id = str(uuid.uuid4())
+            
+            logger.info(f"delete_encounter: Creating future for request {request_id} with client_id {client_id}")
+            
+            # Create a future to await combat state response
+            result_future = asyncio.Future()
+            _pending_roll_requests[request_id] = result_future
+            logger.info(f"delete_encounter: Stored future in _pending_roll_requests. Total pending: {len(_pending_roll_requests)}")
+            
+            try:
+                # Send encounter deletion request to frontend
+                delete_message = {
+                    "type": "delete_encounter",
+                    "request_id": request_id,
+                    "data": {
+                        "timestamp": datetime.now().isoformat()
+                    }
+                }
+                
+                await websocket_manager.send_to_client(client_id, delete_message)
+                logger.info(f"delete_encounter: Sent encounter deletion request to client {client_id}, request_id: {request_id}")
+                
+                # Wait for combat state response with timeout (5 seconds)
+                try:
+                    logger.info(f"delete_encounter: Waiting for combat state for request {request_id}...")
+                    await asyncio.wait_for(result_future, timeout=5.0)
+                    logger.info(f"delete_encounter: Successfully received combat state for request {request_id}")
+                    
+                except asyncio.TimeoutError:
+                    logger.error(f"delete_encounter: Timeout waiting for combat state, request_id: {request_id}")
+                    return {
+                        "success": False,
+                        "error": "Timeout waiting for encounter deletion response from frontend",
+                        "request_id": request_id
+                    }
+                
+                finally:
+                    # Clean up pending request
+                    logger.info(f"Cleaning up future for request {request_id}")
+                    if request_id in _pending_roll_requests:
+                        del _pending_roll_requests[request_id]
+                        logger.info(f"Removed future for request {request_id} from _pending_roll_requests")
+                    else:
+                        logger.warning(f"Future for request {request_id} not found in _pending_roll_requests during cleanup")
+                
+                # Verify combat is no longer active
+                combat_state = websocket_message_collector.get_cached_combat_state(client_id)
+                if combat_state and combat_state.get('in_combat', False):
+                    return {
+                        "success": False,
+                        "error": "Combat still active after deletion request",
+                        "message": "Failed to end encounter"
+                    }
+                
+                # Success
+                result = {
+                    "success": True,
+                    "message": "Encounter ended successfully",
+                    "in_combat": False
+                }
+                
+                logger.info(f"delete_encounter executed for client {client_id}: encounter ended")
+                return result
+            
+            except Exception as inner_error:
+                logger.error(f"delete_encounter: Error during encounter deletion for client {client_id}: {inner_error}")
+                return {
+                    "success": False,
+                    "error": str(inner_error)
+                }
+            
+        except Exception as e:
+            logger.error(f"delete_encounter execution failed: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
 
 
 def handle_roll_result(request_id: str, results: Any) -> None:
@@ -490,6 +734,36 @@ def handle_roll_result(request_id: str, results: Any) -> None:
                     logger.error(f"Error setting future exception: {e2}")
     else:
         logger.warning(f"Received roll result for unknown request_id: {request_id}")
+
+
+def handle_combat_state_result(request_id: str, results: Any) -> None:
+    """
+    Handle incoming combat state result from frontend
+    Called when backend receives combat_state message in response to encounter management request
+    
+    Args:
+        request_id: Request ID from original encounter management call (create/delete/get)
+        results: Combat state results from frontend (can be None for simple acknowledgment)
+    """
+    if request_id in _pending_roll_requests:
+        future = _pending_roll_requests[request_id]
+        
+        try:
+            if not future.done():
+                future.set_result(results)
+                logger.info(f"Combat state result set successfully for request {request_id}")
+            else:
+                logger.debug(f"Future already done for combat state request {request_id}")
+        except Exception as e:
+            logger.error(f"Error setting combat state future result for request {request_id}: {e}")
+            # Try to set exception if result setting failed
+            if not future.done():
+                try:
+                    future.set_exception(e)
+                except Exception as e2:
+                    logger.error(f"Error setting future exception for combat state: {e2}")
+    else:
+        logger.warning(f"Received combat state result for unknown request_id: {request_id}")
 
 
 def get_ai_tool_executor() -> AIToolExecutor:

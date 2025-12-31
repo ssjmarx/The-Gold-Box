@@ -419,7 +419,9 @@ async def handle_test_command(request_data: Dict[str, Any], logger: logging.Logg
                 detail=result.get('error', 'Command execution failed')
             )
         
-        logger.info(f"Executed test command in session {test_session_id}: {command[:50]}...")
+        # Handle both string and dict commands for logging
+        command_display = command[:50] if isinstance(command, str) else str(command)[:50]
+        logger.info(f"Executed test command in session {test_session_id}: {command_display}...")
         
         return {
             'status': 'success',
@@ -624,7 +626,9 @@ async def handle_execute_test_commands(request_data: Dict[str, Any], logger: log
                     "status": "error",
                     "error": str(e)
                 })
-                logger.warning(f"Command {index} failed: {command[:50]}... - {e}")
+                # Handle both string and dict commands for logging
+                command_display = command[:50] if isinstance(command, str) else str(command)[:50]
+                logger.warning(f"Command {index} failed: {command_display}... - {e}")
         
         logger.info(f"Executed {len(commands)} commands for session {test_session_id}: {succeeded} succeeded, {failed} failed")
         

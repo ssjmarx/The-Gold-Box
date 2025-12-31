@@ -42,11 +42,50 @@ class TestingCommandProcessor:
         Parse user command string
         
         Args:
-            command_string: Raw command from user
+            command_string: Raw command from user (can be string or dict)
             
         Returns:
             Parsed command dictionary or None if invalid
         """
+        # Handle case where command_string is already a dict (structured command)
+        if isinstance(command_string, dict):
+            logger.info(f"Received structured command (dict): {command_string}")
+            
+            # Check if it's a create_encounter command
+            if command_string.get('command') == 'create_encounter':
+                actor_ids = command_string.get('actor_ids', [])
+                roll_initiative = command_string.get('roll_initiative', True)
+                
+                return {
+                    'command': 'tool_call',
+                    'tool_name': 'create_encounter',
+                    'arguments': {
+                        'actor_ids': actor_ids,
+                        'roll_initiative': roll_initiative
+                    }
+                }
+            
+            # Check if it's a delete_encounter command
+            if command_string.get('command') == 'delete_encounter':
+                return {
+                    'command': 'tool_call',
+                    'tool_name': 'delete_encounter',
+                    'arguments': {}
+                }
+            
+            # Check if it's a get_encounter command
+            if command_string.get('command') == 'get_encounter':
+                return {
+                    'command': 'tool_call',
+                    'tool_name': 'get_encounter',
+                    'arguments': {}
+                }
+            
+            # Unknown structured command
+            logger.warning(f"Unknown structured command: {command_string}")
+            return None
+        
+        # Handle case where command_string is a string
         if not command_string or not command_string.strip():
             return None
         
@@ -395,6 +434,27 @@ Tips:
                     'messages_sent': result.get('sent_count', 0),
                     'results': result.get('results', [])
                 }
+            }
+        
+        elif tool_name == 'create_encounter':
+            # Special handling for create_encounter - return result as-is
+            return {
+                'success': True,
+                'result': result
+            }
+        
+        elif tool_name == 'delete_encounter':
+            # Special handling for delete_encounter - return result as-is
+            return {
+                'success': True,
+                'result': result
+            }
+        
+        elif tool_name == 'get_encounter':
+            # Special handling for get_encounter - return result as-is
+            return {
+                'success': True,
+                'result': result
             }
         
         else:
