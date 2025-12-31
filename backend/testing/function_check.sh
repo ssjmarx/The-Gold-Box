@@ -261,9 +261,59 @@ if [ "$ACTOR_IDS" != "null" ] && [ "$ACTOR_IDS" != "[]" ]; then
   echo "   • Verified combat deletion with get_encounter"
   echo "   • Tested error cases (duplicate creation, delete when no combat)"
   echo ""
+  
+  # Now test turn management (Feature 2)
+  # First, recreate combat for turn tests
+  echo "Step 5b: Test Turn Management (Feature 2 - Patch 0.3.10)"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  
+  # Recreate combat
+  exec_curl_encounter "Recreate Encounter for Turn Tests" "$ACTOR_IDS" "$TEST_SESSION_ID" "--roll_initiative"
+  
+  # Test 1: Advance turn in active combat
+  exec_curl "Advance Combat Turn" '{
+    "command": "test_command",
+    "test_session_id": "'"$TEST_SESSION_ID"'",
+    "test_command": "advance_combat_turn"
+  }'
+  
+  # Verify turn advanced using get_encounter
+  exec_curl "Verify Turn Advanced" '{
+    "command": "test_command",
+    "test_session_id": "'"$TEST_SESSION_ID"'",
+    "test_command": "get_encounter"
+  }'
+  
+  # Test 2: Advance turn again
+  exec_curl "Advance Combat Turn (Again)" '{
+    "command": "test_command",
+    "test_session_id": "'"$TEST_SESSION_ID"'",
+    "test_command": "advance_combat_turn"
+  }'
+  
+  # Test 3: Delete combat to test error case
+  exec_curl "Delete Encounter for Error Test" '{
+    "command": "test_command",
+    "test_session_id": "'"$TEST_SESSION_ID"'",
+    "test_command": "delete_encounter"
+  }'
+  
+  # Test 4: Try to advance turn when no combat active (should fail)
+  exec_curl "Advance Turn (No Combat - Should Fail)" '{
+    "command": "test_command",
+    "test_session_id": "'"$TEST_SESSION_ID"'",
+    "test_command": "advance_combat_turn"
+  }'
+  
+  echo ""
+  echo "✅ Turn management tests completed"
+  echo "   • Verified turn advancement with advance_combat_turn"
+  echo "   • Verified turn order updates correctly"
+  echo "   • Tested error case (advance when no combat active)"
+  echo ""
 else
   echo "⚠️  No actor IDs found in world state"
-  echo "   Skipping encounter management tests"
+  echo "   Skipping encounter and turn management tests"
   echo ""
 fi
 
