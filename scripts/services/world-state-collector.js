@@ -328,6 +328,175 @@ class WorldStateCollector {
     }
 
     /**
+     * Get token actor details with optional search
+     * @param {string} tokenId - Token ID (e.g., 'Scene.XXX.Token.YYY')
+     * @param {string} searchPhrase - Optional search phrase for grep-like search
+     * @returns {Object} Token actor details or search results
+     */
+    async getTokenActorDetails(tokenId, searchPhrase = '') {
+        try {
+            console.log(`WorldStateCollector: Getting actor details for token ${tokenId}${searchPhrase ? ` with search phrase "${searchPhrase}"` : ''}`);
+            
+            // Get token from canvas
+            const token = canvas?.tokens?.get(tokenId);
+            
+            if (!token) {
+                console.error(`WorldStateCollector: Token not found: ${tokenId}`);
+                return {
+                    success: false,
+                    error: `Token not found: ${tokenId}`
+                };
+            }
+            
+            // Get token-specific actor
+            const actor = token.actor;
+            
+            if (!actor) {
+                console.error(`WorldStateCollector: No actor found for token: ${tokenId}`);
+                return {
+                    success: false,
+                    error: `No actor found for token: ${tokenId}`
+                };
+            }
+            
+            // If no search phrase, return complete actor data
+            if (!searchPhrase || searchPhrase.trim() === '') {
+                console.log(`WorldStateCollector: Returning complete actor data for ${actor.name}`);
+                return {
+                    success: true,
+                    name: actor.name,
+                    system: actor.system
+                };
+            }
+            
+            // Perform grep-like search
+            console.log(`WorldStateCollector: Performing search for "${searchPhrase}" on ${actor.name}`);
+            
+            // Flatten actor.system to path-value pairs
+            const flattened = this._flattenObject(actor.system);
+            console.log(`WorldStateCollector: Flattened ${flattened.length} fields`);
+            
+            // Filter for matches (case-insensitive, exact substring)
+            const searchLower = searchPhrase.toLowerCase();
+            const matches = flattened.filter(f => {
+                const pathLower = f.path.toLowerCase();
+                const valueStr = String(f.value).toLowerCase();
+                return pathLower.includes(searchLower) || valueStr.includes(searchLower);
+            });
+            
+            console.log(`WorldStateCollector: Found ${matches.length} matches`);
+            
+            // Add context (parent + sibling fields) for each match
+            matches.forEach(match => {
+                const parentPath = match.path.split('.').slice(0, -1).join('.');
+                match.context = {
+                    parent: parentPath,
+                    siblings: this._getSiblingFields(flattened, parentPath)
+                };
+            });
+            
+            // Return search results
+            return {
+                success: true,
+                name: actor.name,
+                matches: matches,
+                summary: {
+                    total_matches: matches.length,
+                    fields_searched: flattened.length
+                }
+            };
+            
+        } catch (error) {
+            console.error('WorldStateCollector: Error getting token actor details:', error);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+    
+    /**
+     * Flatten nested object to array of path-value pairs
+     * @param {Object} obj - Object to flatten
+     * @param {string} prefix - Current path prefix
+     * @param {Set} visited - Set of already visited objects to prevent circular references
+     * @returns {Array} Array of {path, value} objects
+     * @private
+     */
+    _flattenObject(obj, prefix = '', visited = new Set()) {
+        const result = [];
+        
+        if (!obj || typeof obj !== 'object') {
+            return result;
+        }
+        
+        // Check for circular reference
+        if (visited.has(obj)) {
+            // Skip circular reference to prevent infinite recursion
+            result.push({ path: prefix || '[circular]', value: '[Circular Reference]' });
+            return result;
+        }
+        
+        // Add current object to visited set
+        visited.add(obj);
+        
+        for (const key in obj) {
+            if (obj.hasOwnProperty(key)) {
+                const value = obj[key];
+                const path = prefix ? `${prefix}.${key}` : key;
+                
+                if (value && typeof value === 'object' && !Array.isArray(value)) {
+                    // Recursively flatten nested objects, passing the visited set
+                    result.push(...this._flattenObject(value, path, visited));
+                } else if (Array.isArray(value)) {
+                    // Handle arrays specially - add index to path
+                    value.forEach((item, index) => {
+                        if (item && typeof item === 'object') {
+                            // Pass visited set for array items too
+                            result.push(...this._flattenObject(item, `${path}.${index}`, visited));
+                        } else {
+                            result.push({ path: `${path}.${index}`, value: item });
+                        }
+                    });
+                } else {
+                    // Primitive value
+                    result.push({ path, value });
+                }
+            }
+        }
+        
+        return result;
+    }
+    
+    /**
+     * Get sibling fields for a given parent path
+     * @param {Array} flattened - Array of flattened fields
+     * @param {string} parentPath - Parent path to get siblings for
+     * @returns {Object} Object of sibling field names to values
+     * @private
+     */
+    _getSiblingFields(flattened, parentPath) {
+        const siblings = {};
+        
+        // Find all fields under the same parent
+        flattened.forEach(f => {
+            if (f.path.startsWith(parentPath + '.')) {
+                // Get the field name directly under parent
+                const remainingPath = f.path.substring(parentPath.length + 1);
+                const firstDotIndex = remainingPath.indexOf('.');
+                
+                if (firstDotIndex === -1) {
+                    // Direct child of parent
+                    siblings[remainingPath] = f.value;
+                }
+                // Ignore nested fields beyond first level
+            }
+        });
+        
+        return siblings;
+    }
+    
+    /**
      * Send world state to backend via WebSocket
      */
     async sendWorldState() {

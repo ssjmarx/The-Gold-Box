@@ -125,8 +125,11 @@ class WebSocketCommunicator {
     // Initialize combat state refresh handler
     this.initializeCombatStateRefreshHandler();
     
-    // Initialize world state collector
-    await this.initializeWorldStateCollector();
+      // Initialize world state collector
+      await this.initializeWorldStateCollector();
+      
+      // Initialize actor details handler
+      this.initializeActorDetailsHandler();
   }
 
   /**
@@ -204,7 +207,59 @@ class WebSocketCommunicator {
         console.warn('WebSocketCommunicator: WorldStateCollector not available');
       }
     } catch (error) {
-      console.error('WebSocketCommunicator: Error initializing WorldStateCollector:', error);
+      console.error('WebSocketCommunicator: Error initializing World State Collector:', error);
+    }
+  }
+
+  /**
+   * Initialize Actor Details Handler
+   * @private
+   */
+  initializeActorDetailsHandler() {
+    try {
+      if (!this.webSocketClient) {
+        console.warn('WebSocketCommunicator: WebSocket client not available for actor details handler');
+        return;
+      }
+      
+      // Register handler for get_actor_details messages
+      this.webSocketClient.onMessageType('get_actor_details', async (message) => {
+        console.log('WebSocketCommunicator: Received get_actor_details request');
+        
+        try {
+          const tokenId = message.data?.token_id;
+          const searchPhrase = message.data?.search_phrase || '';
+          
+          if (!tokenId) {
+            console.error('WebSocketCommunicator: get_actor_details missing token_id');
+            return;
+          }
+          
+          // Get actor details from WorldStateCollector
+          const result = await this.worldStateCollector?.getTokenActorDetails(tokenId, searchPhrase);
+          
+          if (result && result.success !== false) {
+            // Send actor details response back to backend
+            const responseMessage = {
+              type: 'token_actor_details',
+              request_id: message.request_id,
+              data: result,
+              timestamp: Date.now()
+            };
+            
+            await this.webSocketClient.send(responseMessage);
+            console.log('WebSocketCommunicator: Actor details transmitted for token', tokenId);
+          } else {
+            console.error('WebSocketCommunicator: Failed to get actor details:', result?.error);
+          }
+        } catch (error) {
+          console.error('WebSocketCommunicator: Error handling get_actor_details:', error);
+        }
+      });
+      
+      console.log('WebSocketCommunicator: Actor details handler initialized');
+    } catch (error) {
+      console.error('WebSocketCommunicator: Error initializing actor details handler:', error);
     }
   }
 

@@ -172,6 +172,12 @@ def initialize_websocket_manager():
                         await self._handle_world_state_sync(client_id, message)
                         return
                     
+                    # Handle token actor details messages from frontend - FAST PATH
+                    if message_type == "token_actor_details":
+                        logger.info(f"WebSocket: [FAST PATH] Handling token_actor_details for client {client_id}")
+                        await self._handle_token_actor_details(client_id, message)
+                        return
+                    
                     # Handle chat requests - check for active test session first - SLOW PATH
                     if message_type == "chat_request":
                         # Check if there's an active test session for this client
@@ -907,10 +913,42 @@ def initialize_websocket_manager():
                     stored_messages = get_delta_filtered_client_messages(client_id, session_id, context_count)
                     
                     # Log actual message count for debugging
-                    logger.debug(f"Retrieved {len(stored_messages)} messages from WebSocket collector (requested: {context_count})")
+                    logger.info(f"Retrieved {len(stored_messages)} messages from WebSocket collector (requested: {context_count})")
                     
                     # Add session ID to universal settings for response delivery
                     universal_settings['ai_session_id'] = session_id
+                except:
+                    pass
+            
+            async def _handle_token_actor_details(self, client_id: str, message: Dict[str, Any]):
+                """Handle token_actor_details message from frontend - resolve pending request"""
+                try:
+                    logger.info(f"_handle_token_actor_details called for client {client_id}")
+                    
+                    # Extract request_id and actor data from message
+                    request_id = message.get("request_id")
+                    actor_data = message.get("data", {})
+                    
+                    logger.info(f"Extracted from token_actor_details message: request_id={request_id}")
+                    
+                    if not request_id:
+                        logger.warning(f"Received token_actor_details without request_id from client {client_id}")
+                        return
+                    
+                    # Forward to AI tool executor to resolve pending request
+                    from services.ai_tools.ai_tool_executor import _pending_roll_requests
+                    if request_id in _pending_roll_requests:
+                        future = _pending_roll_requests[request_id]
+                        if not future.done():
+                            logger.info(f"Resolving pending request {request_id} with actor details")
+                            future.set_result(actor_data)
+                        else:
+                            logger.warning(f"Pending request {request_id} already done")
+                    else:
+                        logger.warning(f"Received token_actor_details for unknown request_id: {request_id}")
+                    
+                except Exception as e:
+                    logger.error(f"Error handling token_actor_details for client {client_id}: {e}", exc_info=True)
                     
                     # Add client ID to universal settings for response delivery
                     universal_settings['relay_client_id'] = client_id

@@ -159,10 +159,17 @@ class TestingCommandProcessor:
         
         # Try to parse as generic tool call
         # Format: tool_name param1=value1 param2=value2
+        # OR: tool <tool_name> param1=value1 param2=value2
         tool_match = re.match(r'^(\w+)\s*(.*)$', command_string)
         if tool_match:
             tool_name = tool_match.group(1)
             args_string = tool_match.group(2).strip()
+        
+        # Handle "tool <tool_name>" format (used by test scripts)
+        tool_command_match = re.match(r'^tool\s+(\w+)\s*(.*)$', command_string, re.IGNORECASE)
+        if tool_command_match:
+            tool_name = tool_command_match.group(1)
+            args_string = tool_command_match.group(2).strip()
             
             logger.info(f"Parsed tool call: tool_name={tool_name}, args_string='{args_string}'")
             
@@ -200,6 +207,33 @@ class TestingCommandProcessor:
             return json.loads(args_string)
         except json.JSONDecodeError:
             pass
+        
+        # Check if there are multiple parameters (spaces present)
+        # If yes, skip single key-value pattern and go to multi-parameter parsing
+        if ' ' in args_string.strip():
+            # Multiple parameters - use multi-parameter pattern
+            pattern = r'(\w+)=("[^"]*"|\'[^\']*\'|\S+)'
+            matches = re.findall(pattern, args_string)
+            
+            for key, value in matches:
+                # Remove quotes from value
+                if value.startswith('"') and value.endswith('"'):
+                    value = value[1:-1]
+                elif value.startswith("'") and value.endswith("'"):
+                    value = value[1:-1]
+                
+                # Try to convert to int or float
+                try:
+                    value = int(value)
+                except ValueError:
+                    try:
+                        value = float(value)
+                    except ValueError:
+                        pass  # Keep as string
+                
+                arguments[key] = value
+            
+            return arguments
         
         # Try to parse as key=value pairs with JSON values
         # Handle cases like: rolls=[{"formula":"1d20"}]
@@ -452,6 +486,13 @@ Tips:
         
         elif tool_name == 'get_encounter':
             # Special handling for get_encounter - return result as-is
+            return {
+                'success': True,
+                'result': result
+            }
+        
+        elif tool_name == 'get_actor_details':
+            # Special handling for get_actor_details - return result as-is
             return {
                 'success': True,
                 'result': result
