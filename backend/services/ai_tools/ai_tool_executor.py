@@ -70,6 +70,8 @@ class AIToolExecutor:
             return await self.execute_delete_encounter(tool_args, client_id)
         elif tool_name == 'advance_combat_turn':
             return await self.execute_advance_combat_turn(tool_args, client_id)
+        elif tool_name == 'get_actor_details':
+            return await self.execute_get_actor_details(tool_args, client_id)
         else:
             raise ValueError(f"Unknown tool: {tool_name}")
     
@@ -888,6 +890,112 @@ class AIToolExecutor:
             
         except Exception as e:
             logger.error(f"advance_combat_turn execution failed: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def execute_get_actor_details(
+        self,
+        args: Dict[str, Any],
+        client_id: str
+    ) -> Dict[str, Any]:
+        """
+        Execute get_actor_details tool - retrieves detailed stat block for token-specific actor
+        
+        Args:
+            args: Tool arguments (must contain 'token_id', optional 'search_phrase')
+            client_id: Client ID for WebSocket communication
+        
+        Returns:
+            Dict with actor details or search results
+        """
+        try:
+            # Validate arguments
+            token_id = args.get('token_id')
+            if not isinstance(token_id, str) or not token_id.strip():
+                raise ValueError("token_id must be a non-empty string")
+            
+            search_phrase = args.get('search_phrase', '')
+            if not isinstance(search_phrase, str):
+                raise ValueError("search_phrase must be a string")
+            
+            # Get services via ServiceFactory
+            from ..system_services.service_factory import get_websocket_manager
+            
+            websocket_manager = get_websocket_manager()
+            
+            # Create a unique request ID for this actor details request
+            request_id = str(uuid.uuid4())
+            
+            logger.info(f"get_actor_details: Creating future for request {request_id} with client_id {client_id}")
+            
+            # Create a future to await actor data response
+            result_future = asyncio.Future()
+            _pending_roll_requests[request_id] = result_future
+            logger.info(f"get_actor_details: Stored future in _pending_roll_requests. Total pending: {len(_pending_roll_requests)}")
+            
+            try:
+                # Send actor details request to frontend
+                actor_details_message = {
+                    "type": "get_actor_details",
+                    "request_id": request_id,
+                    "data": {
+                        "token_id": token_id,
+                        "search_phrase": search_phrase,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                }
+                
+                await websocket_manager.send_to_client(client_id, actor_details_message)
+                logger.info(f"get_actor_details: Sent actor details request to client {client_id} for token {token_id}, request_id: {request_id}")
+                
+                # Wait for actor data response with timeout (5 seconds - should be fast)
+                try:
+                    logger.info(f"get_actor_details: Waiting for actor data for request {request_id}...")
+                    result_data = await asyncio.wait_for(result_future, timeout=5.0)
+                    logger.info(f"get_actor_details: Successfully received actor data for request {request_id}")
+                    
+                    # Return actor details from frontend
+                    return {
+                        "success": True,
+                        "token_id": token_id,
+                        "search_phrase": search_phrase,
+                        "data": result_data,
+                        "request_id": request_id
+                    }
+                    
+                except asyncio.TimeoutError:
+                    logger.error(f"get_actor_details: Timeout waiting for actor data, request_id: {request_id}")
+                    return {
+                        "success": False,
+                        "error": "Timeout waiting for actor details from frontend",
+                        "request_id": request_id,
+                        "details": {
+                            "token_id": token_id,
+                            "search_phrase": search_phrase,
+                            "timeout_seconds": 5
+                        }
+                    }
+                
+                finally:
+                    # Clean up pending request
+                    logger.info(f"Cleaning up future for request {request_id}")
+                    if request_id in _pending_roll_requests:
+                        del _pending_roll_requests[request_id]
+                        logger.info(f"Removed future for request {request_id} from _pending_roll_requests")
+                    else:
+                        logger.warning(f"Future for request {request_id} not found in _pending_roll_requests during cleanup")
+            
+            except Exception as inner_error:
+                logger.error(f"get_actor_details: Error during actor details request for client {client_id}: {inner_error}")
+                return {
+                    "success": False,
+                    "error": str(inner_error)
+                }
+            
+        except Exception as e:
+            logger.error(f"get_actor_details execution failed: {e}")
             return {
                 "success": False,
                 "error": str(e)

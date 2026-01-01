@@ -36,6 +36,8 @@ class MessageProtocol:
     TYPE_CREATE_ENCOUNTER = "create_encounter"
     TYPE_DELETE_ENCOUNTER = "delete_encounter"
     TYPE_ADVANCE_TURN = "advance_turn"
+    TYPE_GET_ACTOR_DETAILS = "get_actor_details"
+    TYPE_TOKEN_ACTOR_DETAILS = "token_actor_details"
     TYPE_GAME_DELTA = "game_delta"
     TYPE_WORLD_STATE_SYNC = "world_state_sync"
     TYPE_WORLD_STATE_REFRESH = "world_state_refresh"

@@ -176,5 +176,26 @@ def get_tool_definitions() -> list:
                     "properties": {}
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_actor_details",
+                "description": "Retrieve a detailed stat block for a token-specific actor instance. Returns complete actor data structure including all field names (e.g., 'attributes.hp.value', 'attributes.ac.value') which can be used with modify_token_attribute. Optional search_phrase performs grep-like search (case-insensitive, exact substring match) returning matching field paths, values, and context (parent/child/sibling fields). Similar to grep: searches all fields, returns matches with surrounding context. Leave empty to return full actor sheet.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "token_id": {
+                            "type": "string",
+                            "description": "The token-specific actor UUID (e.g., 'Scene.XXX.Token.YYY.Actor.ZZZ')"
+                        },
+                        "search_phrase": {
+                            "type": "string",
+                            "description": "Optional search phrase (case-insensitive, exact substring match). Returns matching field paths, values, and context. Similar to grep: searches all fields, returns matches with surrounding context (parent/child/sibling fields). Leave empty to return full actor sheet."
+                        }
+                    },
+                    "required": ["token_id"]
+                }
+            }
         }
     ]
