@@ -36,8 +36,8 @@
     }
   ],
   "socket": true,
-  "manifest": "https://github.com/ssjmarx/The-Gold-Box/releases/download/0.3.9/module.json",
-  "download": "https://github.com/ssjmarx/The-Gold-Box/releases/download/0.3.9/module.zip",
+  "manifest": "https://github.com/ssjmarx/The-Gold-Box/releases/download/v0.3.9.1/module.json",
+  "download": "https://github.com/ssjmarx/The-Gold-Box/releases/download/v0.3.9.1/module.zip",
   "compatibility": {
     "minimum": "12",
     "verified": "13"
