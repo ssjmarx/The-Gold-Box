@@ -359,8 +359,11 @@ class CombatMonitor {
             }
             
             // Get current combat data from Foundry in the order Foundry is using
+            // Include token_id and actor_uuid for token attribute management
             const combatants = combatantsArray.map(c => ({
                 name: c.name || 'Unknown',
+                token_id: c.tokenId,  // Token UUID for attribute modification
+                actor_uuid: c.actorUuid,  // Token-specific actor UUID for queries
                 initiative: c.initiative || 0,
                 is_player: c.hasPlayerOwner || false,
                 is_current_turn: currentTurnId === c._id

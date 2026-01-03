@@ -614,41 +614,196 @@ Available roles:
 
 ## Available Test Scripts
 
-### `function_check.sh` - Testing Harness Validation
+### Test Structure Overview
 
-Tests the testing harness functionality including multi-command execution and WebSocket reset.
+```
+backend/testing/
+├── run_all_tests.sh              # Master test runner - runs all tests
+├── test_helpers.sh               # Shared helper functions
+├── server_test.sh               # Server/API health check
+├── create_command_helper.py     # Python helper for command parsing
+├── README.md                    # Test suite documentation
+├── TESTING.md                   # This file - comprehensive testing guide
+├── FIXES_APPLIED.md             # History of test script fixes
+├── ISSUES_FOUND.md              # Backend bugs discovered during testing
+└── individual_tests/            # Feature-specific test scripts
+    ├── test_actor_operations.sh
+    ├── test_combat.sh
+    ├── test_dice_rolling.sh
+    ├── test_messaging.sh
+    └── test_multi_command_and_deltas.sh
+```
+
+### `run_all_tests.sh` - Master Test Runner ⭐ NEW
+
+Runs all individual test scripts sequentially and logs results.
 
 **Purpose:**
-- Validate testing harness functionality
-- Test individual commands
-- Test multi-command execution
-- Test WebSocket reset on session end
+- Execute all tests in one command
+- Generate comprehensive test report
+- Track pass/fail statistics
+- Log all output for later review
 
 **Usage:**
 ```bash
 cd backend/testing
-./function_check.sh
+./run_all_tests.sh
 ```
 
-**What it tests:**
-1. Start test session
-2. Individual commands (3 commands):
-   - Get messages from chat
-   - Post single message
-   - Check session status
-3. Multi-command execution (4 commands):
-   - Get messages
-   - Post multiple messages (JSON array)
-   - Post single message
-   - Check status
-4. End session with WebSocket reset
+**Features:**
+- Runs all 5 individual test scripts
+- Color-coded console output
+- Pass/fail statistics with pass rate
+- Full output logged to `test_results.log`
+- Handles missing test scripts gracefully
 
-**Expected Results:**
-- All 7 commands execute successfully
-- 6 messages appear in Foundry VTT chat
-- WebSocket disconnects and reconnects
-- New client ID is generated
-- AI turn button re-enables
+**Output Example:**
+```
+Test Summary
+Total Tests:  5
+Passed:       4
+Failed:       1
+Pass Rate:    80%
+
+Full test results logged in: test_results.log
+```
+
+### `test_helpers.sh` - Shared Helper Functions
+
+Provides reusable functions for all test scripts.
+
+**Purpose:**
+- Consistent API request handling
+- Session management
+- Actor/token ID extraction
+- Success/error verification
+- Combat cleanup
+
+**Key Functions:**
+- `exec_request(desc, data)` - Execute API request and save response
+- `start_session()` - Start test session and save IDs
+- `test_command(desc, cmd)` - Execute test command
+- `create_encounter(desc, actor_ids, roll_initiative)` - Create combat encounter
+- `end_session(reset)` - End test session
+- `verify_success()` - Check last response for success
+- `verify_error()` - Check last response for expected error (enhanced)
+- `cleanup_combat()` - Force cleanup of existing combat (new)
+- `extract_actor_ids()` - Extract actor IDs from world state
+- `get_value(path)` - Extract value using jq path
+
+**Recent Updates:**
+- Enhanced `verify_error()` to detect nested `result.error` timeout fields
+- Added `cleanup_combat()` for ensuring clean combat state
+
+### `individual_tests/test_actor_operations.sh` - Actor Operations
+
+Tests actor queries and health management with circular verification.
+
+**What it tests:**
+- Full actor sheet retrieval
+- Grep-like search functionality (hp, sword, numeric, nonexistent)
+- Damage application with verification
+- Healing application with verification
+- Absolute value setting with verification
+- Combat state updates
+- Error handling (invalid token_id, invalid attribute_path)
+
+**Verification loop:** `get_actor_details` → modify → `get_actor_details` (confirm attribute changes)
+
+**Usage:**
+```bash
+cd backend/testing
+./individual_tests/test_actor_operations.sh
+```
+
+**Requirements:**
+- Must have at least 1 token on the scene in Foundry VTT
+
+### `individual_tests/test_combat.sh` - Combat Operations
+
+Tests combat lifecycle management with state verification.
+
+**What it tests:**
+- Encounter creation with initiative rolling
+- Encounter creation error handling (already active)
+- Turn advancement (multiple times)
+- Turn advancement error handling (no combat)
+- Encounter deletion
+- Encounter deletion error handling (no combat)
+
+**Verification loop:** `get_encounter` → action → `get_encounter` (confirm state changes at each step)
+
+**Usage:**
+```bash
+cd backend/testing
+./individual_tests/test_combat.sh
+```
+
+**Requirements:**
+- Must have at least 2 tokens on the scene in Foundry VTT
+- Tokens must have associated actors
+
+**Note:** Currently has backend issues documented in ISSUES_FOUND.md
+
+### `individual_tests/test_dice_rolling.sh` - Dice Rolling
+
+Tests dice rolling functionality.
+
+**What it tests:**
+- Single dice roll with flavor
+- Multiple dice rolls in one command
+- Dice rolls without flavor
+- Dice roll count verification
+
+**Verification loop:** `get_message_history` → roll → `get_message_history` (confirm dice rolls added)
+
+**Usage:**
+```bash
+cd backend/testing
+./individual_tests/test_dice_rolling.sh
+```
+
+### `individual_tests/test_messaging.sh` - Messaging
+
+Tests messaging operations with circular verification.
+
+**What it tests:**
+- Message history retrieval
+- Single message posting
+- Multiple message posting (array)
+- Message count verification
+
+**Verification loop:** `get_message_history` → post → `get_message_history` (confirm messages added)
+
+**Usage:**
+```bash
+cd backend/testing
+./individual_tests/test_messaging.sh
+```
+
+**Note:** Messages execute but don't persist to Foundry chat (backend issue)
+
+### `individual_tests/test_multi_command_and_deltas.sh` - Multi-Command & Delta Tracking
+
+Tests batched command execution and delta tracking across AI turns.
+
+**What it tests:**
+- Multi-command execution (batch of commands in single request)
+- WebSocket preservation (no reset between sessions)
+- Delta tracking across AI turns
+- Manual changes captured in subsequent session
+
+**Features:**
+- **Interactive:** Requires manual user input for delta test portion
+- Tests first turn (full world state) vs subsequent turn (deltas only)
+
+**Verification loop:** Execute batch → verify each command ran; End → Start → verify deltas captured
+
+**Usage:**
+```bash
+cd backend/testing
+./individual_tests/test_multi_command_and_deltas.sh
+```
 
 ### `server_test.sh` - Server/API Health Check
 
@@ -678,12 +833,6 @@ cd backend/testing
 8. Admin authentication
 9. Security headers
 
-**Expected Results:**
-- All API endpoints respond correctly
-- Security features properly reject invalid requests
-- Appropriate HTTP status codes returned
-- Security headers present
-
 **Configuration:**
 ```bash
 # Custom server URL
@@ -693,28 +842,22 @@ GOLD_BOX_SERVER_URL=http://localhost:5001 ./server_test.sh
 GOLD_BOX_TEST_TIMEOUT=15 ./server_test.sh
 ```
 
-### `test_harness_helpers.sh` - Interactive Testing Helper
+### `create_command_helper.py` - Command Helper Script
 
-Bash functions for interactive testing sessions.
+Python script that parses test commands and generates proper JSON for admin API calls.
 
 **Purpose:**
-- Interactive testing of AI functions
-- Manual command execution
-- Session management
+- Parse command strings into structured JSON
+- Handle complex command formats
+- Escape and format parameters correctly
 
-**Usage:**
+**Usage:** (Automatically called by test scripts)
+
+**Example Commands:**
 ```bash
-cd backend
-GOLD_BOX_ADMIN_PASSWORD=swag bash -c \
-  'source testing/test_harness_helpers.sh && start_test <client_id>'
-
-# Run test commands
-GOLD_BOX_ADMIN_PASSWORD=swag bash -c \
-  'source testing/test_harness_helpers.sh && send_test_command "" "get_messages 15"'
-
-# End session
-GOLD_BOX_ADMIN_PASSWORD=swag bash -c \
-  'source testing/test_harness_helpers.sh && send_test_command "" "stop"'
+python3 ./create_command_helper.py "test-session-id" "get_actor_details token_id=abc123"
+python3 ./create_command_helper.py "test-session-id" "roll_dice formula=1d20 flavor=Attack"
+python3 ./create_command_helper.py "test-session-id" "create_encounter actor_ids=[\"abc\",\"def\"] roll_initiative=true"
 ```
 
 ## Test Script Summary

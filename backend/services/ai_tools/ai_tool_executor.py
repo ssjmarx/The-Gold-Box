@@ -72,6 +72,8 @@ class AIToolExecutor:
             return await self.execute_advance_combat_turn(tool_args, client_id)
         elif tool_name == 'get_actor_details':
             return await self.execute_get_actor_details(tool_args, client_id)
+        elif tool_name == 'modify_token_attribute':
+            return await self.execute_modify_token_attribute(tool_args, client_id)
         else:
             raise ValueError(f"Unknown tool: {tool_name}")
     
@@ -996,6 +998,160 @@ class AIToolExecutor:
             
         except Exception as e:
             logger.error(f"get_actor_details execution failed: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def execute_modify_token_attribute(
+        self,
+        args: Dict[str, Any],
+        client_id: str
+    ) -> Dict[str, Any]:
+        """
+        Execute modify_token_attribute tool - modifies token attributes using Foundry's native API
+        
+        Args:
+            args: Tool arguments (must contain 'token_id', 'attribute_path', 'value', optional 'is_delta', 'is_bar')
+            client_id: Client ID for WebSocket communication
+        
+        Returns:
+            Dict with attribute modification result
+        """
+        try:
+            # Validate arguments
+            token_id = args.get('token_id')
+            if not isinstance(token_id, str) or not token_id.strip():
+                raise ValueError("token_id must be a non-empty string")
+            
+            attribute_path = args.get('attribute_path')
+            if not isinstance(attribute_path, str) or not attribute_path.strip():
+                raise ValueError("attribute_path must be a non-empty string")
+            
+            value = args.get('value')
+            if value is None or not isinstance(value, (int, float)):
+                raise ValueError("value must be a number")
+            
+            is_delta = args.get('is_delta', True)
+            if not isinstance(is_delta, bool):
+                raise ValueError("is_delta must be a boolean")
+            
+            is_bar = args.get('is_bar', True)
+            if not isinstance(is_bar, bool):
+                raise ValueError("is_bar must be a boolean")
+            
+            # Get services via ServiceFactory
+            from ..system_services.service_factory import get_websocket_manager, get_message_collector
+            
+            websocket_manager = get_websocket_manager()
+            websocket_message_collector = get_message_collector()
+            
+            # Create a unique request ID for this attribute modification
+            request_id = str(uuid.uuid4())
+            
+            logger.info(f"modify_token_attribute: Creating future for request {request_id} with client_id {client_id}")
+            
+            # Create a future to await combat state response
+            result_future = asyncio.Future()
+            _pending_roll_requests[request_id] = result_future
+            logger.info(f"modify_token_attribute: Stored future in _pending_roll_requests. Total pending: {len(_pending_roll_requests)}")
+            
+            try:
+                # Send attribute modification request to frontend
+                modify_message = {
+                    "type": "modify_token_attribute",
+                    "request_id": request_id,
+                    "data": {
+                        "token_id": token_id,
+                        "attribute_path": attribute_path,
+                        "value": value,
+                        "is_delta": is_delta,
+                        "is_bar": is_bar,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                }
+                
+                await websocket_manager.send_to_client(client_id, modify_message)
+                logger.info(f"modify_token_attribute: Sent attribute modification request to client {client_id} for token {token_id}, request_id: {request_id}")
+                
+                # Wait for combat state response with timeout (15 seconds - Foundry operations can be slow)
+                try:
+                    logger.info(f"modify_token_attribute: Waiting for combat state for request {request_id}...")
+                    await asyncio.wait_for(result_future, timeout=15.0)
+                    logger.info(f"modify_token_attribute: Successfully received combat state for request {request_id}")
+                    
+                    # Get updated combat state from message collector
+                    combat_state = websocket_message_collector.get_cached_combat_state(client_id)
+                    
+                    # Check if combat state indicates an error from frontend
+                    if combat_state and 'error' in combat_state:
+                        logger.error(f"modify_token_attribute: Frontend reported error: {combat_state['error']}")
+                        return {
+                            "success": False,
+                            "error": combat_state['error'],
+                            "token_id": token_id,
+                            "attribute_path": attribute_path,
+                            "value": value,
+                            "is_delta": is_delta,
+                            "is_bar": is_bar,
+                            "request_id": request_id
+                        }
+                    
+                    result = {
+                        "success": True,
+                        "message": "Attribute modified successfully",
+                        "token_id": token_id,
+                        "attribute_path": attribute_path,
+                        "value": value,
+                        "is_delta": is_delta,
+                        "is_bar": is_bar,
+                        "request_id": request_id
+                    }
+                    
+                    # Include combat state if token is in combat
+                    if combat_state and combat_state.get('in_combat', False):
+                        result['combat_state'] = {
+                            "in_combat": True,
+                            "combat_id": combat_state.get('combat_id'),
+                            "round": combat_state.get('round', 0),
+                            "turn": combat_state.get('turn', 0),
+                            "last_updated": combat_state.get('last_updated')
+                        }
+                    
+                    logger.info(f"modify_token_attribute executed for client {client_id}: token {token_id}, path {attribute_path}, value {value}")
+                    return result
+                    
+                except asyncio.TimeoutError:
+                    logger.error(f"modify_token_attribute: Timeout waiting for combat state, request_id: {request_id}")
+                    return {
+                        "success": False,
+                        "error": "Timeout waiting for attribute modification response from frontend",
+                        "request_id": request_id,
+                        "details": {
+                            "token_id": token_id,
+                            "attribute_path": attribute_path,
+                            "timeout_seconds": 15
+                        }
+                    }
+                
+                finally:
+                    # Clean up pending request
+                    logger.info(f"Cleaning up future for request {request_id}")
+                    if request_id in _pending_roll_requests:
+                        del _pending_roll_requests[request_id]
+                        logger.info(f"Removed future for request {request_id} from _pending_roll_requests")
+                    else:
+                        logger.warning(f"Future for request {request_id} not found in _pending_roll_requests during cleanup")
+            
+            except Exception as inner_error:
+                logger.error(f"modify_token_attribute: Error during attribute modification for client {client_id}: {inner_error}")
+                return {
+                    "success": False,
+                    "error": str(inner_error)
+                }
+            
+        except Exception as e:
+            logger.error(f"modify_token_attribute execution failed: {e}")
             return {
                 "success": False,
                 "error": str(e)

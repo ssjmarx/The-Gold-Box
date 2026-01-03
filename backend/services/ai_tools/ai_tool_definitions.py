@@ -176,26 +176,59 @@ def get_tool_definitions() -> list:
                     "properties": {}
                 }
             }
-        },
-        {
-            "type": "function",
-            "function": {
-                "name": "get_actor_details",
-                "description": "Retrieve a detailed stat block for a token-specific actor instance. Returns complete actor data structure including all field names (e.g., 'attributes.hp.value', 'attributes.ac.value') which can be used with modify_token_attribute. Optional search_phrase performs grep-like search (case-insensitive, exact substring match) returning matching field paths, values, and context (parent/child/sibling fields). Similar to grep: searches all fields, returns matches with surrounding context. Leave empty to return full actor sheet.",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "token_id": {
-                            "type": "string",
-                            "description": "The token-specific actor UUID (e.g., 'Scene.XXX.Token.YYY.Actor.ZZZ')"
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "get_actor_details",
+                    "description": "Retrieve a detailed stat block for a token-specific actor instance. Returns complete actor data structure including all field names (e.g., 'attributes.hp.value', 'attributes.ac.value') which can be used with modify_token_attribute. Optional search_phrase performs grep-like search (case-insensitive, exact substring match) returning matching field paths, values, and context (parent/child/sibling fields). Similar to grep: searches all fields, returns matches with surrounding context. Leave empty to return full actor sheet.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "token_id": {
+                                "type": "string",
+                                "description": "The token-specific actor UUID (e.g., 'Scene.XXX.Token.YYY.Actor.ZZZ')"
+                            },
+                            "search_phrase": {
+                                "type": "string",
+                                "description": "Optional search phrase (case-insensitive, exact substring match). Returns matching field paths, values, and context. Similar to grep: searches all fields, returns matches with surrounding context (parent/child/sibling fields). Leave empty to return full actor sheet."
+                            }
                         },
-                        "search_phrase": {
-                            "type": "string",
-                            "description": "Optional search phrase (case-insensitive, exact substring match). Returns matching field paths, values, and context. Similar to grep: searches all fields, returns matches with surrounding context (parent/child/sibling fields). Leave empty to return full actor sheet."
-                        }
-                    },
-                    "required": ["token_id"]
+                        "required": ["token_id"]
+                    }
+                }
+            },
+            {
+                "type": "function",
+                "function": {
+                    "name": "modify_token_attribute",
+                    "description": "Modify a token's attribute using Foundry's native API. Use field names from get_actor_details (e.g., 'attributes.hp.value', 'attributes.ac.value'). Multiple tokens can be updated in a single response (e.g., apply multi-target spell damage to multiple NPCs together). Set is_delta=true for relative changes (damage/healing), is_delta=false for absolute values. Set is_bar=true to update token bar display.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "token_id": {
+                                "type": "string",
+                                "description": "The token ID to update"
+                            },
+                            "attribute_path": {
+                                "type": "string",
+                                "description": "Attribute path to modify (e.g., 'attributes.hp.value')"
+                            },
+                            "value": {
+                                "type": "number",
+                                "description": "Value to set (if is_delta=false) or add/subtract (if is_delta=true)"
+                            },
+                            "is_delta": {
+                                "type": "boolean",
+                                "description": "Whether value is a relative change (true) or absolute (false). Default: true for damage/healing"
+                            },
+                            "is_bar": {
+                                "type": "boolean",
+                                "description": "Whether to update token bar display. Default: true"
+                            }
+                        },
+                        "required": ["token_id", "attribute_path", "value"]
+                    }
                 }
             }
-        }
     ]

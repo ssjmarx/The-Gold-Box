@@ -42,6 +42,7 @@ def initialize_websocket_manager():
             def __init__(self):
                 self.active_connections: List = []
                 self.connection_info: Dict[str, Dict[str, Any]] = {}
+                self._shutting_down: bool = False  # Flag to prevent new operations during shutdown
             
             async def connect(self, websocket, client_id: str, connection_info: Dict[str, Any]):
                 """Accept and register a new WebSocket connection"""
@@ -176,6 +177,12 @@ def initialize_websocket_manager():
                     if message_type == "token_actor_details":
                         logger.info(f"WebSocket: [FAST PATH] Handling token_actor_details for client {client_id}")
                         await self._handle_token_actor_details(client_id, message)
+                        return
+                    
+                    # Handle token attribute modified messages from frontend - FAST PATH
+                    if message_type == "token_attribute_modified":
+                        logger.info(f"WebSocket: [FAST PATH] Handling token_attribute_modified for client {client_id}")
+                        await self._handle_token_attribute_modified(client_id, message)
                         return
                     
                     # Handle chat requests - check for active test session first - SLOW PATH
@@ -949,6 +956,36 @@ def initialize_websocket_manager():
                     
                 except Exception as e:
                     logger.error(f"Error handling token_actor_details for client {client_id}: {e}", exc_info=True)
+            
+            async def _handle_token_attribute_modified(self, client_id: str, message: Dict[str, Any]):
+                """Handle token_attribute_modified message from frontend - resolve pending request"""
+                try:
+                    logger.info(f"_handle_token_attribute_modified called for client {client_id}")
+                    
+                    # Extract request_id and modification data from message
+                    request_id = message.get("request_id")
+                    modification_data = message.get("data", {})
+                    
+                    logger.info(f"Extracted from token_attribute_modified message: request_id={request_id}")
+                    
+                    if not request_id:
+                        logger.warning(f"Received token_attribute_modified without request_id from client {client_id}")
+                        return
+                    
+                    # Forward to AI tool executor to resolve pending request
+                    from services.ai_tools.ai_tool_executor import _pending_roll_requests
+                    if request_id in _pending_roll_requests:
+                        future = _pending_roll_requests[request_id]
+                        if not future.done():
+                            logger.info(f"Resolving pending request {request_id} with attribute modification result")
+                            future.set_result(modification_data)
+                        else:
+                            logger.warning(f"Pending request {request_id} already done")
+                    else:
+                        logger.warning(f"Received token_attribute_modified for unknown request_id: {request_id}")
+                    
+                except Exception as e:
+                    logger.error(f"Error handling token_attribute_modified for client {client_id}: {e}", exc_info=True)
                     
                     # Add client ID to universal settings for response delivery
                     universal_settings['relay_client_id'] = client_id

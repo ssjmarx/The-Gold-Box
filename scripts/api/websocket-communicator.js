@@ -257,6 +257,191 @@ class WebSocketCommunicator {
         }
       });
       
+      // Register handler for modify_token_attribute messages
+      this.webSocketClient.onMessageType('modify_token_attribute', async (message) => {
+        console.log('WebSocketCommunicator: Received modify_token_attribute request');
+        
+        try {
+          const tokenId = message.data?.token_id;
+          const attributePath = message.data?.attribute_path;
+          const value = message.data?.value;
+          const isDelta = message.data?.is_delta !== false; // Default to true
+          const isBar = message.data?.is_bar !== false; // Default to true
+          
+          if (!tokenId || !attributePath || value === undefined || value === null) {
+            console.error('WebSocketCommunicator: modify_token_attribute missing required parameters');
+            return;
+          }
+          
+      // Validate token_id before attempting modification
+      if (!tokenId || typeof tokenId !== 'string' || tokenId.trim() === '') {
+        console.error(`WebSocketCommunicator: modify_token_attribute invalid tokenId: "${tokenId}"`);
+        
+        // Send error response back to backend immediately
+        const errorMessage = `Invalid token ID: "${tokenId || '(empty)'}"`;
+        await this.webSocketClient.send({
+          type: 'combat_state',
+          request_id: message.request_id,
+          data: {
+            combat_state: {
+                  in_combat: false,
+                  combat_id: null,
+                  round: 0,
+                  turn: 0,
+                  combatants: [],
+                  last_updated: Date.now(),
+                  error: errorMessage
+                }
+          },
+          timestamp: Date.now()
+        });
+        console.log(`WebSocketCommunicator: Sent error response: ${errorMessage}`);
+        return;
+      }
+      
+      // Validate attribute_path
+      if (!attributePath || typeof attributePath !== 'string' || attributePath.trim() === '') {
+        console.error(`WebSocketCommunicator: modify_token_attribute invalid attributePath: "${attributePath}"`);
+        
+        // Send error response back to backend immediately
+        const errorMessage = `Invalid attribute path: "${attributePath || '(empty)'}"`;
+        await this.webSocketClient.send({
+          type: 'combat_state',
+          request_id: message.request_id,
+          data: {
+            combat_state: {
+                  in_combat: false,
+                  combat_id: null,
+                  round: 0,
+                  turn: 0,
+                  combatants: [],
+                  last_updated: Date.now(),
+                  error: errorMessage
+                }
+          },
+          timestamp: Date.now()
+        });
+        console.log(`WebSocketCommunicator: Sent error response: ${errorMessage}`);
+        return;
+      }
+      
+      // Validate value
+      if (value === undefined || value === null) {
+        console.error(`WebSocketCommunicator: modify_token_attribute invalid value: ${value}`);
+        
+        // Send error response back to backend immediately
+        const errorMessage = 'Value is undefined or null';
+        await this.webSocketClient.send({
+          type: 'combat_state',
+          request_id: message.request_id,
+          data: {
+            combat_state: {
+                  in_combat: false,
+                  combat_id: null,
+                  round: 0,
+                  turn: 0,
+                  combatants: [],
+                  last_updated: Date.now(),
+                  error: errorMessage
+                }
+          },
+          timestamp: Date.now()
+        });
+        console.log(`WebSocketCommunicator: Sent error response: ${errorMessage}`);
+        return;
+      }
+      
+      console.log(`WebSocketCommunicator: Attempting to modify token ${tokenId}, path: ${attributePath}, value: ${value}, isDelta: ${isDelta}, isBar: ${isBar}, request_id: ${message.request_id}`);
+      
+      // Modify token attribute from WorldStateCollector
+      const result = await this.worldStateCollector?.modifyTokenAttribute(tokenId, attributePath, value, isDelta, isBar);
+      
+      if (result && result.success) {
+        // Send combat state response back to backend (token modification triggers combat state update)
+        const responseMessage = {
+          type: 'combat_state',
+          request_id: message.request_id,
+          data: {
+            combat_state: result.combat_state || {
+                  in_combat: false,
+                  combat_id: null,
+                  round: 0,
+                  turn: 0,
+                  combatants: [],
+                  last_updated: Date.now()
+                }
+          },
+          timestamp: Date.now()
+        };
+      
+        await this.webSocketClient.send(responseMessage);
+        console.log('WebSocketCommunicator: Token attribute modified, combat state transmitted');
+      } else if (result) {
+        // Send error response back to backend
+        const errorMessage = result.error || 'Unknown error';
+        await this.webSocketClient.send({
+          type: 'combat_state',
+          request_id: message.request_id,
+          data: {
+            combat_state: {
+                  in_combat: false,
+                  combat_id: null,
+                  round: 0,
+                  turn: 0,
+                  combatants: [],
+                  last_updated: Date.now(),
+                  error: errorMessage
+                }
+          },
+          timestamp: Date.now()
+        });
+        console.error('WebSocketCommunicator: Failed to modify token attribute:', errorMessage);
+      } else {
+        // Send error response for no result
+        const errorMessage = 'No result returned from modifyTokenAttribute';
+        await this.webSocketClient.send({
+          type: 'combat_state',
+          request_id: message.request_id,
+          data: {
+            combat_state: {
+                  in_combat: false,
+                  combat_id: null,
+                  round: 0,
+                  turn: 0,
+                  combatants: [],
+                  last_updated: Date.now(),
+                  error: errorMessage
+                }
+          },
+          timestamp: Date.now()
+        });
+        console.error('WebSocketCommunicator: No result returned from modifyTokenAttribute');
+      }
+    } catch (error) {
+      console.error('WebSocketCommunicator: Error handling modify_token_attribute:', error);
+      
+      // Send error response back to backend on exception
+      const errorMessage = error.message || 'Unknown error';
+      await this.webSocketClient.send({
+        type: 'combat_state',
+        request_id: message.request_id,
+        data: {
+          combat_state: {
+                in_combat: false,
+                combat_id: null,
+                round: 0,
+                turn: 0,
+                combatants: [],
+                last_updated: Date.now(),
+                error: errorMessage
+              }
+        },
+        timestamp: Date.now()
+      });
+      console.error(`WebSocketCommunicator: Sent error response on exception: ${errorMessage}`);
+    }
+      });
+      
       console.log('WebSocketCommunicator: Actor details handler initialized');
     } catch (error) {
       console.error('WebSocketCommunicator: Error initializing actor details handler:', error);
