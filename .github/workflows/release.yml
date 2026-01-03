@@ -3,7 +3,7 @@ name: Create Release
 on:
   push:
     tags:
-      - 'v*'
+      - '*'
 
 permissions:
   contents: write
@@ -15,35 +15,82 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Get version from tag
-        id: version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      - name: Get tag name
+        id: tag
+        run: echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Skip dev builds
+        if: contains(steps.tag.outputs.TAG, 'dev')
+        run: |
+          echo "Skipping release for dev tag: ${{ steps.tag.outputs.TAG }}"
+          echo "SKIP_RELEASE=true" >> $GITHUB_ENV
 
       - name: Create module.zip
+        if: env.SKIP_RELEASE != 'true'
         run: |
           # Create a zip file excluding .git, .github, and the .desktop file
           zip -r module.zip . -x ".git/*" ".github/*" "*.desktop"
 
-      - name: Generate module.json with correct URLs
+      - name: Update module.json with version and URLs
+        if: env.SKIP_RELEASE != 'true'
         run: |
-          # Update the manifest and download URLs in module.json
-          sed -i "s|https://github.com/ssjmarx/Gold-Box/releases/latest/download/module.json|https://github.com/ssjmarx/The-Gold-Box/releases/download/${{ steps.version.outputs.VERSION }}/module.json|g" module.json
-          sed -i "s|https://github.com/ssjmarx/Gold-Box/releases/latest/download/module.zip|https://github.com/ssjmarx/The-Gold-Box/releases/download/${{ steps.version.outputs.VERSION }}/module.zip|g" module.json
+          # Use jq to reliably update the version and URLs
+          jq --arg tag "${{ steps.tag.outputs.TAG }}" \
+             '.version = $tag | 
+              .manifest = "https://github.com/ssjmarx/The-Gold-Box/releases/download/\($tag)/module.json" |
+              .download = "https://github.com/ssjmarx/The-Gold-Box/releases/download/\($tag)/module.zip"' \
+             module.json > module.json.tmp && mv module.json.tmp module.json
+          
+          echo "Updated module.json with tag: ${{ steps.tag.outputs.TAG }}"
+
+      - name: Validate module.json
+        if: env.SKIP_RELEASE != 'true'
+        run: |
+          # Validate JSON syntax
+          if ! jq empty module.json; then
+            echo "Error: module.json is not valid JSON"
+            exit 1
+          fi
+          
+          # Verify version was updated
+          VERSION=$(jq -r '.version' module.json)
+          if [ "$VERSION" != "${{ steps.tag.outputs.TAG }}" ]; then
+            echo "Error: Version mismatch. Expected ${{ steps.tag.outputs.TAG }}, got $VERSION"
+            exit 1
+          fi
+          
+          # Verify URLs contain the correct tag
+          MANIFEST=$(jq -r '.manifest' module.json)
+          DOWNLOAD=$(jq -r '.download' module.json)
+          if [[ ! "$MANIFEST" == *"${{ steps.tag.outputs.TAG }}"* ]] || [[ ! "$DOWNLOAD" == *"${{ steps.tag.outputs.TAG }}"* ]]; then
+            echo "Error: URLs do not contain the correct tag"
+            exit 1
+          fi
+          
+          echo "✓ module.json validation passed"
+          echo "  Version: $VERSION"
+          echo "  Manifest: $MANIFEST"
+          echo "  Download: $DOWNLOAD"
+
+      - name: Display module.json content
+        if: env.SKIP_RELEASE != 'true'
+        run: cat module.json
 
       - name: Create Release
+        if: env.SKIP_RELEASE != 'true'
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ steps.version.outputs.VERSION }}
-          name: The Gold Box ${{ steps.version.outputs.VERSION }}
+          tag_name: ${{ steps.tag.outputs.TAG }}
+          name: The Gold Box ${{ steps.tag.outputs.TAG }}
           draft: false
           prerelease: false
           body: |
-            ## The Gold Box ${{ steps.version.outputs.VERSION }}
+            ## The Gold Box ${{ steps.tag.outputs.TAG }}
             
             ### Installation
             Add the following URL to Foundry VTT's Module Management:
             ```
-            https://github.com/ssjmarx/The-Gold-Box/releases/download/${{ steps.version.outputs.VERSION }}/module.json
+            https://github.com/ssjmarx/The-Gold-Box/releases/download/${{ steps.tag.outputs.TAG }}/module.json
             ```
             
             ### Changes
