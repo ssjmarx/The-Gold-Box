@@ -97,13 +97,14 @@ def load_session_id():
         pass
     return None
 
-def create_command_json(test_session_id, test_command):
+def create_command_json(test_session_id, test_command, encounter_id=None):
     """
     Create JSON request for test_command
     
     Args:
         test_session_id: The test session ID (can be None or "null")
         test_command: The command string to execute
+        encounter_id: Optional encounter_id for commands that need it
         
     Returns:
         JSON string ready for curl
@@ -120,12 +121,18 @@ def create_command_json(test_session_id, test_command):
     
     # Debug: show what we're parsing
     # print(f"DEBUG: Parsing command: {test_command}", file=sys.stderr)
+    # print(f"DEBUG: encounter_id: {encounter_id}", file=sys.stderr)
     
     request = {
         "command": "test_command",
         "test_session_id": test_session_id,
         "test_command": test_command
     }
+    
+    # Add encounter_id if provided
+    if encounter_id:
+        request["encounter_id"] = encounter_id
+    
     return json.dumps(request, indent=2, ensure_ascii=False)
 
 def main():
@@ -133,11 +140,12 @@ def main():
     parser = argparse.ArgumentParser(description='Create test command JSON request')
     parser.add_argument('test_session_id', help='Test session ID')
     parser.add_argument('test_command', help='Command to execute')
+    parser.add_argument('--encounter_id', help='Encounter ID (optional)', default=None)
     
     args = parser.parse_args()
     
     # Create and output JSON
-    json_output = create_command_json(args.test_session_id, args.test_command)
+    json_output = create_command_json(args.test_session_id, args.test_command, args.encounter_id)
     print(json_output)
 
 if __name__ == '__main__':

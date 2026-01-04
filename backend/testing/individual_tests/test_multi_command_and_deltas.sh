@@ -54,6 +54,7 @@ if [ $MESSAGE_COUNT -ge 4 ]; then
   echo "✅ VERIFICATION PASSED: Batched commands executed (at least 4 messages)"
 else
   echo "❌ VERIFICATION FAILED: Expected at least 4 messages, got $MESSAGE_COUNT"
+  track_failure
 fi
 echo ""
 
@@ -122,6 +123,7 @@ if [ $NEW_MESSAGE_COUNT -gt $MESSAGE_COUNT ]; then
   echo "✅ VERIFICATION PASSED: Manual changes captured in message history"
 else
   echo "⚠️  Note: No new messages detected (did you make changes in Foundry?)"
+  # Don't track as failure - this is expected if user skipped manual changes
 fi
 echo ""
 
@@ -136,6 +138,7 @@ if [ "$FINAL_CLIENT_ID" = "$INITIAL_CLIENT_ID" ]; then
   echo "✅ VERIFICATION PASSED: Client ID preserved across sessions (WebSocket not reset)"
 else
   echo "⚠️  WARNING: Client ID changed (WebSocket may have been reset)"
+  # Don't track as failure - this can happen legitimately
 fi
 echo ""
 
@@ -160,19 +163,15 @@ fi
 echo ""
 
 echo ""
-echo "=========================================="
-echo "✅ Multi-Command & Delta Tracking test complete!"
-echo "=========================================="
-echo ""
-echo "✅ Test Summary:"
-echo "   • Multi-command execution (4 commands in batch)"
-echo "   • WebSocket preservation (no reset between sessions)"
-echo "   • Delta tracking across AI turns"
-echo "   • Manual changes captured in subsequent session"
-echo ""
-echo "📝 Key Concepts Verified:"
-echo "   • Batched commands execute in order"
-echo "   • First turn: full world state (no deltas)"
-echo "   • Subsequent turn: only deltas (no full world state)"
-echo "   • Manual changes between turns are captured in deltas"
-echo ""
+
+# Report final test result
+report_test_result "Multi-Command & Delta Tracking" \
+  "Multi-command execution (4 commands in batch)" \
+  "WebSocket preservation (no reset between sessions)" \
+  "Delta tracking across AI turns" \
+  "Manual changes captured in subsequent session"
+
+# Exit with appropriate code
+if has_failures; then
+  exit 1
+fi

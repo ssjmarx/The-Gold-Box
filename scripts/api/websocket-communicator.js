@@ -125,11 +125,38 @@ class WebSocketCommunicator {
     // Initialize combat state refresh handler
     this.initializeCombatStateRefreshHandler();
     
-      // Initialize world state collector
-      await this.initializeWorldStateCollector();
+    // Initialize combat monitor handlers
+    this.initializeCombatMonitorHandlers();
+    
+    // Initialize world state collector
+    await this.initializeWorldStateCollector();
+    
+    // Initialize actor details handler
+    this.initializeActorDetailsHandler();
+  }
+
+  /**
+   * Initialize Combat Monitor Handlers
+   * @private
+   */
+  initializeCombatMonitorHandlers() {
+    try {
+      if (!this.webSocketClient) {
+        console.warn('WebSocketCommunicator: WebSocket client not available for combat monitor handlers');
+        return;
+      }
       
-      // Initialize actor details handler
-      this.initializeActorDetailsHandler();
+      // Check if CombatMonitor is available and has registerWebSocketHandlers method
+      if (window.CombatMonitor && typeof window.CombatMonitor.registerWebSocketHandlers === 'function') {
+        console.log('WebSocketCommunicator: Registering CombatMonitor handlers');
+        window.CombatMonitor.registerWebSocketHandlers();
+        console.log('WebSocketCommunicator: CombatMonitor handlers initialized');
+      } else {
+        console.warn('WebSocketCommunicator: CombatMonitor not available or registerWebSocketHandlers not found');
+      }
+    } catch (error) {
+      console.error('WebSocketCommunicator: Error initializing combat monitor handlers:', error);
+    }
   }
 
   /**
@@ -148,6 +175,14 @@ class WebSocketCommunicator {
         console.log('WebSocketCommunicator: Received combat_state_refresh request');
         
         try {
+          // Store request_id for response correlation
+          if (message.request_id) {
+            if (window.CombatMonitor) {
+              window.CombatMonitor.lastRequestId = message.request_id;
+              console.log('WebSocketCommunicator: Stored request_id for combat_state_refresh:', message.request_id);
+            }
+          }
+          
           // Check if CombatMonitor is available
           if (window.CombatMonitor && typeof window.CombatMonitor.transmitCombatState === 'function') {
             // Transmit current combat state

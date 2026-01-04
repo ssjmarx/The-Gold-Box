@@ -4,8 +4,13 @@
 
 # Configuration
 SERVER_URL="http://localhost:5000"
-ADMIN_PASSWORD="swag"
 TIMEOUT=10
+
+# Admin password - use environment variable or prompt
+if [ -z "$ADMIN_PASSWORD" ]; then
+  read -s -p "Enter admin password: " ADMIN_PASSWORD
+  echo ""
+fi
 
 # Test counters
 PASSED=0

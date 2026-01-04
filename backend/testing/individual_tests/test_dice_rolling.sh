@@ -10,10 +10,6 @@ echo "📝 NOTE: This test verifies dice operations with circular verification"
 echo "   • get_message_history → roll → get_message_history (confirm dice rolls added)"
 echo ""
 
-# Initialize client ID tracking
-CLIENT_ID_FILE=".test_client_id"
-rm -f "$CLIENT_ID_FILE"  # Clean up any stale file
-
 # Step 1: Start test session
 start_session
 
@@ -45,38 +41,23 @@ if [ $ADDED -eq 3 ]; then
   echo "✅ VERIFICATION PASSED: 3 dice rolls added successfully"
 else
   echo "❌ VERIFICATION FAILED: Expected 3 dice rolls, got $ADDED messages"
+  track_failure
 fi
 echo ""
 
-# Step 7: End session with WebSocket reset and wait for reconnection
+# Step 7: End session with WebSocket reset
 echo ""
-echo "ℹ️  Ending session and waiting for WebSocket reconnection..."
+echo "ℹ️  Ending session with WebSocket reset..."
 end_session true
 
-# Wait for new client ID to be established
-sleep 3
+# Report final test result
+report_test_result "Dice Rolling" \
+  "Single dice roll with flavor" \
+  "Multiple dice rolls in one command" \
+  "Dice roll without flavor" \
+  "Message count verification (3 dice rolls added)"
 
-# Capture new client ID from logs
-echo "Checking for new client ID in logs..."
-NEW_CLIENT_ID=$(grep "client connected" goldbox.log | tail -20 | grep -oP '(?<=client connected: )' | tail -1 | sed 's/.*client connected: //')
-
-if [ -z "$NEW_CLIENT_ID" ]; then
-  echo "⚠️  WARNING: Could not detect new client ID after reconnection"
-else
-  echo "✅ Detected new client ID: $NEW_CLIENT_ID"
-  echo "   Updating client ID file..."
-  echo "$NEW_CLIENT_ID" > "$CLIENT_ID_FILE"
+# Exit with appropriate code
+if has_failures; then
+  exit 1
 fi
-echo ""
-
-echo ""
-echo "=========================================="
-echo "✅ Dice rolling test complete!"
-echo "=========================================="
-echo ""
-echo "Expected results in Foundry VTT chat:"
-echo "   • Dice roll: '1d20+5 (Attack roll) = X'"
-echo "   • Dice roll: '2d6 (Damage) = X'"
-echo "   • Dice roll: '1d8+3 (Bonus damage) = X'"
-echo "   • Dice roll: '1d20 = X'"
-echo ""

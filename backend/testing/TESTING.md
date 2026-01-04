@@ -38,17 +38,29 @@ The Testing Harness allows you to test AI functions without calling an actual AI
 
 ### 1. Start a Test Session
 
+**Option 1: Set password as environment variable**
 ```bash
 cd backend
-GOLD_BOX_ADMIN_PASSWORD=your_password bash -c \
-  'source testing/test_harness_helpers.sh && start_test <client_id>'
+export GOLD_BOX_ADMIN_PASSWORD=your_password
+source testing/test_harness_helpers.sh
+start_test <client_id>
 ```
 
-Example:
+**Option 2: Let script prompt for password**
 ```bash
-GOLD_BOX_ADMIN_PASSWORD=swag bash -c \
+cd backend
+source testing/test_harness_helpers.sh
+# Script will prompt for password
+start_test <client_id>
+```
+
+Example (with environment variable):
+```bash
+GOLD_BOX_ADMIN_PASSWORD=your_password bash -c \
   'source testing/test_harness_helpers.sh && start_test gb-wo2BPutUGT9XDlH9-c45265b0'
 ```
+
+**Security Note:** Never hardcode passwords in scripts. Use environment variables or prompts to keep credentials out of version control.
 
 **What happens:**
 - Creates a test session in backend
@@ -72,21 +84,20 @@ WebSocket connection confirmed: {client_id: 'gb-...'}
 ### 3. Run Test Commands
 
 ```bash
+# Set password once
+export GOLD_BOX_ADMIN_PASSWORD=your_password
+
 # Get messages from chat
-GOLD_BOX_ADMIN_PASSWORD=swag bash -c \
-  'source testing/test_harness_helpers.sh && send_test_command "" "get_messages 15"'
+bash -c 'source testing/test_harness_helpers.sh && send_test_command "" "get_messages 15"'
 
 # Post a test message
-GOLD_BOX_ADMIN_PASSWORD=swag bash -c \
-  'source testing/test_harness_helpers.sh && send_test_command "" "post Hello from testing"'
+bash -c 'source testing/test_harness_helpers.sh && send_test_command "" "post Hello from testing"'
 
 # Get session status
-GOLD_BOX_ADMIN_PASSWORD=swag bash -c \
-  'source testing/test_harness_helpers.sh && send_test_command "" "status"'
+bash -c 'source testing/test_harness_helpers.sh && send_test_command "" "status"'
 
 # End test session
-GOLD_BOX_ADMIN_PASSWORD=swag bash -c \
-  'source testing/test_harness_helpers.sh && send_test_command "" "stop"'
+bash -c 'source testing/test_harness_helpers.sh && send_test_command "" "stop"'
 ```
 
 ## Test Commands Reference
@@ -232,9 +243,12 @@ send_test_command "" "post_messages \
 ### Testing Multiple Commands in One Call
 
 ```bash
+# Set password as environment variable
+export GOLD_BOX_ADMIN_PASSWORD=your_password
+
 # Execute multiple commands sequentially
 curl -X POST http://localhost:5000/api/admin \
-  -H "X-Admin-Password: swag" \
+  -H "X-Admin-Password: $GOLD_BOX_ADMIN_PASSWORD" \
   -H "Content-Type: application/json" \
   -d '{
     "command": "execute_test_commands",
@@ -255,13 +269,18 @@ curl -X POST http://localhost:5000/api/admin \
 
 ## Admin Endpoint API
 
-You can also use the admin endpoint directly with curl:
+You can also use admin endpoint directly with curl:
+
+**Note:** Set password as environment variable before running these commands:
+```bash
+export GOLD_BOX_ADMIN_PASSWORD=your_password
+```
 
 ### Start Test Session
 
 ```bash
 curl -X POST http://localhost:5000/api/admin \
-  -H "X-Admin-Password: swag" \
+  -H "X-Admin-Password: $GOLD_BOX_ADMIN_PASSWORD" \
   -H "Content-Type: application/json" \
   -d '{
     "command": "start_test_session",
@@ -276,7 +295,7 @@ curl -X POST http://localhost:5000/api/admin \
 
 ```bash
 curl -X POST http://localhost:5000/api/admin \
-  -H "X-Admin-Password: swag" \
+  -H "X-Admin-Password: $GOLD_BOX_ADMIN_PASSWORD" \
   -H "Content-Type: application/json" \
   -d '{
     "command": "test_command",
@@ -287,11 +306,11 @@ curl -X POST http://localhost:5000/api/admin \
 
 ### End Test Session
 
-**Note:** Ending a test session automatically resets the WebSocket connection and forces the frontend to reconnect with a new client ID. This ensures clean state between test sessions.
+**Note:** Ending a test session automatically resets WebSocket connection and forces frontend to reconnect with a new client ID. This ensures clean state between test sessions.
 
 ```bash
 curl -X POST http://localhost:5000/api/admin \
-  -H "X-Admin-Password: swag" \
+  -H "X-Admin-Password: $GOLD_BOX_ADMIN_PASSWORD" \
   -H "Content-Type: application/json" \
   -d '{
     "command": "end_test_session",
@@ -305,7 +324,7 @@ Executes multiple test commands in a single API call. Commands are executed sequ
 
 ```bash
 curl -X POST http://localhost:5000/api/admin \
-  -H "X-Admin-Password: swag" \
+  -H "X-Admin-Password: $GOLD_BOX_ADMIN_PASSWORD" \
   -H "Content-Type: application/json" \
   -d '{
     "command": "execute_test_commands",
@@ -363,7 +382,7 @@ curl -X POST http://localhost:5000/api/admin \
 
 ```bash
 curl -X POST http://localhost:5000/api/admin \
-  -H "X-Admin-Password: swag" \
+  -H "X-Admin-Password: $GOLD_BOX_ADMIN_PASSWORD" \
   -H "Content-Type: application/json" \
   -d '{
     "command": "list_test_sessions"
@@ -374,7 +393,7 @@ curl -X POST http://localhost:5000/api/admin \
 
 ```bash
 curl -X POST http://localhost:5000/api/admin \
-  -H "X-Admin-Password: swag" \
+  -H "X-Admin-Password: $GOLD_BOX_ADMIN_PASSWORD" \
   -H "Content-Type: application/json" \
   -d '{
     "command": "get_test_session_state",
@@ -535,7 +554,7 @@ send_test_command "" "post_messages \
 ```bash
 # Start test with different roles
 curl -X POST http://localhost:5000/api/admin \
-  -H "X-Admin-Password: swag" \
+  -H "X-Admin-Password: $GOLD_BOX_ADMIN_PASSWORD" \
   -H "Content-Type: application/json" \
   -d '{
     "command": "start_test_session",
@@ -919,8 +938,9 @@ cd backend/testing
 cd backend
 
 # Start interactive test session
-GOLD_BOX_ADMIN_PASSWORD=swag bash -c \
-  'source testing/test_harness_helpers.sh && start_test'
+export GOLD_BOX_ADMIN_PASSWORD=your_password
+source testing/test_harness_helpers.sh
+start_test
 
 # Then use send_test_command to run tests interactively
 ```

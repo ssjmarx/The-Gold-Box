@@ -36,8 +36,10 @@ class TestingCommandProcessor:
             'status',
             'help',
             'get_encounter',
+            'create_encounter',
             'advance_combat_turn',
-            'delete_encounter'
+            'delete_encounter',
+            'activate_combat'
         ]
         logger.info("TestingCommandProcessor initialized")
     

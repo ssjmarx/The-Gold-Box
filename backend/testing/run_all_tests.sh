@@ -4,12 +4,32 @@
 LOG_FILE="test_results.log"
 TIMESTAMP=$(date "+%Y-%m-%d %H:%M:%S")
 INDIVIDUAL_TESTS_DIR="individual_tests"
+LOG_FILE_PATH="../shared/server_files/goldbox.log"
 
 echo ""
 echo "=========================================="
 echo "The Gold Box Master Test Suite"
 echo "=========================================="
 echo "Started: $TIMESTAMP"
+echo ""
+
+# Prompt for admin password (once for all tests)
+read -s -p "Enter admin password: " ADMIN_PASSWORD
+echo ""
+export ADMIN_PASSWORD
+
+# Verify connection before starting tests
+echo ""
+. ./test_helpers.sh
+
+if ! verify_connection; then
+  echo ""
+  echo "❌ ERROR: Cannot verify connection to admin API"
+  echo "   Please ensure the backend server is running"
+  echo "   and the admin password is correct."
+  exit 1
+fi
+
 echo ""
 
 # Clear old log file if it exists
@@ -46,17 +66,22 @@ run_test() {
   
   # Run test and capture both stdout and exit code
   # Set AUTO_MODE=true for non-interactive execution
-  if AUTO_MODE=true bash "$test_script" >> "$LOG_FILE" 2>&1; then
+  AUTO_MODE=true bash "$test_script" >> "$LOG_FILE" 2>&1
+  EXIT_CODE=$?
+  
+  if [ $EXIT_CODE -eq 0 ]; then
     PASSED_TESTS=$((PASSED_TESTS + 1))
     echo "✅ $test_name: PASSED" >> "$LOG_FILE"
     echo "   Status: All checks passed"
-    echo ""
   else
     FAILED_TESTS=$((FAILED_TESTS + 1))
-    echo "❌ $test_name: FAILED (exit code: $?)" >> "$LOG_FILE"
+    echo "❌ $test_name: FAILED (exit code: $EXIT_CODE)" >> "$LOG_FILE"
     echo "   Status: Some checks failed"
-    echo ""
   fi
+  
+  # Wait for WebSocket reconnection before next test
+  echo ""
+  wait_for_websocket_reconnect 10 "$LOG_FILE_PATH"
   
   # Add separator to log
   echo "" >> "$LOG_FILE"
