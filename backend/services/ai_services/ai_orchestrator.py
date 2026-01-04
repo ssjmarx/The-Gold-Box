@@ -36,8 +36,6 @@ class AIOrchestrator:
         # Services resolved lazily to avoid startup circular dependencies
         self._ai_service = None
         self._tool_executor = None
-        
-        logger.info("AIOrchestrator initialized")
     
     def _get_ai_service(self):
         """Lazy load AI service"""
@@ -85,16 +83,8 @@ class AIOrchestrator:
         collector = get_websocket_message_collector()
         context_builder = get_context_builder()
         
-        # DEBUG: Log session details for troubleshooting
-        logger.info(f"===== AI ORCHESTRATOR TURN CHECK =====")
-        logger.info(f"Session ID: {session_id}")
-        logger.info(f"Client ID: {client_id}")
-        
         # Check if this is first turn for this session
         is_first_turn = not ai_session_manager.is_first_turn_complete(session_id)
-        logger.info(f"First turn check: {is_first_turn}")
-        logger.info(f"===== END TURN CHECK =====")
-        
         # Request fresh world state from frontend on first turn
         if is_first_turn:
             try:
@@ -109,13 +99,10 @@ class AIOrchestrator:
                         "data": {},
                         "timestamp": time.time()
                     })
-                    logger.info(f"Requested world state refresh for first turn (client {client_id})")
                     
                     # Brief pause to allow frontend to respond
                     import asyncio
                     await asyncio.sleep(0.5)
-                else:
-                    logger.warning(f"WebSocket manager not available, cannot request world state refresh")
                     
             except Exception as e:
                 logger.error(f"Error requesting world state refresh: {e}")
@@ -125,7 +112,6 @@ class AIOrchestrator:
         game_delta = collector.get_game_delta(client_id)
         if game_delta:
             collector.clear_game_delta(client_id)
-            logger.info(f"Cleared game delta after retrieving for session {session_id}")
         
         # Use initial_messages as-is (shared utility will inject context/delta)
         conversation = initial_messages.copy()
@@ -215,7 +201,6 @@ class AIOrchestrator:
             # Mark first turn as complete if this was the first turn
             if is_first_turn:
                 ai_session_manager.set_first_turn_complete(session_id)
-                logger.info(f"Marked first turn complete for session {session_id}")
             
             return {
                 'success': True,

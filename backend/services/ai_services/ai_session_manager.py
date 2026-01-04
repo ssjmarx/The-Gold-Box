@@ -328,9 +328,8 @@ class AISessionManager:
         logger.debug(f"Adding message to conversation {session_id}: role={role}")
         
         if tool_calls:
-            # Log tool calls summary only
-            tool_names = [tc.get('function', {}).get('name', 'unknown') for tc in tool_calls]
-            logger.info(f"  Tool calls: {len(tool_calls)} - {tool_names}")
+            # Tool calls already logged by ai_service.py, skip here
+            pass
         elif role == 'tool':
             # Log tool result summary only
             success = '"success": true' in content or '"success": True' in content
@@ -341,8 +340,8 @@ class AISessionManager:
         elif role == 'user':
             # Log user message summary
             logger.info(f"  User message: {len(content)} chars")
-        # System messages logged at debug level only
         elif role == 'system':
+            # System messages logged at debug level only
             logger.debug(f"  System message: {len(content)} chars")
         
         return True

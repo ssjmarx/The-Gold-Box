@@ -86,17 +86,14 @@ async def api_chat(http_request: Request, request: APIChatRequest):
             # Fallback to original request data (should not happen with proper middleware)
             context_count = request.context_count
             settings = request.settings
-            logger.info("Processing API chat request with original request data")
         
         # Use UniversalSettings as single source of truth - no fallbacks
         # Pass settings dict (not Pydantic model) to extract_universal_settings
         universal_settings = extract_universal_settings(settings, "api_chat")
-        logger.info("Using UniversalSettings as single source of truth")
         
         # Extract client ID from validated settings
         client_id = universal_settings.get('relay client id')
         if not client_id:
-            logger.error("Client ID is required for message collection")
             return APIChatResponse(
                 success=False,
                 error="Client ID is required"
@@ -106,7 +103,7 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         try:
             reset_cache()
         except Exception as e:
-            logger.warning(f"Failed to reset dynamic cache: {e}")
+            pass
         
         # Step 0.5: Handle session management and delta filtering
         from services.system_services.service_factory import get_ai_session_manager, get_message_delta_service
@@ -140,10 +137,6 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         if not force_full_context:
             # Apply delta filtering to get only new messages since last AI call
             filtered_messages = message_delta_service.apply_message_delta(session_id, api_messages)
-            
-            # Log delta statistics for debugging
-            delta_stats = message_delta_service.get_delta_stats(session_id, api_messages)
-            # logger.info(f"Delta filtering: {delta_stats['filtered_count']}/{delta_stats['original_count']} messages ({delta_stats['delta_ratio']:.1%} new)")
             
             # Use filtered messages for processing
             messages_to_process = filtered_messages
@@ -191,11 +184,7 @@ async def api_chat(http_request: Request, request: APIChatRequest):
             try:
                 from services.system_services.service_factory import get_combat_encounter_service
                 combat_service = get_combat_encounter_service()
-                update_success = combat_service.update_combat_state(combat_state)
-                if update_success:
-                    logger.info(f"CombatEncounterService updated with combat state: {combat_state}")
-                else:
-                    logger.warning(f"Failed to update CombatEncounterService with combat state: {combat_state}")
+                combat_service.update_combat_state(combat_state)
             except Exception as e:
                 logger.error(f"Error updating CombatEncounterService: {e}")
         
@@ -214,8 +203,6 @@ async def api_chat(http_request: Request, request: APIChatRequest):
             # Remove any existing combat context messages and add fresh one
             compact_messages = [msg for msg in compact_messages if msg.get('type') != 'combat_context']
             compact_messages.append(combat_context_message)
-            
-            logger.info(f"Fresh combat context from service: in_combat={combat_context.get('in_combat', False)}")
             
         except Exception as e:
             logger.error(f"Error getting combat context from service: {e}")
@@ -256,11 +243,6 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         tokens_used = ai_response_data.get("tokens_used", 0)
         thinking = ai_response_data.get("thinking", "")
         
-        logger.info(f"AI service returned response of length: {len(ai_response)} characters")
-        logger.info(f"Tokens used: {tokens_used}")
-        if thinking:
-            logger.info(f"AI thinking extracted: {len(thinking)} characters")
-        
         # Step 7: Send thinking whisper if available
         if thinking:
             try:
@@ -277,12 +259,7 @@ async def api_chat(http_request: Request, request: APIChatRequest):
                 
                 # Format whisper for Foundry and send via WebSocket
                 foundry_whisper = whisper_service.format_whisper_for_foundry(whisper)
-                whisper_sent = await ws_manager.send_to_client(client_id, foundry_whisper)
-                
-                if whisper_sent:
-                    logger.info(f"Thinking whisper sent to client {client_id}: {len(thinking)} characters")
-                else:
-                    logger.warning(f"Failed to send thinking whisper to client {client_id}")
+                await ws_manager.send_to_client(client_id, foundry_whisper)
                     
             except Exception as e:
                 logger.error(f"Error sending thinking whisper: {e}")
@@ -312,7 +289,6 @@ async def api_chat(http_request: Request, request: APIChatRequest):
                 # Add thinking to metadata if available
                 if thinking:
                     metadata["thinking"] = thinking
-                    logger.info(f"AI thinking included in response metadata: {len(thinking)} characters")
                 
                 return APIChatResponse(
                     success=True,
@@ -554,10 +530,5 @@ async def collect_chat_messages(count: int, client_id: str) -> List[Dict[str, An
     merged_messages = message_collector.get_combined_messages(client_id, count)
     
     logger.info(f"Collected {len(merged_messages)} messages via WebSocket for client {client_id}")
-    
-    # Log message sources for debugging
-    if merged_messages:
-        sources = [msg.get('_source') for msg in merged_messages[:5]]
-        logger.debug(f"Message sources: {sources}")
     
     return merged_messages

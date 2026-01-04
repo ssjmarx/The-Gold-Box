@@ -37,6 +37,8 @@ sessions.json
 .test_client_id
 .test_session_id
 .last_response.json
+.token_id
+.combat_id*
 
 # IDE and editor files
 .vscode/

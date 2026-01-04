@@ -94,10 +94,6 @@ def initialize_websocket_manager():
                     import time
                     message_type = message.get("type")
                     
-                    # Log all incoming message types (except ping/pong for performance)
-                    if message_type != "ping":
-                        logger.info(f"WebSocket: Received message type '{message_type}' from client {client_id}")
-                    
                     # FAST PATH: Handle immediate messages without blocking
                     # These must complete quickly and synchronously
                     
@@ -112,13 +108,11 @@ def initialize_websocket_manager():
                     # Handle roll results from frontend (for AI tool roll_dice) - CRITICAL FAST PATH
                     # This must be processed immediately to avoid timeouts in AI tool execution
                     if message_type == "roll_result":
-                        logger.info(f"WebSocket: [FAST PATH] Routing roll_result message to handler for client {client_id}")
                         await self._handle_roll_result(client_id, message)
                         return
                     
                     # Handle settings sync from frontend (frontend is source of truth) - FAST PATH
                     if message_type == "settings_sync":
-                        logger.info(f"WebSocket: [FAST PATH] Handling settings_sync for client {client_id}")
                         await self._handle_settings_sync(client_id, message)
                         return
                     
@@ -127,61 +121,51 @@ def initialize_websocket_manager():
                     
                     # Handle individual chat messages from frontend
                     if message_type == "chat_message":
-                        logger.info(f"WebSocket: [SLOW PATH] Creating background task for chat_message")
                         asyncio.create_task(self._handle_chat_message(client_id, message))
                         return
                     
                     # Handle individual dice rolls from frontend
                     if message_type == "dice_roll":
-                        logger.info(f"WebSocket: [SLOW PATH] Creating background task for dice_roll")
                         asyncio.create_task(self._handle_dice_roll(client_id, message))
                         return
                     
                     # Handle combat context messages from frontend
                     if message_type == "combat_context":
-                        logger.info(f"WebSocket: [SLOW PATH] Creating background task for combat_context")
                         asyncio.create_task(self._handle_combat_context(client_id, message))
                         return
                     
                     # Handle combat state messages from frontend - FAST PATH
                     if message_type == "combat_state":
-                        logger.info(f"WebSocket: [FAST PATH] Handling combat_state for client {client_id}")
                         await self._handle_combat_state(client_id, message)
                         return
                     
                     # Handle error messages from frontend - FAST PATH
                     if message_type == "error":
-                        logger.info(f"WebSocket: [FAST PATH] Routing error message to handler for client {client_id}")
                         await self._handle_error_message(client_id, message)
                         return
                     
                     # Handle ai_turn_complete messages from backend - FAST PATH
                     if message_type == "ai_turn_complete":
-                        logger.info(f"WebSocket: [FAST PATH] Handling ai_turn_complete for client {client_id}")
                         await self._handle_ai_turn_complete(client_id, message)
                         return
                     
                     # Handle game delta messages from frontend - FAST PATH
                     if message_type == "game_delta":
-                        logger.info(f"WebSocket: [FAST PATH] Handling game_delta for client {client_id}")
                         await self._handle_game_delta(client_id, message)
                         return
                     
                     # Handle world state sync messages from frontend - FAST PATH
                     if message_type == "world_state_sync":
-                        logger.info(f"WebSocket: [FAST PATH] Handling world_state_sync for client {client_id}")
                         await self._handle_world_state_sync(client_id, message)
                         return
                     
                     # Handle token actor details messages from frontend - FAST PATH
                     if message_type == "token_actor_details":
-                        logger.info(f"WebSocket: [FAST PATH] Handling token_actor_details for client {client_id}")
                         await self._handle_token_actor_details(client_id, message)
                         return
                     
                     # Handle token attribute modified messages from frontend - FAST PATH
                     if message_type == "token_attribute_modified":
-                        logger.info(f"WebSocket: [FAST PATH] Handling token_attribute_modified for client {client_id}")
                         await self._handle_token_attribute_modified(client_id, message)
                         return
                     

@@ -71,10 +71,9 @@ class ServerStartup:
         """
         try:
             self.config = get_server_config()
-            logger.info("Server configuration loaded successfully")
             return True
         except Exception as e:
-            logger.error(f"Failed to load configuration: {e}")
+            logger.error(f"Failed to validate startup environment: {e}")
             return False
     
     def initialize_security(self) -> bool:
@@ -92,7 +91,6 @@ class ServerStartup:
                 logger.error("Security components validation failed")
                 return False
             
-            logger.info("Security components initialized successfully")
             return True
         except Exception as e:
             logger.error(f"Failed to initialize security: {e}")
@@ -130,7 +128,6 @@ class ServerStartup:
                 logger.error("Failed to initialize security middleware")
                 return False
             
-            logger.info("FastAPI application setup completed")
             return True
         except Exception as e:
             logger.error(f"Failed to setup application: {e}")
@@ -150,7 +147,6 @@ class ServerStartup:
                 logger.error("Global services validation failed")
                 return False
             
-            logger.info("Global services initialized successfully")
             return True
         except Exception as e:
             logger.error(f"Failed to initialize global services: {e}")
@@ -187,8 +183,6 @@ class ServerStartup:
                 logger.error("Failed to register provider manager with service registry")
                 return False
             
-            logger.info("OK Key manager and provider manager registered with service registry (direct initialization)")
-            
             # Handle key management
             if not manage_keys(self.manager, self.config['GOLD_BOX_KEYCHANGE']):
                 return False
@@ -208,7 +202,6 @@ class ServerStartup:
                 logger.error("Failed to set environment variables")
                 return False
             
-            logger.info("All requirements validated successfully")
             return True
         except Exception as e:
             logger.error(f"Failed to validate requirements: {e}")
@@ -235,7 +228,6 @@ class ServerStartup:
                 logger.error(f"No available ports found starting from {start_port}")
                 return False
             
-            logger.info(f"Startup environment validated, using port {self.available_port}")
             return True
         except Exception as e:
             logger.error(f"Failed to validate startup environment: {e}")
@@ -334,10 +326,6 @@ class ServerStartup:
         except Exception as e:
             logger.error(f"Failed to start server: {e}")
             sys.exit(1)
-            
-        except Exception as e:
-            logger.error(f"Failed to start server: {e}")
-            sys.exit(1)
     
     def run_startup_sequence(self) -> bool:
         """
@@ -347,7 +335,6 @@ class ServerStartup:
             True if startup successful, False otherwise
         """
         try:
-            logger.info("Starting server startup sequence...")
             
             # Phase 1: Load configuration
             if not self.load_configuration():
@@ -373,7 +360,6 @@ class ServerStartup:
             if not self.validate_startup_environment():
                 return False
             
-            logger.info("Server startup sequence completed successfully")
             return True
             
         except Exception as e:
