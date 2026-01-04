@@ -23,7 +23,7 @@ def get_tool_definitions() -> list:
                         "count": {
                             "type": "integer",
                             "description": "Number of recent messages to retrieve",
-                            "minimum": 1,
+                            "minimum":1,
                             "maximum": 50,
                             "default": 15
                         }
@@ -56,7 +56,7 @@ def get_tool_definitions() -> list:
                                     },
                                     "flavor": {
                                         "type": "string",
-                                        "description": "Flavor text for the message"
+                                        "description": "Flavor text for message"
                                     },
                                     "speaker": {
                                         "type": "object",
@@ -94,7 +94,7 @@ def get_tool_definitions() -> list:
             "type": "function",
             "function": {
                 "name": "roll_dice",
-                "description": "Roll one or more Foundry-formatted dice formulas. Each roll can include optional flavor text. The rolls are executed in Foundry and the results are returned.",
+                "description": "Roll one or more Foundry-formatted dice formulas. Each roll can include optional flavor text. The rolls are executed in Foundry and results are returned.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -109,7 +109,7 @@ def get_tool_definitions() -> list:
                                     },
                                     "flavor": {
                                         "type": "string",
-                                        "description": "Flavor text for the roll (optional)"
+                                        "description": "Flavor text for roll (optional)"
                                     }
                                 },
                                 "required": ["formula"]
@@ -125,10 +125,15 @@ def get_tool_definitions() -> list:
             "type": "function",
             "function": {
                 "name": "get_encounter",
-                "description": "Gets the current combat state. Returns standard 'no active encounter' response if out of combat.",
+                "description": "Gets combat state. If encounter_id is provided, gets that specific encounter. If not provided, returns all encounters with is_active flags indicating which is the active combat. Returns standard 'no active encounter' response if out of combat.",
                 "parameters": {
                     "type": "object",
-                    "properties": {}
+                    "properties": {
+                        "encounter_id": {
+                            "type": "string",
+                            "description": "ID of specific encounter to retrieve (optional - if not provided, returns all encounters)"
+                        }
+                    }
                 }
             }
         },
@@ -136,14 +141,14 @@ def get_tool_definitions() -> list:
             "type": "function",
             "function": {
                 "name": "create_encounter",
-                "description": "Start a new combat encounter with specified actors. Use roll_initiative parameter to control automatic initiative rolling (false for systems that handle initiative manually, e.g., card-based or dice-pool games). Creates combat and advances to turn 1 if successful.",
+                "description": "Start a new combat encounter with specified actors. Creates combat but does not automatically activate it. Use activate_combat tool after creating to make it the active combat. Use roll_initiative parameter to control automatic initiative rolling (false for systems that handle initiative manually, e.g., card-based or dice-pool games).",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "actor_ids": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "Array of actor IDs to add to the encounter"
+                            "description": "Array of actor IDs to add to encounter"
                         },
                         "roll_initiative": {
                             "type": "boolean",
@@ -158,11 +163,34 @@ def get_tool_definitions() -> list:
         {
             "type": "function",
             "function": {
-                "name": "delete_encounter",
-                "description": "End the current combat encounter",
+                "name": "activate_combat",
+                "description": "Activate a specific combat encounter to make it the active combat. Use this after creating a new encounter to ensure it becomes the active combat that responds to turn advancement and other operations. Only one encounter can be active at a time.",
                 "parameters": {
                     "type": "object",
-                    "properties": {}
+                    "properties": {
+                        "encounter_id": {
+                            "type": "string",
+                            "description": "ID of the encounter to activate"
+                        }
+                    },
+                    "required": ["encounter_id"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "delete_encounter",
+                "description": "End specified combat encounter",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "encounter_id": {
+                            "type": "string",
+                            "description": "ID of encounter to delete"
+                        }
+                    },
+                    "required": ["encounter_id"]
                 }
             }
         },
@@ -170,10 +198,16 @@ def get_tool_definitions() -> list:
             "type": "function",
             "function": {
                 "name": "advance_combat_turn",
-                "description": "Advance the combat tracker to the next turn. Use this to move through turn order for multiple combatants efficiently. Multiple calls can be made in a single response (e.g., advance turn, move and attack, advance turn, move and attack, for NPCs with adjacent turns).",
+                "description": "Advance combat tracker to next turn for specified encounter. Use this to move through turn order for multiple combatants efficiently. Multiple calls can be made in a single response (e.g., advance turn, move and attack, advance turn, move and attack, for NPCs with adjacent turns).",
                 "parameters": {
                     "type": "object",
-                    "properties": {}
+                    "properties": {
+                        "encounter_id": {
+                            "type": "string",
+                            "description": "ID of encounter to advance"
+                        }
+                    },
+                    "required": ["encounter_id"]
                 }
             }
         },
@@ -195,6 +229,39 @@ def get_tool_definitions() -> list:
                         }
                     },
                     "required": ["token_id"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "modify_token_attribute",
+                "description": "Modify a token's attribute using Foundry's native API. Use field names from get_actor_details (e.g., 'attributes.hp.value', 'attributes.ac.value'). Multiple tokens can be updated in a single response (e.g., apply multi-target spell damage to multiple NPCs together). Set is_delta=true for relative changes (damage/healing), is_delta=false for absolute values. Set is_bar=true to update token bar display.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "token_id": {
+                            "type": "string",
+                            "description": "The token ID to update"
+                        },
+                        "attribute_path": {
+                            "type": "string",
+                            "description": "Attribute path to modify (e.g., 'attributes.hp.value')"
+                        },
+                        "value": {
+                            "type": "number",
+                            "description": "Value to set (if is_delta=false) or add/subtract (if is_delta=true)"
+                        },
+                        "is_delta": {
+                            "type": "boolean",
+                            "description": "Whether value is a relative change (true) or absolute (false). Default: true for damage/healing"
+                        },
+                        "is_bar": {
+                            "type": "boolean",
+                            "description": "Whether to update token bar display. Default: true"
+                        }
+                    },
+                    "required": ["token_id", "attribute_path", "value"]
                 }
             }
         }

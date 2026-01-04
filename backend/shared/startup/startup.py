@@ -222,17 +222,17 @@ class ServerStartup:
             True if environment is valid, False otherwise
         """
         try:
-            # Get effective port (environment override or config)
+            # Get effective port (environment override or config default)
             start_port = self.get_effective_port()
+            
+            # Validate startup environment (includes port check inside)
+            if not validate_startup_environment(self.config):
+                return False
             
             # Find available port with simple fallback (max 3 attempts)
             self.available_port = find_available_port(start_port)
             if not self.available_port:
                 logger.error(f"No available ports found starting from {start_port}")
-                return False
-            
-            # Validate startup environment
-            if not validate_startup_environment(self.config):
                 return False
             
             logger.info(f"Startup environment validated, using port {self.available_port}")
@@ -294,6 +294,9 @@ class ServerStartup:
         """
         Start the FastAPI server with uvicorn.
         """
+        import signal
+        import uvicorn.config
+        
         try:
             # Display startup information
             self.display_startup_info()
@@ -305,14 +308,32 @@ class ServerStartup:
             if not websocket_started:
                 print("WARNING  Warning: Failed to initialize WebSocket endpoint. Native chat functionality may not work.")
             
-            # Start FastAPI server with uvicorn
-            uvicorn.run(
-                self.app,
+            # Configure uvicorn for graceful shutdown
+            config = uvicorn.config.Config(
+                app=self.app,
                 host='localhost',
                 port=self.available_port,
                 log_level="info" if not self.config['debug_mode'] else "debug",
                 access_log=True
             )
+            server = uvicorn.Server(config)
+            
+            # Setup signal handlers for graceful shutdown
+            def handle_shutdown(signum, frame):
+                logger.info(f"Received signal {signum}, shutting down gracefully...")
+                if hasattr(server, 'shutdown'):
+                    server.should_exit = True
+                    asyncio.create_task(server.shutdown())
+            
+            signal.signal(signal.SIGINT, handle_shutdown)
+            signal.signal(signal.SIGTERM, handle_shutdown)
+            
+            # Start FastAPI server with uvicorn
+            server.run()
+            
+        except Exception as e:
+            logger.error(f"Failed to start server: {e}")
+            sys.exit(1)
             
         except Exception as e:
             logger.error(f"Failed to start server: {e}")

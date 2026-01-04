@@ -68,10 +68,14 @@ class AIToolExecutor:
             return await self.execute_create_encounter(tool_args, client_id)
         elif tool_name == 'delete_encounter':
             return await self.execute_delete_encounter(tool_args, client_id)
+        elif tool_name == 'activate_combat':
+            return await self.execute_activate_combat(tool_args, client_id)
         elif tool_name == 'advance_combat_turn':
             return await self.execute_advance_combat_turn(tool_args, client_id)
         elif tool_name == 'get_actor_details':
             return await self.execute_get_actor_details(tool_args, client_id)
+        elif tool_name == 'modify_token_attribute':
+            return await self.execute_modify_token_attribute(tool_args, client_id)
         else:
             raise ValueError(f"Unknown tool: {tool_name}")
     
@@ -257,7 +261,7 @@ class AIToolExecutor:
                     }
                     
             finally:
-                # Clean up the pending request
+                # Clean up pending request
                 logger.info(f"Cleaning up future for request {request_id}")
                 if request_id in _pending_roll_requests:
                     del _pending_roll_requests[request_id]
@@ -367,16 +371,18 @@ class AIToolExecutor:
         Execute get_encounter tool - requests fresh combat state from frontend
         
         Args:
-            args: Tool arguments (no parameters required)
+            args: Tool arguments (optional 'encounter_id' parameter)
             client_id: Client ID for WebSocket communication
         
         Returns:
-            Dict with combat state or no active encounter response
+            Dict with combat state(s) or no active encounter response
         """
         try:
+            # Get optional encounter_id parameter
+            encounter_id = args.get('encounter_id')
+            
             # Get services via ServiceFactory (single source of truth)
             from ..system_services.service_factory import get_websocket_manager, get_message_collector
-            from shared.core.message_protocol import MessageProtocol
             
             websocket_manager = get_websocket_manager()
             websocket_message_collector = get_message_collector()
@@ -388,7 +394,7 @@ class AIToolExecutor:
             
             # Create a future to await combat state response
             result_future = asyncio.Future()
-            _pending_roll_requests[request_id] = result_future  # Reuse pending requests dict
+            _pending_roll_requests[request_id] = result_future
             logger.info(f"get_encounter: Stored future in _pending_roll_requests. Total pending: {len(_pending_roll_requests)}")
             
             try:
@@ -430,32 +436,60 @@ class AIToolExecutor:
                     else:
                         logger.warning(f"Future for request {request_id} not found in _pending_roll_requests during cleanup")
                 
-                # Get cached combat state from message collector
-                combat_state = websocket_message_collector.get_cached_combat_state(client_id)
-                
-                if not combat_state or not combat_state.get('in_combat', False):
-                    # No active encounter
+                # UPDATED: Use new multi-encounter storage and check both sources
+                if encounter_id:
+                    # Try to get encounter from WebSocketMessageCollector first (most recent)
+                    combat_state = websocket_message_collector.get_specific_combat_state(client_id, encounter_id)
+                    
+                    # If not in WebSocketMessageCollector, try CombatEncounterService
+                    if not combat_state:
+                        from ..system_services.service_factory import get_combat_encounter_service
+                        combat_service = get_combat_encounter_service()
+                        combat_state = combat_service.get_encounter_state(encounter_id)
+                        
+                        if not combat_state:
+                            result = {
+                                "success": True,
+                                "in_combat": False,
+                                "message": f"Encounter {encounter_id} not active"
+                            }
+                            logger.info(f"get_encounter executed for client {client_id}: encounter {encounter_id} not found in either collector or service")
+                            return result
+                    
                     result = {
                         "success": True,
-                        "in_combat": False,
-                        "message": "No active encounter"
+                        "in_combat": True,
+                        "combat_id": combat_state.get('combat_id'),
+                        "round": combat_state.get('round', 0),
+                        "turn": combat_state.get('turn', 0),
+                        "combatants": combat_state.get('combatants', []),
+                        "is_active": combat_state.get('is_active', False),
+                        "last_updated": combat_state.get('last_updated')
                     }
-                    logger.info(f"get_encounter executed for client {client_id}: no active combat")
+                    logger.info(f"get_encounter executed for client {client_id}: encounter {encounter_id}, is_active={combat_state.get('is_active', False)}")
                     return result
-                
-                # Active encounter - return full combat state
-                result = {
-                    "success": True,
-                    "in_combat": True,
-                    "combat_id": combat_state.get('combat_id'),
-                    "round": combat_state.get('round', 0),
-                    "turn": combat_state.get('turn', 0),
-                    "combatants": combat_state.get('combatants', []),
-                    "last_updated": combat_state.get('last_updated')
-                }
-                
-                logger.info(f"get_encounter executed for client {client_id}: round {combat_state.get('round', 0)}, turn {combat_state.get('turn', 0)}, {len(combat_state.get('combatants', []))} combatants")
-                return result
+                else:
+                    # Get all encounters
+                    all_states = websocket_message_collector.get_all_combat_states(client_id)
+                    active_count = all_states.get('active_count', 0)
+                    
+                    if active_count == 0:
+                        result = {
+                            "success": True,
+                            "in_combat": False,
+                            "message": "No active encounter"
+                        }
+                        logger.info(f"get_encounter executed for client {client_id}: no active combat")
+                        return result
+                    
+                    result = {
+                        "success": True,
+                        "in_combat": True,
+                        "active_count": active_count,
+                        "encounters": all_states.get('encounters', [])
+                    }
+                    logger.info(f"get_encounter executed for client {client_id}: {active_count} active encounters")
+                    return result
             
             except Exception as inner_error:
                 logger.error(f"get_encounter: Error during combat state request for client {client_id}: {inner_error}")
@@ -619,34 +653,184 @@ class AIToolExecutor:
                 "error": str(e)
             }
     
-    async def execute_delete_encounter(
+    async def execute_activate_combat(
         self,
         args: Dict[str, Any],
         client_id: str
     ) -> Dict[str, Any]:
         """
-        Execute delete_encounter tool - ends the current combat encounter
+        Execute activate_combat tool - activates a specific combat encounter
         
         Args:
-            args: Tool arguments (no parameters required)
+            args: Tool arguments (must contain 'encounter_id')
             client_id: Client ID for WebSocket communication
         
         Returns:
-            Dict with encounter deletion result
+            Dict with activation result
         """
         try:
+            # Validate required parameter
+            encounter_id = args.get('encounter_id')
+            if not encounter_id or not isinstance(encounter_id, str):
+                return {
+                    "success": False,
+                    "error": "encounter_id is required and must be a non-empty string"
+                }
+            
             # Get services via ServiceFactory
             from ..system_services.service_factory import get_websocket_manager, get_message_collector
             
             websocket_manager = get_websocket_manager()
             websocket_message_collector = get_message_collector()
             
-            # Check if combat is active
-            combat_state = websocket_message_collector.get_cached_combat_state(client_id)
-            if not combat_state or not combat_state.get('in_combat', False):
+            # Verify encounter exists in cache
+            combat_state = websocket_message_collector.get_specific_combat_state(client_id, encounter_id)
+            
+            if not combat_state:
                 return {
                     "success": False,
-                    "message": "No active encounter to end"
+                    "error": f"Encounter {encounter_id} not found"
+                }
+            
+            # Create a unique request ID for this activation
+            request_id = str(uuid.uuid4())
+            
+            logger.info(f"activate_combat: Creating future for request {request_id} with client_id {client_id}")
+            
+            # Create a future to await combat state response
+            result_future = asyncio.Future()
+            _pending_roll_requests[request_id] = result_future
+            logger.info(f"activate_combat: Stored future in _pending_roll_requests. Total pending: {len(_pending_roll_requests)}")
+            
+            try:
+                # Send activation request to frontend
+                activate_message = {
+                    "type": "activate_combat",
+                    "request_id": request_id,
+                    "data": {
+                        "encounter_id": encounter_id,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                }
+                
+                await websocket_manager.send_to_client(client_id, activate_message)
+                logger.info(f"activate_combat: Sent activation request to client {client_id}, request_id: {request_id}")
+                
+                # Wait for combat state response with timeout (15 seconds - Foundry operations can be slow)
+                try:
+                    logger.info(f"activate_combat: Waiting for combat state for request {request_id}...")
+                    await asyncio.wait_for(result_future, timeout=15.0)
+                    logger.info(f"activate_combat: Successfully received combat state for request {request_id}")
+                    
+                except asyncio.TimeoutError:
+                    logger.error(f"activate_combat: Timeout waiting for combat state, request_id: {request_id}")
+                    
+                    # Check if encounter was activated despite timeout
+                    combat_state = websocket_message_collector.get_specific_combat_state(client_id, encounter_id)
+                    if combat_state and combat_state.get('is_active', False):
+                        logger.info(f"activate_combat: Combat is active despite timeout (activated successfully)")
+                        return {
+                            "success": True,
+                            "message": f"Encounter {encounter_id} activated successfully (verified after timeout)",
+                            "active_combat_id": encounter_id,
+                            "warning": "Encounter activated but response timed out"
+                        }
+                    else:
+                        return {
+                            "success": False,
+                            "error": "Timeout waiting for combat activation response from frontend",
+                            "request_id": request_id
+                        }
+                
+                finally:
+                    # Clean up pending request
+                    logger.info(f"Cleaning up future for request {request_id}")
+                    if request_id in _pending_roll_requests:
+                        del _pending_roll_requests[request_id]
+                        logger.info(f"Removed future for request {request_id} from _pending_roll_requests")
+                    else:
+                        logger.warning(f"Future for request {request_id} not found in _pending_roll_requests during cleanup")
+                
+                # Verify activation
+                combat_state = websocket_message_collector.get_specific_combat_state(client_id, encounter_id)
+                if not combat_state or not combat_state.get('is_active', False):
+                    return {
+                        "success": False,
+                        "error": "Failed to activate encounter",
+                        "message": "Encounter not active after activation request"
+                    }
+                
+                # Success
+                result = {
+                    "success": True,
+                    "message": f"Encounter {encounter_id} activated successfully",
+                    "active_combat_id": encounter_id
+                }
+                
+                logger.info(f"activate_combat executed for client {client_id}: encounter {encounter_id} activated")
+                return result
+            
+            except Exception as inner_error:
+                logger.error(f"activate_combat: Error during activation for client {client_id}: {inner_error}")
+                return {
+                    "success": False,
+                    "error": str(inner_error)
+                }
+            
+        except Exception as e:
+            logger.error(f"activate_combat execution failed: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def execute_delete_encounter(
+        self,
+        args: Dict[str, Any],
+        client_id: str
+    ) -> Dict[str, Any]:
+        """
+        Execute delete_encounter tool - ends the specified combat encounter
+        
+        Args:
+            args: Tool arguments (must contain 'encounter_id')
+            client_id: Client ID for WebSocket communication
+        
+        Returns:
+            Dict with encounter deletion result
+        """
+        try:
+            # Validate required parameter
+            encounter_id = args.get('encounter_id')
+            if not encounter_id or not isinstance(encounter_id, str):
+                return {
+                    "success": False,
+                    "error": "encounter_id is required and must be a non-empty string"
+                }
+            
+            # Get services via ServiceFactory
+            from ..system_services.service_factory import get_websocket_manager, get_message_collector, get_combat_encounter_service
+            
+            websocket_manager = get_websocket_manager()
+            websocket_message_collector = get_message_collector()
+            combat_service = get_combat_encounter_service()
+            
+            # FIXED: Use cached state for validation instead of CombatEncounterService
+            # This avoids race condition where encounter exists in cache but not in service
+            cached_state = websocket_message_collector.get_cached_combat_state(client_id)
+            
+            # Check if encounter exists and is active in cached state
+            if not cached_state or not cached_state.get('in_combat', False):
+                return {
+                    "success": False,
+                    "error": f"Encounter {encounter_id} not found or not active"
+                }
+            
+            # Verify cached combat_id matches requested encounter_id
+            if cached_state.get('combat_id') != encounter_id:
+                return {
+                    "success": False,
+                    "error": f"Encounter {encounter_id} not found or not active"
                 }
             
             # Create a unique request ID for this encounter deletion
@@ -665,6 +849,7 @@ class AIToolExecutor:
                     "type": "delete_encounter",
                     "request_id": request_id,
                     "data": {
+                        "encounter_id": encounter_id,
                         "timestamp": datetime.now().isoformat()
                     }
                 }
@@ -755,28 +940,47 @@ class AIToolExecutor:
         client_id: str
     ) -> Dict[str, Any]:
         """
-        Execute advance_combat_turn tool - advances combat tracker to next turn
+        Execute advance_combat_turn tool - advances combat tracker to next turn for specified encounter
         
         Args:
-            args: Tool arguments (no parameters required)
+            args: Tool arguments (must contain 'encounter_id')
             client_id: Client ID for WebSocket communication
         
         Returns:
             Dict with turn advancement result and updated combat state
         """
         try:
+            # Validate required parameter
+            encounter_id = args.get('encounter_id')
+            if not encounter_id or not isinstance(encounter_id, str):
+                return {
+                    "success": False,
+                    "error": "encounter_id is required and must be a non-empty string"
+                }
+            
             # Get services via ServiceFactory
-            from ..system_services.service_factory import get_websocket_manager, get_message_collector
+            from ..system_services.service_factory import get_websocket_manager, get_message_collector, get_combat_encounter_service
             
             websocket_manager = get_websocket_manager()
             websocket_message_collector = get_message_collector()
+            combat_service = get_combat_encounter_service()
             
-            # Check if combat is active
-            combat_state = websocket_message_collector.get_cached_combat_state(client_id)
-            if not combat_state or not combat_state.get('in_combat', False):
+            # FIXED: Use cached state for validation instead of CombatEncounterService
+            # This avoids the same issue as get_encounter - checking service before it's updated
+            cached_state = websocket_message_collector.get_cached_combat_state(client_id)
+            
+            # Check if encounter exists and is active in cached state
+            if not cached_state or not cached_state.get('in_combat', False):
                 return {
                     "success": False,
-                    "message": "No active encounter"
+                    "error": f"Encounter {encounter_id} not found or not active"
+                }
+            
+            # Verify cached combat_id matches requested encounter_id
+            if cached_state.get('combat_id') != encounter_id:
+                return {
+                    "success": False,
+                    "error": f"Encounter {encounter_id} not found or not active"
                 }
             
             # Create a unique request ID for this turn advancement
@@ -795,6 +999,7 @@ class AIToolExecutor:
                     "type": "advance_turn",
                     "request_id": request_id,
                     "data": {
+                        "encounter_id": encounter_id,
                         "timestamp": datetime.now().isoformat()
                     }
                 }
@@ -996,6 +1201,160 @@ class AIToolExecutor:
             
         except Exception as e:
             logger.error(f"get_actor_details execution failed: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def execute_modify_token_attribute(
+        self,
+        args: Dict[str, Any],
+        client_id: str
+    ) -> Dict[str, Any]:
+        """
+        Execute modify_token_attribute tool - modifies token attributes using Foundry's native API
+        
+        Args:
+            args: Tool arguments (must contain 'token_id', 'attribute_path', 'value', optional 'is_delta', 'is_bar')
+            client_id: Client ID for WebSocket communication
+        
+        Returns:
+            Dict with attribute modification result
+        """
+        try:
+            # Validate arguments
+            token_id = args.get('token_id')
+            if not isinstance(token_id, str) or not token_id.strip():
+                raise ValueError("token_id must be a non-empty string")
+            
+            attribute_path = args.get('attribute_path')
+            if not isinstance(attribute_path, str) or not attribute_path.strip():
+                raise ValueError("attribute_path must be a non-empty string")
+            
+            value = args.get('value')
+            if value is None or not isinstance(value, (int, float)):
+                raise ValueError("value must be a number")
+            
+            is_delta = args.get('is_delta', True)
+            if not isinstance(is_delta, bool):
+                raise ValueError("is_delta must be a boolean")
+            
+            is_bar = args.get('is_bar', True)
+            if not isinstance(is_bar, bool):
+                raise ValueError("is_bar must be a boolean")
+            
+            # Get services via ServiceFactory
+            from ..system_services.service_factory import get_websocket_manager, get_message_collector
+            
+            websocket_manager = get_websocket_manager()
+            websocket_message_collector = get_message_collector()
+            
+            # Create a unique request ID for this attribute modification
+            request_id = str(uuid.uuid4())
+            
+            logger.info(f"modify_token_attribute: Creating future for request {request_id} with client_id {client_id}")
+            
+            # Create a future to await combat state response
+            result_future = asyncio.Future()
+            _pending_roll_requests[request_id] = result_future
+            logger.info(f"modify_token_attribute: Stored future in _pending_roll_requests. Total pending: {len(_pending_roll_requests)}")
+            
+            try:
+                # Send attribute modification request to frontend
+                modify_message = {
+                    "type": "modify_token_attribute",
+                    "request_id": request_id,
+                    "data": {
+                        "token_id": token_id,
+                        "attribute_path": attribute_path,
+                        "value": value,
+                        "is_delta": is_delta,
+                        "is_bar": is_bar,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                }
+                
+                await websocket_manager.send_to_client(client_id, modify_message)
+                logger.info(f"modify_token_attribute: Sent attribute modification request to client {client_id} for token {token_id}, request_id: {request_id}")
+                
+                # Wait for combat state response with timeout (15 seconds - Foundry operations can be slow)
+                try:
+                    logger.info(f"modify_token_attribute: Waiting for combat state for request {request_id}...")
+                    await asyncio.wait_for(result_future, timeout=15.0)
+                    logger.info(f"modify_token_attribute: Successfully received combat state for request {request_id}")
+                    
+                    # Get updated combat state from message collector
+                    combat_state = websocket_message_collector.get_cached_combat_state(client_id)
+                    
+                    # Check if combat state indicates an error from frontend
+                    if combat_state and 'error' in combat_state:
+                        logger.error(f"modify_token_attribute: Frontend reported error: {combat_state['error']}")
+                        return {
+                            "success": False,
+                            "error": combat_state['error'],
+                            "token_id": token_id,
+                            "attribute_path": attribute_path,
+                            "value": value,
+                            "is_delta": is_delta,
+                            "is_bar": is_bar,
+                            "request_id": request_id
+                        }
+                    
+                    result = {
+                        "success": True,
+                        "message": "Attribute modified successfully",
+                        "token_id": token_id,
+                        "attribute_path": attribute_path,
+                        "value": value,
+                        "is_delta": is_delta,
+                        "is_bar": is_bar,
+                        "request_id": request_id
+                    }
+                    
+                    # Include combat state if token is in combat
+                    if combat_state and combat_state.get('in_combat', False):
+                        result['combat_state'] = {
+                            "in_combat": True,
+                            "combat_id": combat_state.get('combat_id'),
+                            "round": combat_state.get('round', 0),
+                            "turn": combat_state.get('turn', 0),
+                            "last_updated": combat_state.get('last_updated')
+                        }
+                    
+                    logger.info(f"modify_token_attribute executed for client {client_id}: token {token_id}, path {attribute_path}, value {value}")
+                    return result
+                    
+                except asyncio.TimeoutError:
+                    logger.error(f"modify_token_attribute: Timeout waiting for combat state, request_id: {request_id}")
+                    return {
+                        "success": False,
+                        "error": "Timeout waiting for attribute modification response from frontend",
+                        "request_id": request_id,
+                        "details": {
+                            "token_id": token_id,
+                            "attribute_path": attribute_path,
+                            "timeout_seconds": 15
+                        }
+                    }
+                
+                finally:
+                    # Clean up pending request
+                    logger.info(f"Cleaning up future for request {request_id}")
+                    if request_id in _pending_roll_requests:
+                        del _pending_roll_requests[request_id]
+                        logger.info(f"Removed future for request {request_id} from _pending_roll_requests")
+                    else:
+                        logger.warning(f"Future for request {request_id} not found in _pending_roll_requests during cleanup")
+            
+            except Exception as inner_error:
+                logger.error(f"modify_token_attribute: Error during attribute modification for client {client_id}: {inner_error}")
+                return {
+                    "success": False,
+                    "error": str(inner_error)
+                }
+            
+        except Exception as e:
+            logger.error(f"modify_token_attribute execution failed: {e}")
             return {
                 "success": False,
                 "error": str(e)

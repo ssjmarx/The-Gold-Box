@@ -16,6 +16,7 @@ class WorldStateCollector {
         this.initialized = false;
         this.listeners = [];
         this.initialStateSent = false;
+        this.lastRequestId = null; // Track the last request_id for responses
         console.log('WorldStateCollector constructed');
     }
 
@@ -416,6 +417,286 @@ class WorldStateCollector {
     }
     
     /**
+     * Modify token attribute using Foundry's native API
+     * @param {string} tokenId - Token ID to modify
+     * @param {string} attributePath - Attribute path to modify (e.g., 'attributes.hp.value')
+     * @param {number} value - Value to set or add/subtract
+     * @param {boolean} isDelta - Whether value is relative (true) or absolute (false)
+     * @param {boolean} isBar - Whether to update token bar display
+     * @returns {Object} Modification result
+     */
+    async modifyTokenAttribute(tokenId, attributePath, value, isDelta = true, isBar = true) {
+        try {
+            console.log(`WorldStateCollector: Modifying token ${tokenId}, path: ${attributePath}, value: ${value}, isDelta: ${isDelta}, isBar: ${isBar}`);
+            
+            // Get token from canvas
+            const token = canvas?.tokens?.get(tokenId);
+            
+            if (!token) {
+                console.error(`WorldStateCollector: Token not found: ${tokenId}`);
+                
+                // CRITICAL: Send error response back to backend even on failure
+                if (window.WebSocketCommunicator?.instance?.webSocketClient) {
+                    const wsClient = window.WebSocketCommunicator.instance.webSocketClient;
+                    const errorMsg = `Token not found: ${tokenId}`;
+                    
+                    // Send combat_state response with error
+                    await wsClient.send({
+                        type: 'combat_state',
+                        request_id: this.lastRequestId || null,
+                        data: {
+                            combat_state: {
+                                in_combat: false,
+                                combat_id: null,
+                                round: 0,
+                                turn: 0,
+                                combatants: [],
+                                last_updated: Date.now(),
+                                error: errorMsg
+                            }
+                        },
+                        timestamp: Date.now()
+                    });
+                    console.log(`WorldStateCollector: Sent error response to backend: ${errorMsg}`);
+                }
+                
+                return {
+                    success: false,
+                    error: `Token not found: ${tokenId}`
+                };
+            }
+            
+            // For system attributes (like HP), use actor.update() instead of updateSource()
+            // Parse the attribute path (e.g., 'attributes.hp.value')
+            const pathParts = attributePath.split('.');
+            
+            // The path structure is: [top_level].[sub_attribute].[property]
+            // e.g., 'attributes.hp.value' -> attributeName='attributes', subAttribute='hp', property='value'
+            const attributeName = pathParts[0]; // 'attributes'
+            const subAttributeName = pathParts[1]; // 'hp'
+            const propertyName = pathParts[2] || 'value'; // 'value' (or default to 'value')
+            
+            // Validate that top-level attribute exists in actor's system data
+            if (!token.actor.system[attributeName]) {
+                const errorMsg = `Attribute '${attributeName}' not found in actor ${token.actor.name}. Valid attributes: ${Object.keys(token.actor.system).join(', ')}`;
+                console.error(`WorldStateCollector: ${errorMsg}`);
+                
+                // Send error response back to backend
+                if (window.WebSocketCommunicator?.instance?.webSocketClient) {
+                    const wsClient = window.WebSocketCommunicator.instance.webSocketClient;
+                    
+                    await wsClient.send({
+                        type: 'combat_state',
+                        request_id: this.lastRequestId || null,
+                        data: {
+                            combat_state: {
+                                in_combat: false,
+                                combat_id: null,
+                                round: 0,
+                                turn: 0,
+                                combatants: [],
+                                last_updated: Date.now(),
+                                error: errorMsg
+                            }
+                        },
+                        timestamp: Date.now()
+                    });
+                    console.log(`WorldStateCollector: Sent error response to backend: ${errorMsg}`);
+                }
+                
+                return {
+                    success: false,
+                    error: errorMsg
+                };
+            }
+            
+            // Validate that sub-attribute exists (if specified)
+            if (subAttributeName && !token.actor.system[attributeName][subAttributeName]) {
+                const errorMsg = `Sub-attribute '${subAttributeName}' not found in ${attributeName}. Valid sub-attributes: ${Object.keys(token.actor.system[attributeName]).join(', ')}`;
+                console.error(`WorldStateCollector: ${errorMsg}`);
+                
+                // Send error response back to backend
+                if (window.WebSocketCommunicator?.instance?.webSocketClient) {
+                    const wsClient = window.WebSocketCommunicator.instance.webSocketClient;
+                    
+                    await wsClient.send({
+                        type: 'combat_state',
+                        request_id: this.lastRequestId || null,
+                        data: {
+                            combat_state: {
+                                in_combat: false,
+                                combat_id: null,
+                                round: 0,
+                                turn: 0,
+                                combatants: [],
+                                last_updated: Date.now(),
+                                error: errorMsg
+                            }
+                        },
+                        timestamp: Date.now()
+                    });
+                    console.log(`WorldStateCollector: Sent error response to backend: ${errorMsg}`);
+                }
+                
+                return {
+                    success: false,
+                    error: errorMsg
+                };
+            }
+            
+            // Build update object with proper nested structure
+            let updateData = {};
+            
+            if (isDelta) {
+                // Get current value and apply delta
+                const currentValue = token.actor.system[attributeName][subAttributeName]?.[propertyName] || 0;
+                updateData = {
+                    system: {
+                        [attributeName]: {
+                            [subAttributeName]: {
+                                [propertyName]: currentValue + value
+                            }
+                        }
+                    }
+                };
+                console.log(`WorldStateCollector: Applying delta ${value} to current value ${currentValue} at ${attributePath}, result: ${currentValue + value}`);
+            } else {
+                // Set absolute value
+                updateData = {
+                    system: {
+                        [attributeName]: {
+                            [subAttributeName]: {
+                                [propertyName]: value
+                            }
+                        }
+                    }
+                };
+                console.log(`WorldStateCollector: Setting absolute value ${value} at ${attributePath}`);
+            }
+            
+            await token.actor.update(updateData);
+            
+            // Wait for Foundry to process and propagate the update before verifying
+            await new Promise(resolve => setTimeout(resolve, 100));
+            
+            // Validate the change was actually applied
+            const updatedValue = token.actor.system[attributeName]?.[subAttributeName]?.[propertyName];
+            
+            // Check if attribute exists
+            if (updatedValue === null || updatedValue === undefined) {
+                throw new Error(`Attribute ${attributePath} not found in actor system data`);
+            }
+            
+            // Verify the value matches expected result
+            const expectedValue = isDelta ? 
+                (parseFloat(token.actor.system[attributeName][subAttributeName]?.[propertyName] || 0) - parseFloat(value)) + parseFloat(value) : 
+                parseFloat(value);
+            
+            if (Math.abs(parseFloat(updatedValue) - expectedValue) > 0.001) {
+                console.warn(`WorldStateCollector: Value mismatch - expected ${expectedValue}, got ${updatedValue}`);
+                // Don't throw error, just log warning - Foundry may have modified the value
+            }
+            
+            console.log(`WorldStateCollector: Successfully modified token ${tokenId} attribute ${attributePath} to value ${updatedValue}`);
+            
+            // If token is in combat, update combat state
+            let combatUpdated = false;
+            if (window.CombatMonitor && game.combat && game.combat.started) {
+                const combatants = game.combat.combatants;
+                const isInCombat = combatants.some(c => c.tokenId === tokenId);
+                
+                if (isInCombat) {
+                    console.log(`WorldStateCollector: Token is in combat, updating combat state`);
+                    try {
+                        await window.CombatMonitor.transmitCombatState();
+                        combatUpdated = true;
+                    } catch (combatError) {
+                        console.error('WorldStateCollector: Error updating combat state:', combatError);
+                        // Continue to send response even if combat update fails
+                    }
+                }
+            }
+            
+            // CRITICAL: Always send success response back to backend
+            if (window.WebSocketCommunicator?.instance?.webSocketClient) {
+                const wsClient = window.WebSocketCommunicator.instance.webSocketClient;
+                
+                // Send combat_state response back to backend (token modification triggers combat state update)
+                const responseMessage = {
+                    type: 'combat_state',
+                    request_id: this.lastRequestId || null,
+                    data: {
+                        combat_state: {
+                            in_combat: combatUpdated ? game.combat?.started || false : false,
+                            combat_id: game.combat?._id || null,
+                            round: game.combat?.round || 0,
+                            turn: game.combat?.turn || 0,
+                            combatants: combatUpdated ? (game.combat?.combatants?.map(c => ({
+                                name: c.name,
+                                initiative: c.initiative || 0,
+                                is_player: c.hasPlayerOwner,
+                                is_current_turn: game.combat?.current === c._id
+                            })) || []) : [],
+                            last_updated: Date.now()
+                        }
+                    },
+                    timestamp: Date.now()
+                };
+                
+                await wsClient.send(responseMessage);
+                console.log(`WorldStateCollector: Token attribute modified, combat state transmitted to backend`);
+            }
+            
+            return {
+                success: true,
+                message: 'Attribute modified successfully',
+                token_id: tokenId,
+                attribute_path: attributePath,
+                value: value,
+                is_delta: isDelta,
+                is_bar: isBar
+            };
+            
+        } catch (error) {
+            console.error('WorldStateCollector: Error modifying token attribute:', error);
+            
+            // CRITICAL: Send error response back to backend even on failure
+            if (window.WebSocketCommunicator?.instance?.webSocketClient) {
+                const wsClient = window.WebSocketCommunicator.instance.webSocketClient;
+                const errorMsg = error.message || 'Unknown error';
+                
+                await wsClient.send({
+                    type: 'combat_state',
+                    request_id: this.lastRequestId || null,
+                    data: {
+                        combat_state: {
+                            in_combat: false,
+                            combat_id: null,
+                            round: 0,
+                            turn: 0,
+                            combatants: [],
+                            last_updated: Date.now(),
+                            error: errorMsg
+                        }
+                    },
+                    timestamp: Date.now()
+                });
+                console.log(`WorldStateCollector: Sent error response to backend: ${errorMsg}`);
+            }
+            
+            return {
+                success: false,
+                error: error.message || 'Unknown error',
+                token_id: tokenId,
+                attribute_path: attributePath,
+                value: value,
+                is_delta: isDelta,
+                is_bar: isBar
+            };
+        }
+    }
+    
+    /**
      * Flatten nested object to array of path-value pairs
      * @param {Object} obj - Object to flatten
      * @param {string} prefix - Current path prefix
@@ -446,7 +727,7 @@ class WorldStateCollector {
                 const path = prefix ? `${prefix}.${key}` : key;
                 
                 if (value && typeof value === 'object' && !Array.isArray(value)) {
-                    // Recursively flatten nested objects, passing the visited set
+                    // Recursively flatten nested objects, passing on visited set
                     result.push(...this._flattenObject(value, path, visited));
                 } else if (Array.isArray(value)) {
                     // Handle arrays specially - add index to path

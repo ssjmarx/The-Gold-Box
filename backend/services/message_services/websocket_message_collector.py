@@ -29,7 +29,9 @@ class WebSocketMessageCollector:
         self.client_messages: Dict[str, List[Dict[str, Any]]] = {}
         self.client_rolls: Dict[str, List[Dict[str, Any]]] = {}
         self.client_last_processed: Dict[str, int] = {}  # Track last processed timestamp per client
-        self.client_combat_state: Dict[str, Dict[str, Any]] = {}  # Cache combat state per client
+        # CHANGED: Support multiple encounters per client
+        # Structure: {client_id: {encounter_id_1: {...}, encounter_id_2: {...}}}
+        self.client_combat_states: Dict[str, Dict[str, Dict[str, Any]]] = {}
         self.client_game_delta: Dict[str, Optional[Dict[str, Any]]] = {}  # Store game delta per client
         self.world_states: Dict[str, Dict[str, Any]] = {}  # Store full world state per client
         self.max_messages_per_client = 100
@@ -267,29 +269,6 @@ class WebSocketMessageCollector:
             logger.error(f"Error getting combined messages for client {client_id}: {e}")
             return []
     
-    def _apply_delta_filtering(self, session_id: str, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Apply delta filtering to messages using the message delta service
-        
-        Args:
-            session_id: AI session ID for delta filtering
-            messages: List of messages to filter
-            
-        Returns:
-            Filtered list of messages
-        """
-        try:
-            if not self.delta_service:
-                return messages
-            
-            # Use delta service to filter messages
-            filtered_messages = self.delta_service.apply_message_delta(session_id, messages)
-            logger.debug(f"Delta filtering applied for session {session_id}: {len(filtered_messages)}/{len(messages)} messages passed filter")
-            return filtered_messages
-            
-        except Exception as e:
-            logger.error(f"Error applying delta filtering for session {session_id}: {e}")
-            return messages  # Return original messages if filtering fails
     def get_delta_filtered_messages(self, client_id: str, session_id: str, max_count: int = 50) -> List[Dict[str, Any]]:
         """
         Get delta-filtered messages for a specific AI session
@@ -323,7 +302,7 @@ class WebSocketMessageCollector:
         
         Args:
             client_id: WebSocket client identifier
-            session_id: AI session ID
+            session_id: AI session ID for delta filtering
             
         Returns:
             Delta filtering statistics
@@ -340,7 +319,7 @@ class WebSocketMessageCollector:
     
     def set_combat_state(self, client_id: str, combat_state: Dict[str, Any]) -> bool:
         """
-        Set or update combat state for a client
+        Set or update combat state for a client (backward compatibility - single encounter)
         
         Args:
             client_id: WebSocket client identifier
@@ -350,39 +329,162 @@ class WebSocketMessageCollector:
             True if set successfully
         """
         try:
-            # Store combat state with timestamp
-            self.client_combat_state[client_id] = {
+            # Get encounter_id from combat state
+            encounter_id = combat_state.get('combat_id')
+            
+            if not encounter_id:
+                logger.warning(f"No combat_id in combat state for client {client_id}")
+                return False
+            
+            # Initialize client states if needed
+            if client_id not in self.client_combat_states:
+                self.client_combat_states[client_id] = {}
+            
+            # Store combat state with timestamp and is_active flag
+            self.client_combat_states[client_id][encounter_id] = {
                 **combat_state,
-                'last_updated': int(time.time() * 1000)
+                'last_updated': int(time.time() * 1000),
+                'is_active': combat_state.get('is_active', False)
             }
             
-            logger.info(f"Updated combat state for client {client_id}: in_combat={combat_state.get('in_combat')}")
+            logger.info(f"Updated combat state for client {client_id}: encounter_id={encounter_id}, is_active={combat_state.get('is_active', False)}")
             return True
             
         except Exception as e:
             logger.error(f"Error setting combat state for client {client_id}: {e}")
             return False
     
+    def set_combat_state_from_frontend(self, client_id: str, combat_data: Dict[str, Any]) -> bool:
+        """
+        Set combat state from frontend (handles multiple encounters)
+        
+        Args:
+            client_id: WebSocket client identifier
+            combat_data: Combat data from frontend (can be single encounter or array)
+            
+        Returns:
+            True if set successfully
+        """
+        try:
+            # Check if multiple encounters received
+            if 'encounters' in combat_data:
+                # Multiple encounters received
+                active_combat_id = combat_data.get('active_combat_id')
+                encounter_states = combat_data['encounters']
+                
+                # FIXED: If no active_combat_id provided, mark first encounter as active
+                # This handles case where frontend sends encounters array without specifying which is active
+                first_encounter_active = (active_combat_id is None)
+                
+                # Initialize client states if needed
+                if client_id not in self.client_combat_states:
+                    self.client_combat_states[client_id] = {}
+                
+                # Store each encounter
+                for i, encounter_state in enumerate(encounter_states):
+                    encounter_id = encounter_state.get('combat_id')
+                    # First encounter is active if no active_combat_id provided
+                    is_active = (encounter_id == active_combat_id) if active_combat_id else (first_encounter_active and i == 0)
+                    
+                    self.client_combat_states[client_id][encounter_id] = {
+                        **encounter_state,
+                        'is_active': is_active,
+                        'last_updated': int(time.time() * 1000)
+                    }
+                
+                logger.info(f"Updated {len(encounter_states)} combat states for client {client_id}, active={active_combat_id or 'first'}, first_encounter_active={first_encounter_active}")
+                return True
+            else:
+                # Single encounter (backward compatibility)
+                encounter_id = combat_data.get('combat_id')
+                combat_data['is_active'] = True  # Single encounter is always active
+                return self.set_combat_state(client_id, combat_data)
+                
+        except Exception as e:
+            logger.error(f"Error setting combat state from frontend for client {client_id}: {e}")
+            return False
+    
     def get_cached_combat_state(self, client_id: str) -> Optional[Dict[str, Any]]:
         """
-        Get cached combat state for a client
+        Get cached combat state for a client (backward compatibility - returns active encounter)
         
         Args:
             client_id: WebSocket client identifier
             
         Returns:
-            Cached combat state or None if not available
+            Cached combat state for active encounter or None if not available
         """
         try:
-            return self.client_combat_state.get(client_id)
+            client_states = self.client_combat_states.get(client_id, {})
+            
+            # FIXED: Return ANY encounter if combat is active, not just is_active=True
+            # This handles case where encounters are active but don't have is_active=True set properly
+            for state in client_states.values():
+                if state.get('in_combat', False):
+                    return state
+            
+            return None
             
         except Exception as e:
             logger.error(f"Error getting combat state for client {client_id}: {e}")
             return None
     
+    def get_all_combat_states(self, client_id: str) -> Dict[str, Any]:
+        """
+        Get all combat states for a client
+        
+        Args:
+            client_id: WebSocket client identifier
+            
+        Returns:
+            Dict with active_count and encounters array
+        """
+        try:
+            client_states = self.client_combat_states.get(client_id, {})
+            
+            # Build response with is_active flags
+            encounters = []
+            for encounter_id, state in client_states.items():
+                encounters.append({
+                    **state,
+                    'is_active': state.get('is_active', False)
+                })
+            
+            # FIXED: Count ANY encounter with in_combat=True as active
+            # This handles encounters that were created before is_active logic was fixed
+            active_count = len([s for s in encounters if s.get('in_combat', False)])
+            
+            return {
+                'active_count': active_count,
+                'encounters': encounters
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting all combat states for client {client_id}: {e}")
+            return {'active_count': 0, 'encounters': []}
+    
+    def get_specific_combat_state(self, client_id: str, encounter_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a specific combat state by encounter ID
+        
+        Args:
+            client_id: WebSocket client identifier
+            encounter_id: ID of the encounter to retrieve
+            
+        Returns:
+            Cached combat state or None if not found
+        """
+        try:
+            client_states = self.client_combat_states.get(client_id, {})
+            return client_states.get(encounter_id)
+            
+        except Exception as e:
+            logger.error(f"Error getting specific combat state for client {client_id}, encounter {encounter_id}: {e}")
+            return None
+    
     def clear_combat_state(self, client_id: str) -> bool:
         """
-        Clear combat state for a client
+        Clear all combat states for a client
         
         Args:
             client_id: WebSocket client identifier
@@ -391,12 +493,33 @@ class WebSocketMessageCollector:
             True if cleared successfully
         """
         try:
-            self.client_combat_state.pop(client_id, None)
-            logger.debug(f"Cleared combat state for client {client_id}")
+            self.client_combat_states.pop(client_id, None)
+            logger.debug(f"Cleared all combat states for client {client_id}")
             return True
             
         except Exception as e:
-            logger.error(f"Error clearing combat state for client {client_id}: {e}")
+            logger.error(f"Error clearing combat states for client {client_id}: {e}")
+            return False
+    
+    def clear_specific_combat_state(self, client_id: str, encounter_id: str) -> bool:
+        """
+        Clear a specific combat state
+        
+        Args:
+            client_id: WebSocket client identifier
+            encounter_id: ID of the encounter to clear
+            
+        Returns:
+            True if cleared successfully
+        """
+        try:
+            if client_id in self.client_combat_states:
+                self.client_combat_states[client_id].pop(encounter_id, None)
+                logger.debug(f"Cleared combat state for encounter {encounter_id} on client {client_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error clearing specific combat state for client {client_id}, encounter {encounter_id}: {e}")
             return False
     
     def set_game_delta(self, client_id: str, delta: Dict[str, Any]) -> bool:
@@ -533,7 +656,7 @@ class WebSocketMessageCollector:
             self.client_messages.pop(client_id, None)
             self.client_rolls.pop(client_id, None)
             self.client_last_processed.pop(client_id, None)
-            self.client_combat_state.pop(client_id, None)
+            self.client_combat_states.pop(client_id, None)  # CHANGED: from client_combat_state
             self.client_game_delta.pop(client_id, None)
             self.world_states.pop(client_id, None)
             
@@ -543,6 +666,27 @@ class WebSocketMessageCollector:
         except Exception as e:
             logger.error(f"Error clearing data for client {client_id}: {e}")
             return False
+    
+    def _apply_delta_filtering(self, session_id: str, messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Apply delta filtering to messages using the delta service
+        
+        Args:
+            session_id: AI session ID for timestamp tracking
+            messages: List of messages to filter
+            
+        Returns:
+            Filtered list containing only new messages since last AI call
+        """
+        try:
+            if self.delta_service:
+                return self.delta_service.apply_message_delta(session_id, messages)
+            else:
+                logger.warning(f"Delta service not available for session {session_id}, returning all messages")
+                return messages
+        except Exception as e:
+            logger.error(f"Error applying delta filtering for session {session_id}: {e}")
+            return messages
     
     def _validate_message(self, message: Dict[str, Any]) -> bool:
         """
@@ -761,11 +905,11 @@ def get_delta_filtered_client_messages(client_id: str, session_id: str, max_coun
 
 def get_client_delta_stats(client_id: str, session_id: str) -> Dict[str, Any]:
     """
-    Get delta filtering statistics for a client session
+        Get delta filtering statistics for a client session
     
     Args:
         client_id: WebSocket client identifier
-        session_id: AI session ID
+        session_id: AI session ID for delta filtering
         
     Returns:
         Delta filtering statistics
