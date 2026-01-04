@@ -48,7 +48,7 @@ class CombatMonitor {
                 const rollInitiative = message.data?.roll_initiative !== false; // Default to true
                 const requestId = message.request_id;  // Capture request_id
                 
-                if (!actorIds || !Array.isArray(actorIds) || actorIds.length === 0) {
+                if (!actorIds || !Array.isArray(actorIds) || actorIds.length ===0) {
                     console.error('Combat Monitor: Invalid actor_ids in create_encounter request');
                     return;
                 }
@@ -67,7 +67,8 @@ class CombatMonitor {
                 };
                 
                 const combat = await Combat.create(combatData);
-                console.log('Combat Monitor: Combat created with', actorIds.length, 'combatants');
+                const newCombatId = combat._id;  // ← CAPTURE NEW COMBAT ID
+                console.log('Combat Monitor: Combat created with ID:', newCombatId);
                 
                 // Roll initiative if requested with smart timeout fallback
                 if (rollInitiative) {
@@ -98,8 +99,32 @@ class CombatMonitor {
                     }
                 }
                 
-                // Transmit combat state immediately (with or without initiative values)
-                await this.transmitCombatState();
+                // FIXED: Send immediate response with NEW combat_id (not all encounters)
+                // This ensures backend gets the specific combat that was just created
+                const responseMessage = {
+                    type: 'combat_state',
+                    request_id: requestId,
+                    data: {
+                        combat_state: {
+                            in_combat: true,
+                            combat_id: newCombatId,  // ← Return NEW combat's ID
+                            round: combat.round || 0,
+                            turn: combat.turn || 0,
+                            combatants: combat.setupTurns().map(c => ({
+                                name: c.name || 'Unknown',
+                                token_id: c.tokenId,
+                                actor_uuid: c.actorUuid,
+                                initiative: c.initiative || 0,
+                                is_player: c.hasPlayerOwner || false,
+                                is_current_turn: false  // Combat just created, no current turn yet
+                            })),
+                            last_updated: Date.now()
+                        }
+                    }
+                };
+                
+                await wsClient.send(responseMessage);
+                console.log('Combat Monitor: Sent immediate response for new combat:', newCombatId);
                 
             } catch (error) {
                 console.error('Combat Monitor: Error handling create_encounter:', error);
@@ -111,30 +136,96 @@ class CombatMonitor {
             console.log('Combat Monitor: Received delete_encounter request', message);
             
             try {
-                // Store request_id so transmitCombatState can include it
                 const requestId = message.request_id;
-                if (requestId) {
-                    this.lastRequestId = requestId;
-                    console.log('Combat Monitor: Stored request_id for delete_encounter:', requestId);
-                }
-                
-                // Look up combat by ID from game.combats collection
                 const encounterId = message.data?.encounter_id;
                 const combat = encounterId ? game.combats?.get(encounterId) : null;
                 
                 if (!combat) {
                     console.warn('Combat Monitor: Encounter not found for deletion:', encounterId);
-                    // Transmit current combat state
-                    await this.transmitCombatState();
+                    // Send immediate response even if combat not found
+                    const responseMessage = {
+                        type: 'combat_state',
+                        request_id: requestId,
+                        data: {
+                            combat_state: {
+                                in_combat: false,
+                                combat_id: encounterId,  // Include the attempted encounter_id
+                                round: 0,
+                                turn: 0,
+                                combatants: [],
+                                last_updated: Date.now()
+                            }
+                        }
+                    };
+                    await wsClient.send(responseMessage);
+                    console.log('Combat Monitor: Sent immediate response for non-existent combat deletion');
                     return;
                 }
                 
-                // Delete combat directly (bypasses confirmation dialog)
+                // FIXED: Delete combat FIRST, then send response
+                // This ensures the combat is actually gone when we send the response
                 await combat.delete();
                 console.log('Combat Monitor: Combat deleted:', encounterId);
                 
-                // Transmit updated combat state
-                await this.transmitCombatState();
+                // Wait longer for Foundry to fully update after deletion
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                // Get updated combat state after deletion
+                const allCombats = game.combats ? Array.from(game.combats.values()) : [];
+                const activeCombatId = game.combat ? game.combat._id : null;
+                
+                // Send response with updated state of all encounters
+                const encounterStates = allCombats.filter(c => c.started).map(combat => {
+                    const combatantsArray = combat.setupTurns() || [];
+                    
+                // Determine current turn
+                let currentTurnId = null;
+                let effectiveTurn = 0;
+                
+                if (combat.round === 0 && (combat.turn === null || combat.turn === undefined)) {
+                    if (combatantsArray.length > 0) {
+                        currentTurnId = combatantsArray[0]._id;
+                        effectiveTurn = 0;
+                    }
+                } else if (combatantsArray.length > 0) {
+                    effectiveTurn = combat.turn || 0;
+                    if (effectiveTurn < combatantsArray.length) {
+                        currentTurnId = combatantsArray[effectiveTurn]._id;
+                    }
+                }
+                    
+                    const combatants = combatantsArray.map(c => ({
+                        name: c.name || 'Unknown',
+                        token_id: c.tokenId,
+                        actor_uuid: c.actorUuid,
+                        initiative: c.initiative || 0,
+                        is_player: c.hasPlayerOwner || false,
+                        is_current_turn: currentTurnId === c._id
+                    }));
+                    
+                    return {
+                        in_combat: true,
+                        combat_id: combat._id,
+                        is_active: combat._id === activeCombatId,
+                        round: combat.round || 0,
+                        turn: effectiveTurn + 1,
+                        combatants: combatants,
+                        last_updated: Date.now()
+                    };
+                });
+                
+                const responseMessage = {
+                    type: 'combat_state',
+                    request_id: requestId,
+                    data: {
+                        encounters: encounterStates,
+                        active_combat_id: activeCombatId,
+                        timestamp: Date.now()
+                    }
+                };
+                
+                await wsClient.send(responseMessage);
+                console.log('Combat Monitor: Sent response after deletion with updated combat state');
                 
             } catch (error) {
                 console.error('Combat Monitor: Error handling delete_encounter:', error);
@@ -146,21 +237,29 @@ class CombatMonitor {
             console.log('Combat Monitor: Received advance_turn request', message);
             
             try {
-                // Store request_id so transmitCombatState can include it
                 const requestId = message.request_id;
-                if (requestId) {
-                    this.lastRequestId = requestId;
-                    console.log('Combat Monitor: Stored request_id for advance_turn:', requestId);
-                }
-                
-                // Look up combat by ID from game.combats collection
                 const encounterId = message.data?.encounter_id;
                 const combat = encounterId ? game.combats?.get(encounterId) : null;
                 
                 if (!combat) {
                     console.warn('Combat Monitor: Encounter not found for turn advancement:', encounterId);
-                    // Transmit current combat state
-                    await this.transmitCombatState();
+                    // Send immediate response even if combat not found
+                    const responseMessage = {
+                        type: 'combat_state',
+                        request_id: requestId,
+                        data: {
+                            combat_state: {
+                                in_combat: false,
+                                combat_id: null,
+                                round: 0,
+                                turn: 0,
+                                combatants: [],
+                                last_updated: Date.now()
+                            }
+                        }
+                    };
+                    await wsClient.send(responseMessage);
+                    console.log('Combat Monitor: Sent immediate response for non-existent combat turn advancement');
                     return;
                 }
                 
@@ -169,11 +268,52 @@ class CombatMonitor {
                 console.log('Combat Monitor: Advanced to next turn for encounter:', encounterId);
                 
                 // Wait a moment for Foundry to update combat state and fire hooks
-                // This ensures we capture the updated turn information
+                // This ensures we capture updated turn information
                 await new Promise(resolve => setTimeout(resolve, 100));
                 
-                // Transmit updated combat state
-                await this.transmitCombatState();
+                // FIXED: Send immediate response with updated combat state
+                const combatantsArray = combat.setupTurns() || [];
+                let currentTurnId = null;
+                let effectiveTurn = 0;
+                
+                if (combat.round === 0 && (combat.turn === null || combat.turn === undefined)) {
+                    if (combatantsArray.length > 0) {
+                        currentTurnId = combatantsArray[0]._id;
+                        effectiveTurn = 0;
+                    }
+                } else if (combatantsArray.length > 0) {
+                    effectiveTurn = combat.turn || 0;
+                    if (effectiveTurn < combatantsArray.length) {
+                        currentTurnId = combatantsArray[effectiveTurn]._id;
+                    }
+                }
+                
+                const combatants = combatantsArray.map(c => ({
+                    name: c.name || 'Unknown',
+                    token_id: c.tokenId,
+                    actor_uuid: c.actorUuid,
+                    initiative: c.initiative || 0,
+                    is_player: c.hasPlayerOwner || false,
+                    is_current_turn: currentTurnId === c._id
+                }));
+                
+                const responseMessage = {
+                    type: 'combat_state',
+                    request_id: requestId,
+                    data: {
+                        combat_state: {
+                            in_combat: true,
+                            combat_id: combat._id,
+                            round: combat.round || 0,
+                            turn: effectiveTurn + 1,
+                            combatants: combatants,
+                            last_updated: Date.now()
+                        }
+                    }
+                };
+                
+                await wsClient.send(responseMessage);
+                console.log('Combat Monitor: Sent immediate response for turn advancement');
                 
             } catch (error) {
                 console.error('Combat Monitor: Error handling advance_turn:', error);
@@ -497,30 +637,30 @@ class CombatMonitor {
         const encounterStates = allCombats.filter(c => c.started).map(combat => {
             const combatantsArray = combat.setupTurns() || [];
             
-            // Determine current turn
-            let currentTurnId = null;
-            let effectiveTurn = 0;
-            
-            if (combat.round === 0 && (combat.turn === null || combat.turn === undefined)) {
-                if (combatantsArray.length > 0) {
-                    currentTurnId = combatantsArray[0]._id;
-                    effectiveTurn = 0;
+                // Determine current turn
+                let currentTurnId = null;
+                let effectiveTurn = 0;
+                
+                if (combat.round === 0 && (combat.turn === null || combat.turn === undefined)) {
+                    if (combatantsArray.length > 0) {
+                        currentTurnId = combatantsArray[0]._id;
+                        effectiveTurn = 0;
+                    }
+                } else if (combatantsArray.length > 0) {
+                    effectiveTurn = combat.turn || 0;
+                    if (effectiveTurn < combatantsArray.length) {
+                        currentTurnId = combatantsArray[effectiveTurn]._id;
+                    }
                 }
-            } else if (combatantsArray.length > 0) {
-                effectiveTurn = combat.turn || 0;
-                if (effectiveTurn < combatantsArray.length) {
-                    currentTurnId = combatantsArray[effectiveTurn]._id;
-                }
-            }
-            
-            const combatants = combatantsArray.map(c => ({
-                name: c.name || 'Unknown',
-                token_id: c.tokenId,
-                actor_uuid: c.actorUuid,
-                initiative: c.initiative || 0,
-                is_player: c.hasPlayerOwner || false,
-                is_current_turn: currentTurnId === c._id
-            }));
+
+                const combatants = combatantsArray.map(c => ({
+                    name: c.name || 'Unknown',
+                    token_id: c.tokenId,
+                    actor_uuid: c.actorUuid,
+                    initiative: c.initiative || 0,
+                    is_player: c.hasPlayerOwner || false,
+                    is_current_turn: currentTurnId === c._id
+                }));
             
             return {
                 in_combat: true,

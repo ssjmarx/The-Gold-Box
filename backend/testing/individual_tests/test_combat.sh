@@ -83,7 +83,7 @@ echo ""
 
 # Step 7: Create second encounter with all actors (NO roll initiative)
 echo "Creating Encounter 2 with actors: $ACTOR_IDS"
-create_encounter "Create Encounter 2" "$ACTOR_IDS" ".combat_id_2"
+create_encounter "Create Encounter 2" "$ACTOR_IDS" "" ".combat_id_2"
 
 # Step 8: Verify encounter 2 was created and capture combat_id
 test_command "Verify Encounter 2 Created" "get_encounter"
@@ -162,15 +162,14 @@ test_command "Advance Turn Encounter 1" "advance_combat_turn" "$COMBAT_ID_1"
 
 # Step 12: Verify turn advanced in Encounter 1 only
 test_command "Verify Turn Advanced Encounter 1" "get_encounter" "$COMBAT_ID_1"
-CURRENT_TURN=$(get_value ".result.current_turn // -1")
+TURN=$(get_value ".result.turn // -1")
 ROUND=$(get_value ".result.round // 0")
-COMBATANT_INDEX=$(get_value ".result.turn // -1")
 
-echo "📊 Encounter 1 - Current turn: $COMBATANT_INDEX, Round: $ROUND"
-if [ $COMBATANT_INDEX -ge 0 ]; then
+echo "📊 Encounter 1 - Current turn: $TURN, Round: $ROUND"
+if [ $TURN -ge 0 ]; then
   echo "✅ VERIFICATION PASSED: Turn advanced successfully"
 else
-  echo "❌ VERIFICATION FAILED: Turn should have advanced (got $COMBATANT_INDEX)"
+  echo "❌ VERIFICATION FAILED: Turn should have advanced (got $TURN)"
   track_failure
 fi
 echo ""
@@ -179,7 +178,7 @@ echo ""
 echo "Verifying Encounter 2 was NOT affected by turn advancement in Encounter 1"
 test_command "Verify Encounter 2 Unchanged" "get_encounter" "$COMBAT_ID_2"
 IN_COMBAT=$(get_value ".result.in_combat // false")
-ENCOUNTER_2_TURN=$(get_value ".result.current_turn // -1")
+ENCOUNTER_2_TURN=$(get_value ".result.turn // -1")
 ENCOUNTER_2_ROUND=$(get_value ".result.round // 0")
 
 echo "📊 Encounter 2 - Current turn: $ENCOUNTER_2_TURN, Round: $ENCOUNTER_2_ROUND"
