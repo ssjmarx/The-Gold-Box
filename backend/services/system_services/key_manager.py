@@ -106,7 +106,7 @@ class MultiKeyManager:
         return self.key_storage.get_key_status(self.provider_manager)
     
     def add_key_flow(self):
-        """Enhanced key addition with validation"""
+        """Enhanced key addition with provider type awareness"""
         self.display_header()
         print("Add an API Key")
         print("-" * 60)
@@ -161,6 +161,11 @@ class MultiKeyManager:
                         print("\nAvailable providers include:", ", ".join([p['name'] for p in provider_list[:10]]), "...")
                         continue
                 
+                # Get full provider details to check authentication requirement
+                provider = self.provider_manager.get_provider(provider_slug)
+                requires_auth = provider.get('requires_auth', True)
+                provider_type = provider.get('provider_type', 'remote')
+                
                 # Check if key already exists
                 current_status = self.get_key_status()
                 if provider_slug in current_status and current_status[provider_slug]['set']:
@@ -168,6 +173,29 @@ class MultiKeyManager:
                     if overwrite not in ['y', 'yes']:
                         print("Operation cancelled.")
                         return False
+                
+                # Check if provider requires authentication
+                if not requires_auth:
+                    print(f"\n{provider_name} is a LOCAL provider ({provider_type})")
+                    print("Local providers do not require API keys.")
+                    confirm = input("Mark as configured and ready to use? (y/N): ").strip().lower()
+                    if confirm in ['y', 'yes']:
+                        # Store empty key to mark as configured
+                        self.key_storage.add_key(provider_slug, '')
+                        self.keys_data = self.key_storage.keys_data  # Update compatibility
+                        print(f"\n{provider_name} configured successfully (no API key needed)")
+                    else:
+                        print("Operation cancelled.")
+                    
+                    # Ask if user wants to add another key
+                    another = input("\nAdd another key? (y/N): ").strip().lower()
+                    if another not in ['y', 'yes']:
+                        break
+                    continue
+                
+                # Remote provider - requires API key
+                print(f"\n{provider_name} is a REMOTE provider ({provider_type})")
+                print("API key required for authentication.")
                 
                 # Get API key
                 print(f"\nEnter or paste (ctrl+shift+v) your {provider_name} API key:")
