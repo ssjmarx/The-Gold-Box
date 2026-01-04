@@ -7,7 +7,6 @@ Parses simplified curl commands and converts to AI tool calls
 import logging
 import json
 import re
-import shlex
 from typing import Dict, Any, Optional, List, Tuple
 
 logger = logging.getLogger(__name__)
@@ -34,12 +33,7 @@ class TestingCommandProcessor:
             'post_message',
             'stop',
             'status',
-            'help',
-            'get_encounter',
-            'create_encounter',
-            'advance_combat_turn',
-            'delete_encounter',
-            'activate_combat'
+            'help'
         ]
         logger.info("TestingCommandProcessor initialized")
     
@@ -53,11 +47,6 @@ class TestingCommandProcessor:
         Returns:
             Parsed command dictionary or None if invalid
         """
-        # DEBUG: Log what we're receiving
-        logger.info(f"===== COMMAND PARSE DEBUG =====")
-        logger.info(f"Input type: {type(command_string)}")
-        logger.info(f"Input value: {command_string}")
-        
         # Handle case where command_string is already a dict (structured command)
         if isinstance(command_string, dict):
             logger.info(f"Received structured command (dict): {command_string}")
@@ -126,28 +115,6 @@ class TestingCommandProcessor:
                 'arguments': None
             }
         
-        # Check for bare combat commands (no parameters)
-        if command_string.lower() == 'get_encounter':
-            return {
-                'command': 'tool_call',
-                'tool_name': 'get_encounter',
-                'arguments': {}
-            }
-        
-        if command_string.lower() == 'advance_combat_turn':
-            return {
-                'command': 'tool_call',
-                'tool_name': 'advance_combat_turn',
-                'arguments': {}
-            }
-        
-        if command_string.lower() == 'delete_encounter':
-            return {
-                'command': 'tool_call',
-                'tool_name': 'delete_encounter',
-                'arguments': {}
-            }
-        
         # Try to parse as get_message_history
         get_message_history_match = re.match(r'^get_message_history\s*(\d+)?$', command_string, re.IGNORECASE)
         if get_message_history_match:
@@ -179,9 +146,6 @@ class TestingCommandProcessor:
         post_message_match = re.match(r'^post_message\s+(.+)$', command_string, re.IGNORECASE)
         if post_message_match:
             json_str = post_message_match.group(1)
-            # Wrap in array brackets if not present
-            if not json_str.strip().startswith('['):
-                json_str = f'[{json_str}]'
             try:
                 messages = json.loads(json_str)
                 return {
@@ -191,47 +155,23 @@ class TestingCommandProcessor:
                 }
             except json.JSONDecodeError as e:
                 logger.error(f"Failed to parse JSON in post_message: {e}")
-                # Try to parse as multiple comma-separated objects
-                try:
-                    # Split by closing brace followed by opening brace
-                    parts = re.findall(r'\{[^}]+\}', json_str)
-                    messages = [json.loads(part) for part in parts]
-                    return {
-                        'command': 'post_message',
-                        'tool_name': 'post_message',
-                        'arguments': {'messages': messages}
-                    }
-                except Exception as e2:
-                    logger.error(f"Failed to parse messages: {e2}")
-                    return None
+                return None
         
-        # Try to parse as direct tool call (without "tool" prefix)
+        # Try to parse as generic tool call
         # Format: tool_name param1=value1 param2=value2
-        direct_tool_match = re.match(r'^(\w+)\s+(.*)$', command_string)
-        if direct_tool_match:
-            tool_name = direct_tool_match.group(1)
-            args_string = direct_tool_match.group(2).strip()
-            
-            logger.info(f"Parsed direct tool call: tool_name={tool_name}, args_string='{args_string}'")
-            
-            # Parse arguments
-            arguments = self._parse_arguments(args_string)
-            
-            logger.info(f"Parsed arguments: {arguments}")
-            
-            return {
-                'command': 'tool_call',
-                'tool_name': tool_name,
-                'arguments': arguments
-            }
+        # OR: tool <tool_name> param1=value1 param2=value2
+        tool_match = re.match(r'^(\w+)\s*(.*)$', command_string)
+        if tool_match:
+            tool_name = tool_match.group(1)
+            args_string = tool_match.group(2).strip()
         
-        # Handle "tool <tool_name>" format (alternate format)
+        # Handle "tool <tool_name>" format (used by test scripts)
         tool_command_match = re.match(r'^tool\s+(\w+)\s*(.*)$', command_string, re.IGNORECASE)
         if tool_command_match:
             tool_name = tool_command_match.group(1)
             args_string = tool_command_match.group(2).strip()
             
-            logger.info(f"Parsed tool call (with 'tool' prefix): tool_name={tool_name}, args_string='{args_string}'")
+            logger.info(f"Parsed tool call: tool_name={tool_name}, args_string='{args_string}'")
             
             # Parse arguments
             arguments = self._parse_arguments(args_string)
@@ -268,73 +208,28 @@ class TestingCommandProcessor:
         except json.JSONDecodeError:
             pass
         
-        # Check if args_string contains JSON-like patterns (arrays or objects)
-        # Pattern: key=[{...}] or key=[{...},{...}]
-        # Handle trailing spaces by stripping first
-        args_string_stripped = args_string.strip()
-        
-        # Try to match key=json_array pattern (greedy match for array)
-        # This will match: key=[...] even with extra content after
-        json_array_pattern = r'(\w+)=(\[.*?\])(?:\s+.*)?$'
-        json_match = re.match(json_array_pattern, args_string_stripped)
-        
-        if json_match:
-            key = json_match.group(1)
-            json_str = json_match.group(2)
-            try:
-                value = json.loads(json_str)
-                arguments[key] = value
-                logger.info(f"Parsed JSON array argument: {key}={value}")
-                # Now parse the rest of the arguments if any
-                rest_of_string = args_string_stripped[len(f"{key}={json_str}"):].strip()
-                if rest_of_string:
-                    # Parse remaining key=value pairs
-                    rest_args = self._parse_key_value_pairs(rest_of_string)
-                    arguments.update(rest_args)
-                return arguments
-            except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse JSON array argument: {e}")
-                pass
-        
         # Check if there are multiple parameters (spaces present)
         # If yes, skip single key-value pattern and go to multi-parameter parsing
         if ' ' in args_string.strip():
-            # Use shlex to properly split while respecting quotes
-            try:
-                tokens = shlex.split(args_string)
-            except ValueError:
-                # Fallback to simple split if shlex fails
-                tokens = args_string.split()
+            # Multiple parameters - use multi-parameter pattern
+            pattern = r'(\w+)=("[^"]*"|\'[^\']*\'|\S+)'
+            matches = re.findall(pattern, args_string)
             
-            for token in tokens:
-                # Parse key=value
-                if '=' not in token:
-                    continue
-                
-                key, value = token.split('=', 1)  # Split on first = only
-                
-                # Remove quotes from value if present
-                is_quoted = False
+            for key, value in matches:
+                # Remove quotes from value
                 if value.startswith('"') and value.endswith('"'):
                     value = value[1:-1]
-                    is_quoted = True
                 elif value.startswith("'") and value.endswith("'"):
                     value = value[1:-1]
-                    is_quoted = True
                 
-                # Handle boolean values
-                if value.lower() in ('true', 'false'):
-                    value = value.lower() == 'true'
-                # Handle numeric values - but keep quoted values as strings
-                elif not is_quoted:
+                # Try to convert to int or float
+                try:
+                    value = int(value)
+                except ValueError:
                     try:
-                        value = int(value)
+                        value = float(value)
                     except ValueError:
-                        try:
-                            value = float(value)
-                        except ValueError:
-                            pass  # Keep as string
-                # Keep quoted values as strings
+                        pass  # Keep as string
                 
                 arguments[key] = value
             
@@ -357,29 +252,19 @@ class TestingCommandProcessor:
             except json.JSONDecodeError:
                 # Not JSON, treat as simple value
                 # Remove quotes if present
-                is_quoted = False
                 if value_str.startswith('"') and value_str.endswith('"'):
                     value_str = value_str[1:-1]
-                    is_quoted = True
                 elif value_str.startswith("'") and value_str.endswith("'"):
                     value_str = value_str[1:-1]
-                    is_quoted = True
                 
-                # Handle boolean values
-                if value_str.lower() in ('true', 'false'):
-                    value = value_str.lower() == 'true'
-                # Handle numeric values - but keep quoted values as strings
-                elif not is_quoted:
+                # Try to convert to int or float
+                try:
+                    value = int(value_str)
+                except ValueError:
                     try:
-                        value = int(value_str)
+                        value = float(value_str)
                     except ValueError:
-                        try:
-                            value = float(value_str)
-                        except ValueError:
-                            value = value_str  # Keep as string
-                else:
-                    # Keep quoted value as string
-                    value = value_str
+                        value = value_str  # Keep as string
                 
                 arguments[key] = value
             
@@ -392,69 +277,19 @@ class TestingCommandProcessor:
         
         for key, value in matches:
             # Remove quotes from value
-            is_quoted = False
             if value.startswith('"') and value.endswith('"'):
                 value = value[1:-1]
-                is_quoted = True
             elif value.startswith("'") and value.endswith("'"):
                 value = value[1:-1]
-                is_quoted = True
             
-            # Handle boolean values
-            if value.lower() in ('true', 'false'):
-                value = value.lower() == 'true'
-            # Handle numeric values - but keep quoted values as strings
-            elif not is_quoted:
+            # Try to convert to int or float
+            try:
+                value = int(value)
+            except ValueError:
                 try:
-                    value = int(value)
+                    value = float(value)
                 except ValueError:
-                    try:
-                        value = float(value)
-                    except ValueError:
-                        pass  # Keep as string
-            # Keep quoted values as strings
-            
-            arguments[key] = value
-        
-        return arguments
-    
-    def _parse_key_value_pairs(self, args_string: str) -> Dict[str, Any]:
-        """
-        Parse key=value pairs from a string
-        
-        Args:
-            args_string: String containing key=value pairs
-            
-        Returns:
-            Dictionary of parsed key-value pairs
-        """
-        arguments = {}
-        pattern = r'(\w+)=("[^"]*"|\'[^\']*\'|\S+)'
-        matches = re.findall(pattern, args_string)
-        
-        for key, value in matches:
-            # Remove quotes from value
-            is_quoted = False
-            if value.startswith('"') and value.endswith('"'):
-                value = value[1:-1]
-                is_quoted = True
-            elif value.startswith("'") and value.endswith("'"):
-                value = value[1:-1]
-                is_quoted = True
-            
-            # Handle boolean values - always convert to Python bool
-            if value.lower() in ('true', 'false'):
-                value = value.lower() == 'true'
-            # Handle numeric values - but keep quoted values as strings
-            elif not is_quoted:
-                try:
-                    value = int(value)
-                except ValueError:
-                    try:
-                        value = float(value)
-                    except ValueError:
-                        pass  # Keep as string
-            # Keep quoted values as strings
+                    pass  # Keep as string
             
             arguments[key] = value
         
@@ -585,7 +420,7 @@ Available Testing Commands:
    Example: post_message messages=[{"content": "Test", "type": "chat-card"}]
 
 5. stop
-   End testing session
+   End the testing session
    Example: stop
 
 6. status
@@ -599,7 +434,7 @@ Available Testing Commands:
 Tips:
 - Use double quotes for string values with spaces
 - JSON can be used for complex structures
-- All tool names from: AI system are available
+- All tool names from the AI system are available
 """
         return help_text.strip()
     
@@ -672,7 +507,7 @@ Tips:
 
 def get_testing_command_processor() -> TestingCommandProcessor:
     """
-    Get or create: testing command processor instance
+    Get or create the testing command processor instance
     
     Returns:
         TestingCommandProcessor instance

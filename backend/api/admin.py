@@ -276,36 +276,14 @@ async def handle_start_test_session(request_data: Dict[str, Any], logger: loggin
         
         logger.info(f"Sent test_session_start to client {client_id}")
         
-        # NOTE: No need to explicitly request settings sync
-        # The frontend's onTakeAITurn() -> sendChatRequest() flow already calls
-        # syncSettingsToBackend() automatically, which sends settings to backend.
-        # Requesting sync here would create a race condition with double syncs.
-        
-        # Sync frontend settings first (frontend is source of truth)
-        from services.system_services.frontend_settings_handler import get_all_frontend_settings
-        try:
-            frontend_settings = get_all_frontend_settings()
-            logger.info(f"Retrieved {len(frontend_settings)} frontend settings for test session")
-        except Exception as e:
-            logger.warning(f"Failed to retrieve frontend settings: {e}")
-            frontend_settings = {}
-        
-        # Create universal_settings with required fields, merging with frontend settings
-        provided_settings = request_data.get('universal_settings', {})
-        universal_settings = {
-            'ai role': 'gm',
-            'disable function calling': False
-        }
-        
-        # Merge frontend settings (frontend is source of truth)
-        universal_settings.update(frontend_settings)
-        
-        # Override with any explicitly provided settings
-        if provided_settings:
-            universal_settings.update(provided_settings)
-            logger.info(f"Merged {len(provided_settings)} provided settings with frontend settings")
-        else:
-            logger.info(f"Using frontend settings for test session (no explicit settings provided)")
+        # Create universal_settings with required fields
+        universal_settings = request_data.get('universal_settings', {})
+        if not universal_settings:
+            universal_settings = {
+                'ai role': 'gm',
+                'disable function calling': False
+            }
+            logger.info(f"Created minimal universal_settings for client {client_id}")
         
         # Get provider config for session uniqueness
         from services.system_services.universal_settings import get_provider_config
@@ -404,14 +382,6 @@ async def handle_test_command(request_data: Dict[str, Any], logger: logging.Logg
         
         # Get command (use test_command field for the actual command to execute)
         command = request_data.get('test_command')
-        
-        # DEBUG: Log what command we're receiving
-        logger.info(f"===== TEST COMMAND DEBUG =====")
-        logger.info(f"test_session_id: {test_session_id}")
-        logger.info(f"test_command type: {type(command)}")
-        logger.info(f"test_command value: {command}")
-        logger.info(f"===== END TEST COMMAND DEBUG =====")
-        
         if not command:
             raise HTTPException(
                 status_code=400,

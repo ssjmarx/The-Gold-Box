@@ -65,10 +65,7 @@ class ProviderManager:
                         'description': provider_info.get('description', f'{model_count} models available'),
                         'models': sample_models,
                         'auth_type': provider_info.get('auth_type', 'Bearer Token'),
-                        'requires_auth': provider_info.get('requires_auth', True),  # Default: true
-                        'provider_type': provider_info.get('provider_type', 'remote'),  # Default: remote
                         'base_url': provider_info.get('base_url', ''),
-                        'default_base_url': provider_info.get('default_base_url', ''),  # For local providers
                         'completion_endpoint': provider_info.get('completion_endpoint', '/v1/chat/completions'),
                         'is_custom': False
                     }

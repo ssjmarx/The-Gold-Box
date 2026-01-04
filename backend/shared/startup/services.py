@@ -42,7 +42,6 @@ def initialize_websocket_manager():
             def __init__(self):
                 self.active_connections: List = []
                 self.connection_info: Dict[str, Dict[str, Any]] = {}
-                self._shutting_down: bool = False  # Flag to prevent new operations during shutdown
             
             async def connect(self, websocket, client_id: str, connection_info: Dict[str, Any]):
                 """Accept and register a new WebSocket connection"""
@@ -177,12 +176,6 @@ def initialize_websocket_manager():
                     if message_type == "token_actor_details":
                         logger.info(f"WebSocket: [FAST PATH] Handling token_actor_details for client {client_id}")
                         await self._handle_token_actor_details(client_id, message)
-                        return
-                    
-                    # Handle token attribute modified messages from frontend - FAST PATH
-                    if message_type == "token_attribute_modified":
-                        logger.info(f"WebSocket: [FAST PATH] Handling token_attribute_modified for client {client_id}")
-                        await self._handle_token_attribute_modified(client_id, message)
                         return
                     
                     # Handle chat requests - check for active test session first - SLOW PATH
@@ -504,104 +497,38 @@ def initialize_websocket_manager():
                 return parsed
             
             async def _handle_combat_state(self, client_id: str, message: Dict[str, Any]):
-                """Handle combat_state message from frontend - supports both single and multiple encounters"""
+                """Handle combat_state message from frontend"""
                 try:
                     message_data = message.get("data", {})
-                    
-                    # Extract combat_state from nested format (data.combat_state)
                     combat_state = message_data.get("combat_state")
-                    
-                    # Check for multiple encounters format (data.encounters array)
-                    encounters = message_data.get("encounters")
-                    active_combat_id = message_data.get("active_combat_id")
-                    
                     request_id = message.get("request_id")
                     
-                    # Support BOTH formats:
-                    # 1. Single combat state: data.combat_state (backward compatible)
-                    # 2. Multiple encounters: data.encounters + data.active_combat_id (new format)
-                    
-                    if combat_state:
-                        # Single encounter format - store combat state
-                        logger.info(f"Received single combat state from client {client_id}")
-                        
-                        # Check if this is a response to a combat_state_refresh request
-                        if request_id:
-                            from services.ai_tools.ai_tool_executor import _pending_roll_requests
-                            if request_id in _pending_roll_requests:
-                                future = _pending_roll_requests[request_id]
-                                if not future.done():
-                                    logger.info(f"Resolving pending combat_state_refresh request {request_id}")
-                                    future.set_result(combat_state)
-                                else:
-                                    logger.warning(f"Pending request {request_id} already done")
-                        
-                        # Store combat state in message collector
-                        from services.system_services.service_factory import get_message_collector
-                        message_collector = get_message_collector()
-                        
-                        success = message_collector.set_combat_state(client_id, combat_state)
-                        if success:
-                            logger.info(f"Combat state stored for client {client_id}: in_combat={combat_state.get('in_combat')}")
-                            
-                            # Update CombatEncounterService to keep it synchronized
-                            from services.system_services.service_factory import get_combat_encounter_service
-                            combat_service = get_combat_encounter_service()
-                            update_success = combat_service.update_combat_state(combat_state)
-                            if update_success:
-                                logger.info(f"CombatEncounterService updated from WebSocket: in_combat={combat_state.get('in_combat')}, combat_id={combat_state.get('combat_id')}")
-                            else:
-                                logger.warning(f"Failed to update CombatEncounterService from WebSocket: {combat_state}")
-                        else:
-                            logger.warning(f"Failed to store combat state for client {client_id}")
-                    
-                    elif encounters:
-                        # Multiple encounters format - store all encounters
-                        logger.info(f"Received multiple encounters from client {client_id}: {len(encounters)} encounters")
-                        
-                        # FIXED: Also store in WebSocketMessageCollector for consistency
-                        # This maintains single source of truth for encounter state
-                        from services.system_services.service_factory import get_message_collector
-                        message_collector = get_message_collector()
-                        success = message_collector.set_combat_state_from_frontend(client_id, {
-                            'encounters': encounters,
-                            'active_combat_id': active_combat_id
-                        })
-                        
-                        if not success:
-                            logger.warning(f"Failed to store multiple encounters in WebSocketMessageCollector")
-                        else:
-                            logger.info(f"Stored {len(encounters)} encounters in WebSocketMessageCollector for client {client_id}")
-                        
-                        # Store each encounter in CombatEncounterService (legacy/backup storage)
-                        from services.system_services.service_factory import get_combat_encounter_service
-                        combat_service = get_combat_encounter_service()
-                        
-                        # Track which encounter is active
-                        active_encounter = None
-                        for encounter in encounters:
-                            if encounter.get('is_active'):
-                                active_encounter = encounter
-                            
-                            # Update service with this encounter
-                            update_success = combat_service.update_combat_state(encounter)
-                            if update_success:
-                                logger.debug(f"CombatEncounterService updated: combat_id={encounter.get('combat_id')}, is_active={encounter.get('is_active')}")
-                        
-                        # Respond with active encounter if request_id provided
-                        if request_id and active_encounter:
-                            from services.ai_tools.ai_tool_executor import _pending_roll_requests
-                            if request_id in _pending_roll_requests:
-                                future = _pending_roll_requests[request_id]
-                                if not future.done():
-                                    logger.info(f"Resolving pending combat_state_refresh request {request_id}")
-                                    future.set_result(active_encounter)
-                                else:
-                                    logger.warning(f"Pending request {request_id} already done")
-                    
-                    else:
-                        logger.warning(f"Received combat_state message without valid combat data from client {client_id}")
+                    if not combat_state:
+                        logger.warning(f"Received combat_state message without combat_state data from client {client_id}")
                         return
+                    
+                    # Check if this is a response to a combat_state_refresh request
+                    # Access pending requests from ai_tool_executor module
+                    if request_id:
+                        from services.ai_tools.ai_tool_executor import _pending_roll_requests
+                        if request_id in _pending_roll_requests:
+                            future = _pending_roll_requests[request_id]
+                            if not future.done():
+                                logger.info(f"Resolving pending combat_state_refresh request {request_id}")
+                                future.set_result(combat_state)
+                            else:
+                                logger.warning(f"Pending request {request_id} already done")
+                    
+                    # Store combat state directly in WebSocket message collector class
+                    # Access via service factory to avoid circular import
+                    from services.system_services.service_factory import get_message_collector
+                    message_collector = get_message_collector()
+                    
+                    success = message_collector.set_combat_state(client_id, combat_state)
+                    if success:
+                        logger.info(f"Combat state stored for client {client_id}: in_combat={combat_state.get('in_combat')}")
+                    else:
+                        logger.warning(f"Failed to store combat state for client {client_id}")
                     
                 except Exception as e:
                     logger.error(f"Error handling combat_state from client {client_id}: {e}", exc_info=True)
@@ -990,6 +917,41 @@ def initialize_websocket_manager():
                     
                     # Add session ID to universal settings for response delivery
                     universal_settings['ai_session_id'] = session_id
+                except:
+                    pass
+            
+            async def _handle_token_actor_details(self, client_id: str, message: Dict[str, Any]):
+                """Handle token_actor_details message from frontend - resolve pending request"""
+                try:
+                    logger.info(f"_handle_token_actor_details called for client {client_id}")
+                    
+                    # Extract request_id and actor data from message
+                    request_id = message.get("request_id")
+                    actor_data = message.get("data", {})
+                    
+                    logger.info(f"Extracted from token_actor_details message: request_id={request_id}")
+                    
+                    if not request_id:
+                        logger.warning(f"Received token_actor_details without request_id from client {client_id}")
+                        return
+                    
+                    # Forward to AI tool executor to resolve pending request
+                    from services.ai_tools.ai_tool_executor import _pending_roll_requests
+                    if request_id in _pending_roll_requests:
+                        future = _pending_roll_requests[request_id]
+                        if not future.done():
+                            logger.info(f"Resolving pending request {request_id} with actor details")
+                            future.set_result(actor_data)
+                        else:
+                            logger.warning(f"Pending request {request_id} already done")
+                    else:
+                        logger.warning(f"Received token_actor_details for unknown request_id: {request_id}")
+                    
+                except Exception as e:
+                    logger.error(f"Error handling token_actor_details for client {client_id}: {e}", exc_info=True)
+                    
+                    # Add client ID to universal settings for response delivery
+                    universal_settings['relay_client_id'] = client_id
                     
                     # Import AI service directly - this will use singleton get_ai_service() 
                     # which has been fixed to use key manager's provider manager
@@ -998,6 +960,12 @@ def initialize_websocket_manager():
                     
                     # Step 1.5: Convert raw HTML messages to compact JSON for AI service
                     compact_stored_messages = self._convert_raw_html_to_compact(stored_messages)
+                    
+                    # Delta filtering already logged by get_delta_filtered_client_messages()
+                    # Force full context if requested
+                    if force_full_context:
+                        logger.info(f"Force full context for session {session_id} - bypassing delta filtering")
+                        message_delta_service.force_full_context(session_id)
                     
                     # Use compact messages (AI service will handle conversation history)
                     compact_messages = compact_stored_messages
@@ -1046,10 +1014,6 @@ def initialize_websocket_manager():
                         {"role": "user", "content": f"Chat Context (Compact JSON Format):\n{compact_json_context}\n\n{dynamic_prompt}"}
                     ]
                     
-                    # Add client_id to universal_settings for world state retrieval
-                    # This is required by build_initial_messages_with_delta() to get world state from collector
-                    universal_settings['relay_client_id'] = client_id
-                    
                     # Import shared function for AI processing (function calling or standard)
                     from api.api_chat import process_with_function_calling_or_standard
                     
@@ -1089,11 +1053,12 @@ def initialize_websocket_manager():
                     # Send processed messages to Foundry via WebSocket
                     # AI response is already stored by ai_service.process_compact_context()
                     if api_formatted and api_formatted.get("success", False):
-                        # Use client_id parameter directly - it's passed to this method
-                        # Don't try to get it from universal_settings which may not have it set
-                        from api.api_chat import _send_messages_to_websocket
-                        await _send_messages_to_websocket(api_formatted, client_id)
-                        logger.info(f"Sent AI response messages to Foundry for client {client_id}")
+                        client_id_for_ws = universal_settings.get('relay_client_id')
+                        if client_id_for_ws:
+                            from api.api_chat import _send_messages_to_websocket
+                            await _send_messages_to_websocket(api_formatted, client_id_for_ws)
+                        else:
+                            logger.warning("No client ID available - cannot send messages to Foundry")
                     else:
                         logger.error("Failed to process AI response to API format")
                     
@@ -1106,66 +1071,6 @@ def initialize_websocket_manager():
                             "timestamp": time.time()
                         }
                     })
-            
-            async def _handle_token_actor_details(self, client_id: str, message: Dict[str, Any]):
-                """Handle token_actor_details message from frontend - resolve pending request"""
-                try:
-                    logger.info(f"_handle_token_actor_details called for client {client_id}")
-                    
-                    # Extract request_id and actor data from message
-                    request_id = message.get("request_id")
-                    actor_data = message.get("data", {})
-                    
-                    logger.info(f"Extracted from token_actor_details message: request_id={request_id}")
-                    
-                    if not request_id:
-                        logger.warning(f"Received token_actor_details without request_id from client {client_id}")
-                        return
-                    
-                    # Forward to AI tool executor to resolve pending request
-                    from services.ai_tools.ai_tool_executor import _pending_roll_requests
-                    if request_id in _pending_roll_requests:
-                        future = _pending_roll_requests[request_id]
-                        if not future.done():
-                            logger.info(f"Resolving pending request {request_id} with actor details")
-                            future.set_result(actor_data)
-                        else:
-                            logger.warning(f"Pending request {request_id} already done")
-                    else:
-                        logger.warning(f"Received token_actor_details for unknown request_id: {request_id}")
-                    
-                except Exception as e:
-                    logger.error(f"Error handling token_actor_details for client {client_id}: {e}", exc_info=True)
-            
-            async def _handle_token_attribute_modified(self, client_id: str, message: Dict[str, Any]):
-                """Handle token_attribute_modified message from frontend - resolve pending request"""
-                try:
-                    logger.info(f"_handle_token_attribute_modified called for client {client_id}")
-                    
-                    # Extract request_id and modification data from message
-                    request_id = message.get("request_id")
-                    modification_data = message.get("data", {})
-                    
-                    logger.info(f"Extracted from token_attribute_modified message: request_id={request_id}")
-                    
-                    if not request_id:
-                        logger.warning(f"Received token_attribute_modified without request_id from client {client_id}")
-                        return
-                    
-                    # Forward to AI tool executor to resolve pending request
-                    from services.ai_tools.ai_tool_executor import _pending_roll_requests
-                    if request_id in _pending_roll_requests:
-                        future = _pending_roll_requests[request_id]
-                        if not future.done():
-                            logger.info(f"Resolving pending request {request_id} with attribute modification result")
-                            future.set_result(modification_data)
-                        else:
-                            logger.warning(f"Pending request {request_id} already done")
-                    else:
-                        logger.warning(f"Received token_attribute_modified for unknown request_id: {request_id}")
-                    
-                except Exception as e:
-                    logger.error(f"Error handling token_attribute_modified for client {client_id}: {e}", exc_info=True)
         
         
         websocket_manager = WebSocketConnectionManager()
