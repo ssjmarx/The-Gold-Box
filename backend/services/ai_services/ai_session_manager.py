@@ -319,69 +319,31 @@ class AISessionManager:
         session_data['conversation_history'].append(message)
         session_data['last_activity'] = current_time
         
-        # Print debug output for this message (once when added)
+        # Log message summary (simplified to reduce log noise)
         role = message.get('role', 'unknown')
         content = message.get('content', '')
         tool_calls = message.get('tool_calls', [])
         tool_call_id = message.get('tool_call_id', '')
         
-        logger.info(f"===== ADDING MESSAGE TO CONVERSATION =====")
-        logger.info(f"Session: {session_id}")
-        logger.info(f"Role: {role}")
+        logger.debug(f"Adding message to conversation {session_id}: role={role}")
         
         if tool_calls:
-            # Log tool calls summary
+            # Log tool calls summary only
             tool_names = [tc.get('function', {}).get('name', 'unknown') for tc in tool_calls]
-            logger.info(f"Tool calls: {len(tool_calls)} - {tool_names}")
-            for tc in tool_calls:
-                # Format tool call details with decoded arguments
-                func = tc.get('function', {})
-                tool_id = tc.get('id', 'unknown')
-                func_name = func.get('name', 'unknown')
-                func_args = func.get('arguments', '{}')
-                
-                # Parse and decode arguments JSON with recursive decoding
-                try:
-                    import json
-                    decoded_args = self._decode_content_for_display(func_args)
-                    args_dict = json.loads(decoded_args)
-                    # Recursively decode all nested strings
-                    decoded_dict = self._decode_json_recursively(args_dict)
-                    formatted_args = json.dumps(decoded_dict, indent=4, ensure_ascii=False)
-                except:
-                    formatted_args = self._decode_content_for_display(func_args)
-                
-                logger.info(f"  Tool call details:")
-                logger.info(f"    id: {tool_id}")
-                logger.info(f"    type: function")
-                logger.info(f"    function:")
-                logger.info(f"      name: {func_name}")
-                logger.info(f"      arguments: {formatted_args}")
+            logger.info(f"  Tool calls: {len(tool_calls)} - {tool_names}")
         elif role == 'tool':
-            # Log tool results (full content with newlines rendered)
-            logger.info(f"Tool call ID: {tool_call_id}")
-            logger.info(f"Content length: {len(content)}")
-            # Parse and format JSON content for better readability
-            try:
-                import json
-                # Parse to JSON to get proper structure
-                parsed = json.loads(content)
-                # Recursively decode all nested strings
-                decoded_obj = self._decode_json_recursively(parsed)
-                # Re-dump with proper formatting
-                formatted_json = json.dumps(decoded_obj, indent=6, ensure_ascii=False)
-                logger.info(f"Tool result content:\n{formatted_json}")
-            except:
-                # If JSON parsing fails, use decode method
-                decoded_content = self._decode_content_for_display(content)
-                logger.info(f"Tool result content:\n{decoded_content}")
-        else:
-            # Log full content for system/user/assistant messages with newlines rendered
-            # Decode escape sequences and render newlines properly in log
-            decoded_content = self._decode_content_for_display(content)
-            logger.info(f"  {decoded_content}")
-        
-        logger.info(f"===== END ADDING MESSAGE =====")
+            # Log tool result summary only
+            success = '"success": true' in content or '"success": True' in content
+            logger.info(f"  Tool result: {tool_call_id} - {'SUCCESS' if success else 'FAILURE'} ({len(content)} chars)")
+        elif role == 'assistant':
+            # Log assistant content summary
+            logger.info(f"  Assistant message: {len(content)} chars")
+        elif role == 'user':
+            # Log user message summary
+            logger.info(f"  User message: {len(content)} chars")
+        # System messages logged at debug level only
+        elif role == 'system':
+            logger.debug(f"  System message: {len(content)} chars")
         
         return True
     

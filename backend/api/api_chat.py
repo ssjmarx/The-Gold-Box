@@ -238,7 +238,11 @@ async def api_chat(http_request: Request, request: APIChatRequest):
             system_prompt = unified_processor.generate_enhanced_system_prompt(ai_role, combat_context_messages)
         # Standard mode includes chat context in system prompt (no special handling needed)
         
-        # Step 6: Use shared function for AI processing (function calling or standard)
+        # Step 6: Add client_id to universal_settings for world state retrieval
+        # This is required by build_initial_messages_with_delta() to get world state from collector
+        universal_settings['relay_client_id'] = client_id
+        
+        # Step 7: Use shared function for AI processing (function calling or standard)
         # This logic is shared with WebSocket handler to avoid duplication
         ai_response_data = await process_with_function_calling_or_standard(
             universal_settings=universal_settings,
@@ -289,8 +293,8 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         
         # Step 7.5: Send messages to Foundry via WebSocket (new implementation)
         if api_formatted:
-            # Get client ID for WebSocket transmission
-            client_id = settings.get('relay client id') if settings else None
+            # client_id is already extracted from universal_settings earlier in this function (line 97)
+            # Don't try to re-extract it from settings here
             if client_id:
                 success_count, total_messages = await _send_messages_to_websocket(api_formatted, client_id)
                 
