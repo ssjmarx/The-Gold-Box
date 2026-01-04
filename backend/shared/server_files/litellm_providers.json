@@ -71,6 +71,7 @@
     "oobabooga",
     "ollama",
     "ollama_chat",
+    "ollama_openai",
     "openai",
     "openai_like",
     "openrouter",
@@ -322,10 +323,10 @@
     "custom_openai": {
       "model_count": 0,
       "sample_models": [],
-      "requires_auth": true,
-      "auth_type": "Bearer Token",
-      "provider_type": "remote",
-      "description": "Custom OpenAI-compatible API"
+      "requires_auth": false,
+      "auth_type": "None",
+      "provider_type": "local",
+      "description": "Custom OpenAI-compatible API (no auth required)"
     },
     "dashscope": {
       "model_count": 22,
@@ -787,6 +788,19 @@
       "auth_type": "None",
       "provider_type": "local",
       "description": "Local Ollama Chat instance - no API key required"
+    },
+    "ollama_openai": {
+      "model_count": 29,
+      "sample_models": [
+        "qwen3:14b",
+        "llama3.2:3b",
+        "gemma3:latest"
+      ],
+      "requires_auth": false,
+      "auth_type": "None",
+      "provider_type": "local",
+      "description": "Local Ollama via OpenAI-compatible API (supports function calling)",
+      "default_base_url": "http://localhost:11434/v1"
     },
     "openai": {
       "model_count": 3,

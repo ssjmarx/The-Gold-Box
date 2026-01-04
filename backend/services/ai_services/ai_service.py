@@ -80,7 +80,11 @@ class AIService:
                 if not api_key:
                     raise APIKeyException(f"API key not configured for provider '{provider_id}' in key manager")
             else:
-                api_key = None  # No authentication needed for local providers
+                # No authentication needed for local providers
+                # However, LiteLLM's OpenAI client always requires an API key, even if unused
+                # Pass a dummy key to satisfy the client requirement
+                api_key = "dummy-key-not-required"
+                logger.debug(f"Using dummy API key for provider '{provider_id}' (no auth required)")
             
             # Configure provider in LiteLLM if it's custom
             if provider.get('is_custom', False):
@@ -108,30 +112,77 @@ class AIService:
                 completion_params["tools"] = tools
                 # Log summary of tools being sent to AI
                 logger.info(f"Tools available to AI: {len(tools)} tools")
-                # Log individual tools at debug level only
-                logger.debug(f"Tool details: {[t.get('function', {}).get('name', 'unknown') for t in tools]}")
+                # Log tools structure at INFO level for debugging Ollama issue
+                import json
+                logger.info(f"Tools structure being sent to LiteLLM:")
+                for i, tool in enumerate(tools):
+                    tool_name = tool.get('function', {}).get('name', 'unknown')
+                    logger.info(f"  Tool {i+1}: {tool_name}")
+                    logger.debug(f"    Full tool definition: {json.dumps(tool, indent=2)}")
                 
-            # Log summary of messages being sent to AI (detailed logs now in add_conversation_message)
+            # Log detailed information about what's being sent to AI
             logger.info(f"===== SENDING TO AI =====")
-            logger.info(f"LiteLLM Call: model={model}, messages={len(messages)}")
+            logger.info(f"Provider: {provider_id}")
+            logger.info(f"Model: {model}")
+            logger.info(f"Messages: {len(messages)}")
+            if tools:
+                logger.info(f"Has tools: True ({len(tools)} tools)")
+                logger.debug(f"Tool names: {[t.get('function', {}).get('name', 'unknown') for t in tools]}")
+            else:
+                logger.info(f"Has tools: False")
             logger.info(f"===== END SENDING TO AI =====")
             
             # Apply custom configuration if provided
             if config.get('base_url'):
                 completion_params['api_base'] = config['base_url']
             
+            # For custom providers like custom_openai, explicitly tell LiteLLM which provider to use
+            # This is needed because model names don't have provider prefixes
+            if provider_id in ['custom', 'custom_openai', 'openai_like']:
+                completion_params['custom_llm_provider'] = provider_id
+                logger.debug(f"Setting custom_llm_provider={provider_id} for custom provider")
+            
             if config.get('headers'):
-                completion_params['custom_llm_provider'] = "openai"  # Use OpenAI format for custom headers
+                # Set custom headers without forcing OpenAI client
+                # Let LiteLLM auto-detect provider from model name
+                logger.debug(f"Adding custom headers: {list(config['headers'].keys())}")
                 completion_params['headers'] = config['headers']
             
             # Apply timeout with proper type conversion
             timeout = int(config.get('timeout', 30)) if config.get('timeout') is not None else 30
             
             # Use LiteLLM to call any provider API
+            # Log the exact parameters being sent to LiteLLM
+            logger.debug(f"LiteLLM completion_params keys: {list(completion_params.keys())}")
+            if 'tools' in completion_params:
+                logger.debug(f"Tools being passed to LiteLLM: {completion_params['tools']}")
+            
             response = await asyncio.wait_for(
                 litellm.acompletion(**completion_params),
                 timeout=timeout
             )
+            
+            # Log raw response structure (detailed for debugging Ollama issue)
+            logger.info(f"Raw LiteLLM response: type={type(response).__name__}")
+            
+            # Log ALL attributes of response object
+            if response:
+                logger.info(f"Response attributes: {', '.join([a for a in dir(response) if not a.startswith('_')])}")
+                
+                # Try to find tool_calls anywhere in response
+                if hasattr(response, 'tool_calls'):
+                    logger.warning(f"FOUND tool_calls on response object!")
+                    logger.info(f"Response tool_calls: {response.tool_calls}")
+                
+                # Check if there's a 'message' attribute directly on response
+                if hasattr(response, 'message'):
+                    logger.info(f"Direct message on response: {type(response.message).__name__}")
+                    if hasattr(response.message, 'tool_calls'):
+                        logger.warning(f"FOUND tool_calls on response.message!")
+                        logger.info(f"Response.message.tool_calls: {response.message.tool_calls}")
+            
+            if response and hasattr(response, 'choices'):
+                logger.info(f"Response choices count: {len(response.choices)}")
             
             if response and response.choices:
                 # Provider API responded!
@@ -139,14 +190,43 @@ class AIService:
                 
                 # Log summary of response from AI (detailed logs will be in add_conversation_message)
                 logger.info(f"===== RECEIVED FROM AI =====")
-                logger.info(f"LiteLLM Response: finish_reason={getattr(choice, 'finish_reason', 'unknown')}")
+                logger.info(f"Finish reason: {getattr(choice, 'finish_reason', 'unknown')}")
                 
-                if hasattr(choice.message, 'tool_calls') and choice.message.tool_calls:
-                    tool_names = [tc.function.name for tc in choice.message.tool_calls]
-                    logger.info(f"  tool_calls: {len(choice.message.tool_calls)} - {tool_names}")
+                # CRITICAL: Check for tool_calls in multiple ways
+                if hasattr(choice, 'message'):
+                    msg = choice.message
+                    logger.info(f"  Message object type: {type(msg).__name__}")
+                    
+                    # Check for tool_calls attribute
+                    if hasattr(msg, 'tool_calls'):
+                        tool_calls = msg.tool_calls
+                        if tool_calls:
+                            tool_count = len(tool_calls)
+                            tool_names = [tc.function.name for tc in tool_calls]
+                            logger.info(f"  Tool calls: {tool_count} - {tool_names}")
+                        else:
+                            logger.info(f"  Tool calls: 0 (empty list)")
+                    else:
+                        logger.warning(f"  tool_calls attribute not present on message object")
+                        logger.info(f"  Message attributes: {', '.join([a for a in dir(msg) if not a.startswith('_')][:10])}...")
+                    
+                    # Log content
+                    content = msg.content or ""
+                    if content:
+                        logger.info(f"  Content length: {len(content)} characters")
+                    else:
+                        logger.info(f"  Content length: 0 characters (empty)")
+                    
+                    # Check for thinking/reasoning_content
+                    if hasattr(msg, 'reasoning_content'):
+                        thinking = msg.reasoning_content
+                        logger.info(f"  Thinking length: {len(str(thinking))} characters")
+                    elif hasattr(msg, 'thinking'):
+                        thinking = msg.thinking
+                        logger.info(f"  Thinking length: {len(str(thinking))} characters")
+                else:
+                    logger.warning(f"  Response does not have message attribute")
                 
-                if choice.message and choice.message.content:
-                    logger.info(f"  content length: {len(choice.message.content)} characters")
                 logger.info(f"===== END RECEIVED FROM AI =====")
                 
                 # Extracts content and tool calls
