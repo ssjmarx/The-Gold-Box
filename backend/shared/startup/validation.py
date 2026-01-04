@@ -27,23 +27,10 @@ def find_available_port(start_port: int = 5000, max_attempts: int = 10) -> Optio
     for i in range(max_attempts):
         port = start_port + i
         try:
-            # Create socket with SO_REUSEADDR to allow quick reuse after shutdown
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            
-            # Bind and listen to properly test port availability
-            s.bind(('localhost', port))
-            s.listen(1)
-            
-            # Close socket explicitly before returning to ensure proper cleanup
-            s.close()
-            return port
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(('localhost', port))
+                return port
         except OSError:
-            # Close socket on error before continuing
-            try:
-                s.close()
-            except:
-                pass
             continue
     return None
 

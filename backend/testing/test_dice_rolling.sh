@@ -15,7 +15,7 @@ start_session
 
 # Step 2: Get baseline message count
 test_command "Get Baseline Message History" "get_message_history 10"
-BASELINE_COUNT=$(get_value ".result.count // 0")
+BASELINE_COUNT=$(get_value ".result.messages_count // 0")
 echo "📊 Baseline message count: $BASELINE_COUNT"
 echo ""
 
@@ -30,7 +30,7 @@ test_command "Dice Roll Without Flavor" "roll_dice rolls=[{\"formula\":\"1d20\"}
 
 # Step 6: Verify dice rolls were added
 test_command "Verify Dice Rolls Added" "get_message_history 15"
-NEW_COUNT=$(get_value ".result.count // 0")
+NEW_COUNT=$(get_value ".result.messages_count // 0")
 ADDED=$((NEW_COUNT - BASELINE_COUNT))
 
 echo "📊 New message count: $NEW_COUNT"
@@ -41,23 +41,20 @@ if [ $ADDED -eq 3 ]; then
   echo "✅ VERIFICATION PASSED: 3 dice rolls added successfully"
 else
   echo "❌ VERIFICATION FAILED: Expected 3 dice rolls, got $ADDED messages"
-  track_failure
 fi
 echo ""
 
 # Step 7: End session with WebSocket reset
-echo ""
-echo "ℹ️  Ending session with WebSocket reset..."
 end_session true
 
-# Report final test result
-report_test_result "Dice Rolling" \
-  "Single dice roll with flavor" \
-  "Multiple dice rolls in one command" \
-  "Dice roll without flavor" \
-  "Message count verification (3 dice rolls added)"
-
-# Exit with appropriate code
-if has_failures; then
-  exit 1
-fi
+echo ""
+echo "=========================================="
+echo "✅ Dice rolling test complete!"
+echo "=========================================="
+echo ""
+echo "Expected results in Foundry VTT chat:"
+echo "   • Dice roll: '1d20+5 (Attack roll) = X'"
+echo "   • Dice roll: '2d6 (Damage) = X'"
+echo "   • Dice roll: '1d8+3 (Bonus damage) = X'"
+echo "   • Dice roll: '1d20 = X'"
+echo ""

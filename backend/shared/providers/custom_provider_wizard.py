@@ -117,7 +117,7 @@ class CustomProviderWizard:
         
         print("\nModel Configuration:")
         print("Enter model names supported by this provider (comma-separated)")
-        print("Examples: gpt-4, claude-3, my-custom-model, qwen3:14b, openrouter/anthropic/claude-3")
+        print("Examples: gpt-4, claude-3, my-custom-model")
         
         while True:
             models_input = CLIManager.get_text_input(
@@ -143,12 +143,12 @@ class CustomProviderWizard:
             # Validate each model name
             invalid_models = []
             for model in models:
-                if not re.match(r'^[a-zA-Z0-9._:/-]+$', model):
+                if not re.match(r'^[a-zA-Z0-9._-]+$', model):
                     invalid_models.append(model)
             
             if invalid_models:
                 CLIManager.display_error(f"Invalid model names: {', '.join(invalid_models)}")
-                print("Model names can only contain letters, numbers, dots, colons, slashes, hyphens, and underscores.")
+                print("Model names can only contain letters, numbers, dots, hyphens, and underscores.")
                 continue
             
             return models[:10]  # Limit to 10 models
@@ -201,16 +201,9 @@ class CustomProviderWizard:
         print("3. API Key in Query Parameter")
         print("4. Basic Authentication (Username:Password)")
         print("5. Custom Header (Specify header name and value)")
-        print("6. None (Local Provider - No Authentication)")
         
         auth_config = self._configure_authentication()
         config.update(auth_config)
-        
-        # Add provider type if not set
-        if 'provider_type' not in config:
-            provider_type = self._configure_provider_type()
-            config['provider_type'] = provider_type
-            config['requires_auth'] = (provider_type == 'remote')
         
         # Completion Endpoint with validation
         while True:
@@ -236,7 +229,7 @@ class CustomProviderWizard:
         from ui.cli_manager import CLIManager
         
         while True:
-            auth_choice = CLIManager.get_menu_choice([1, 2, 3, 4, 5, 6], "Choose auth type")
+            auth_choice = CLIManager.get_menu_choice([1, 2, 3, 4, 5], "Choose auth type")
             if auth_choice is None:
                 return None
             
@@ -294,27 +287,6 @@ class CustomProviderWizard:
                     'auth_header': header_name,
                     'auth_value': header_value
                 }
-            elif auth_choice == 6:
-                return {
-                    'auth_type': 'None',
-                    'requires_auth': False,
-                    'provider_type': 'local'
-                }
-    
-    def _configure_provider_type(self):
-        """Configure provider type (local vs remote)"""
-        from ui.cli_manager import CLIManager
-        
-        print("\nProvider Type:")
-        print("1. Remote Provider (Cloud API - requires authentication)")
-        print("2. Local Provider (Self-hosted - no authentication required)")
-        
-        type_choice = CLIManager.get_menu_choice([1, 2], "Choose provider type")
-        
-        if type_choice == 2:
-            return 'local'
-        else:
-            return 'remote'
     
     def _configure_advanced_options(self):
         """Configure advanced request/response mapping"""
@@ -507,7 +479,7 @@ class CustomProviderWizard:
                 return False, "Invalid base URL format"
             
             # Validate auth type
-            valid_auth_types = ['Bearer Token', 'API Key Header', 'API Key Query', 'Basic Auth', 'Custom Header', 'None']
+            valid_auth_types = ['Bearer Token', 'API Key Header', 'API Key Query', 'Basic Auth', 'Custom Header']
             if config['auth_type'] not in valid_auth_types:
                 return False, f"Invalid auth type: {config['auth_type']}"
             
