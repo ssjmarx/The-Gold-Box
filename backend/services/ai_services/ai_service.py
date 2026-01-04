@@ -74,9 +74,13 @@ class AIService:
             if not hasattr(key_manager, 'keys_data') or not key_manager.keys_data:
                 raise APIKeyException("Key manager keys_data not available - keys not loaded at startup")
             
-            api_key = key_manager.keys_data.get(provider_id)
-            if not api_key:
-                raise APIKeyException(f"API key not configured for provider '{provider_id}' in key manager")
+            # Only check for API key if provider requires authentication
+            if provider.get('requires_auth', True):
+                api_key = key_manager.keys_data.get(provider_id)
+                if not api_key:
+                    raise APIKeyException(f"API key not configured for provider '{provider_id}' in key manager")
+            else:
+                api_key = None  # No authentication needed for local providers
             
             # Configure provider in LiteLLM if it's custom
             if provider.get('is_custom', False):

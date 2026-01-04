@@ -1,102 +1,131 @@
 {
-  "total_providers": 73,
+  "total_providers": 103,
   "providers": [
-    "1024-x-1024",
-    "256-x-256",
-    "512-x-512",
+    "ai21",
+    "ai21_chat",
+    "aiohttp_openai",
     "aiml",
     "anthropic",
-    "anyscale",
+    "anthropic_text",
     "assemblyai",
+    "auto_router",
     "azure",
     "azure_ai",
+    "azure_text",
+    "baseten",
     "bedrock",
+    "bytez",
     "cerebras",
+    "clarifai",
     "cloudflare",
     "codestral",
     "cohere",
+    "cohere_chat",
+    "cometapi",
+    "compactifai",
+    "custom",
+    "custom_openai",
     "dashscope",
     "databricks",
-    "dataforseo",
+    "datarobot",
     "deepgram",
     "deepinfra",
     "deepseek",
+    "dotprompt",
     "elevenlabs",
-    "exa_ai",
+    "empower",
     "fal_ai",
     "featherless_ai",
-    "firecrawl",
     "fireworks_ai",
     "friendliai",
+    "galadriel",
     "gemini",
-    "google",
-    "google_pse",
+    "github",
+    "github_copilot",
     "gradient_ai",
     "groq",
-    "hd",
-    "heroku",
-    "high",
+    "hosted_vllm",
+    "huggingface",
+    "humanloop",
     "hyperbolic",
+    "infinity",
+    "jina_ai",
+    "langfuse",
     "lambda_ai",
     "lemonade",
-    "low",
-    "max-x-max",
-    "medium",
+    "llamafile",
+    "litellm_proxy",
+    "lm_studio",
+    "maritalk",
     "meta_llama",
+    "milvus",
     "mistral",
     "moonshot",
     "morph",
+    "nebius",
+    "nlp_cloud",
     "nscale",
+    "novita",
     "nvidia_nim",
     "oci",
+    "oobabooga",
     "ollama",
+    "ollama_chat",
     "openai",
+    "openai_like",
     "openrouter",
     "ovhcloud",
-    "palm",
-    "parallel_ai",
-    "perplexity",
+    "pg_vector",
+    "predibase",
     "recraft",
     "replicate",
     "runwayml",
     "sagemaker",
+    "sagemaker_chat",
     "sambanova",
-    "searxng",
     "snowflake",
-    "standard",
-    "tavily",
     "text-completion-codestral",
+    "text-completion-openai",
     "together_ai",
+    "topaz",
+    "triton",
     "v0",
     "vercel_ai_gateway",
     "vertex_ai",
+    "vertex_ai_beta",
+    "volcengine",
     "voyage",
+    "vllm",
     "wandb",
     "watsonx",
-    "xai"
+    "watsonx_text",
+    "xai",
+    "xinference"
   ],
   "provider_details": {
-    "1024-x-1024": {
-      "model_count": 4,
-      "sample_models": [
-        "1024-x-1024/50-steps/bedrock/amazon.nova-canvas-v1:0",
-        "1024-x-1024/50-steps/stability.stable-diffusion-xl-v1",
-        "1024-x-1024/dall-e-2"
-      ]
+    "ai21": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "AI21 Labs API"
     },
-    "256-x-256": {
-      "model_count": 1,
-      "sample_models": [
-        "256-x-256/dall-e-2"
-      ]
+    "ai21_chat": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "AI21 Labs Chat API"
     },
-    "512-x-512": {
-      "model_count": 3,
-      "sample_models": [
-        "512-x-512/50-steps/stability.stable-diffusion-xl-v0",
-        "512-x-512/dall-e-2",
-        "512-x-512/max-steps/stability.stable-diffusion-xl-v0"
-      ]
+    "aiohttp_openai": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "OpenAI-compatible API with aiohttp"
     },
     "aiml": {
       "model_count": 10,
@@ -104,26 +133,46 @@
         "aiml/dall-e-2",
         "aiml/dall-e-3",
         "aiml/flux-pro"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "AIML AI Platform"
     },
     "anthropic": {
       "model_count": 0,
-      "sample_models": []
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Anthropic Claude API"
     },
-    "anyscale": {
-      "model_count": 12,
-      "sample_models": [
-        "anyscale/HuggingFaceH4/zephyr-7b-beta",
-        "anyscale/codellama/CodeLlama-34b-Instruct-hf",
-        "anyscale/codellama/CodeLlama-70b-Instruct-hf"
-      ]
+    "anthropic_text": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Anthropic Text Completions API"
     },
     "assemblyai": {
       "model_count": 2,
       "sample_models": [
         "assemblyai/best",
         "assemblyai/nano"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "AssemblyAI Speech Recognition"
+    },
+    "auto_router": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "LiteLLM Auto Router"
     },
     "azure": {
       "model_count": 173,
@@ -131,7 +180,11 @@
         "azure/ada",
         "azure/codex-mini",
         "azure/command-r-plus"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Azure OpenAI Service"
     },
     "azure_ai": {
       "model_count": 57,
@@ -139,7 +192,27 @@
         "azure_ai/Cohere-embed-v3-english",
         "azure_ai/Cohere-embed-v3-multilingual",
         "azure_ai/FLUX-1.1-pro"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Azure AI Studio"
+    },
+    "azure_text": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Azure Text Completions API"
+    },
+    "baseten": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Baseten AI Platform"
     },
     "bedrock": {
       "model_count": 86,
@@ -147,7 +220,19 @@
         "bedrock/*/1-month-commitment/cohere.command-light-text-v14",
         "bedrock/*/1-month-commitment/cohere.command-text-v14",
         "bedrock/*/6-month-commitment/cohere.command-light-text-v14"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "AWS Bedrock"
+    },
+    "bytez": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Bytez AI Platform"
     },
     "cerebras": {
       "model_count": 5,
@@ -155,7 +240,19 @@
         "cerebras/llama-3.3-70b",
         "cerebras/llama3.1-70b",
         "cerebras/llama3.1-8b"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Cerebras Cloud Inference"
+    },
+    "clarifai": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Clarifai AI Platform"
     },
     "cloudflare": {
       "model_count": 4,
@@ -163,20 +260,72 @@
         "cloudflare/@cf/meta/llama-2-7b-chat-fp16",
         "cloudflare/@cf/meta/llama-2-7b-chat-int8",
         "cloudflare/@cf/mistral/mistral-7b-instruct-v0.1"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Cloudflare Workers AI"
     },
     "codestral": {
       "model_count": 2,
       "sample_models": [
         "codestral/codestral-2405",
         "codestral/codestral-latest"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Mistral Codestral API"
     },
     "cohere": {
       "model_count": 1,
       "sample_models": [
         "cohere/embed-v4.0"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Cohere AI"
+    },
+    "cohere_chat": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Cohere Chat API"
+    },
+    "cometapi": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Comet ML API"
+    },
+    "compactifai": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Compactifai Platform"
+    },
+    "custom": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Custom OpenAI-compatible API"
+    },
+    "custom_openai": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Custom OpenAI-compatible API"
     },
     "dashscope": {
       "model_count": 22,
@@ -184,7 +333,11 @@
         "dashscope/qwen-coder",
         "dashscope/qwen-flash",
         "dashscope/qwen-flash-2025-07-28"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Alibaba DashScope"
     },
     "databricks": {
       "model_count": 11,
@@ -192,13 +345,19 @@
         "databricks/databricks-bge-large-en",
         "databricks/databricks-claude-3-7-sonnet",
         "databricks/databricks-gte-large-en"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Databricks AI"
     },
-    "dataforseo": {
-      "model_count": 1,
-      "sample_models": [
-        "dataforseo/search"
-      ]
+    "datarobot": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "DataRobot AI Platform"
     },
     "deepgram": {
       "model_count": 36,
@@ -206,7 +365,11 @@
         "deepgram/base",
         "deepgram/base-conversationalai",
         "deepgram/base-finance"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Deepgram Speech AI"
     },
     "deepinfra": {
       "model_count": 67,
@@ -214,7 +377,11 @@
         "deepinfra/Gryphe/MythoMax-L2-13b",
         "deepinfra/NousResearch/Hermes-3-Llama-3.1-405B",
         "deepinfra/NousResearch/Hermes-3-Llama-3.1-70B"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "DeepInfra AI"
     },
     "deepseek": {
       "model_count": 5,
@@ -222,20 +389,38 @@
         "deepseek/deepseek-chat",
         "deepseek/deepseek-coder",
         "deepseek/deepseek-r1"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "DeepSeek AI"
+    },
+    "dotprompt": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "DotPrompt Platform"
     },
     "elevenlabs": {
       "model_count": 2,
       "sample_models": [
         "elevenlabs/scribe_v1",
         "elevenlabs/scribe_v1_experimental"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "ElevenLabs Speech AI"
     },
-    "exa_ai": {
-      "model_count": 1,
-      "sample_models": [
-        "exa_ai/search"
-      ]
+    "empower": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Empower AI Platform"
     },
     "fal_ai": {
       "model_count": 12,
@@ -243,20 +428,22 @@
         "fal_ai/bria/text-to-image/3.2",
         "fal_ai/fal-ai/flux-pro/v1.1",
         "fal_ai/fal-ai/flux-pro/v1.1-ultra"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Fal.ai Platform"
     },
     "featherless_ai": {
       "model_count": 2,
       "sample_models": [
         "featherless_ai/featherless-ai/Qwerky-72B",
         "featherless_ai/featherless-ai/Qwerky-QwQ-32B"
-      ]
-    },
-    "firecrawl": {
-      "model_count": 1,
-      "sample_models": [
-        "firecrawl/search"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Featherless AI"
     },
     "fireworks_ai": {
       "model_count": 32,
@@ -264,14 +451,30 @@
         "fireworks_ai/WhereIsAI/UAE-Large-V1",
         "fireworks_ai/accounts/fireworks/models/deepseek-coder-v2-instruct",
         "fireworks_ai/accounts/fireworks/models/deepseek-r1"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Fireworks AI"
     },
     "friendliai": {
       "model_count": 2,
       "sample_models": [
         "friendliai/meta-llama-3.1-70b-instruct",
         "friendliai/meta-llama-3.1-8b-instruct"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "FriendliAI Platform"
+    },
+    "galadriel": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Galadriel AI Platform"
     },
     "gemini": {
       "model_count": 64,
@@ -279,17 +482,27 @@
         "gemini/gemini-live-2.5-flash-preview-native-audio-09-2025",
         "gemini/gemini-embedding-001",
         "gemini/gemini-1.5-flash"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Google Gemini API"
     },
-    "google": {
+    "github": {
       "model_count": 0,
-      "sample_models": []
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "GitHub Models API"
     },
-    "google_pse": {
-      "model_count": 1,
-      "sample_models": [
-        "google_pse/search"
-      ]
+    "github_copilot": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "GitHub Copilot API"
     },
     "gradient_ai": {
       "model_count": 13,
@@ -297,7 +510,11 @@
         "gradient_ai/alibaba-qwen3-32b",
         "gradient_ai/anthropic-claude-3-opus",
         "gradient_ai/anthropic-claude-3.5-haiku"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Gradient AI"
     },
     "groq": {
       "model_count": 31,
@@ -305,31 +522,35 @@
         "groq/deepseek-r1-distill-llama-70b",
         "groq/distil-whisper-large-v3-en",
         "groq/gemma-7b-it"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Groq Fast AI Inference"
     },
-    "hd": {
-      "model_count": 3,
-      "sample_models": [
-        "hd/1024-x-1024/dall-e-3",
-        "hd/1024-x-1792/dall-e-3",
-        "hd/1792-x-1024/dall-e-3"
-      ]
+    "hosted_vllm": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Hosted vLLM Instance"
     },
-    "heroku": {
-      "model_count": 4,
-      "sample_models": [
-        "heroku/claude-3-5-haiku",
-        "heroku/claude-3-5-sonnet-latest",
-        "heroku/claude-3-7-sonnet"
-      ]
+    "huggingface": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "HuggingFace Inference API"
     },
-    "high": {
-      "model_count": 3,
-      "sample_models": [
-        "high/1024-x-1024/gpt-image-1",
-        "high/1024-x-1536/gpt-image-1",
-        "high/1536-x-1024/gpt-image-1"
-      ]
+    "humanloop": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Humanloop Platform"
     },
     "hyperbolic": {
       "model_count": 16,
@@ -337,7 +558,35 @@
         "hyperbolic/NousResearch/Hermes-3-Llama-3.1-70B",
         "hyperbolic/Qwen/QwQ-32B",
         "hyperbolic/Qwen/Qwen2.5-72B-Instruct"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Hyperbolic AI"
+    },
+    "infinity": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Infinity Platform"
+    },
+    "jina_ai": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Jina AI Platform"
+    },
+    "langfuse": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Langfuse Platform"
     },
     "lambda_ai": {
       "model_count": 20,
@@ -345,7 +594,11 @@
         "lambda_ai/deepseek-llama3.3-70b",
         "lambda_ai/deepseek-r1-0528",
         "lambda_ai/deepseek-r1-671b"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Lambda Labs AI"
     },
     "lemonade": {
       "model_count": 5,
@@ -353,30 +606,44 @@
         "lemonade/Qwen3-Coder-30B-A3B-Instruct-GGUF",
         "lemonade/gpt-oss-20b-mxfp4-GGUF",
         "lemonade/gpt-oss-120b-mxfp-GGUF"
-      ]
+      ],
+      "requires_auth": false,
+      "auth_type": "None",
+      "provider_type": "local",
+      "description": "Local Lemonade instance - no API key required"
     },
-    "low": {
-      "model_count": 6,
-      "sample_models": [
-        "low/1024-x-1024/gpt-image-1",
-        "low/1024-x-1536/gpt-image-1",
-        "low/1536-x-1024/gpt-image-1"
-      ]
+    "llamafile": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": false,
+      "auth_type": "None",
+      "provider_type": "local",
+      "description": "Local Llamafile instance - no API key required"
     },
-    "max-x-max": {
-      "model_count": 2,
-      "sample_models": [
-        "max-x-max/50-steps/stability.stable-diffusion-xl-v0",
-        "max-x-max/max-steps/stability.stable-diffusion-xl-v0"
-      ]
+    "litellm_proxy": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "LiteLLM Proxy"
     },
-    "medium": {
-      "model_count": 6,
-      "sample_models": [
-        "medium/1024-x-1024/gpt-image-1",
-        "medium/1024-x-1536/gpt-image-1",
-        "medium/1536-x-1024/gpt-image-1"
-      ]
+    "lm_studio": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": false,
+      "auth_type": "None",
+      "provider_type": "local",
+      "description": "Local LM Studio instance - no API key required",
+      "default_base_url": "http://localhost:1234/v1"
+    },
+    "maritalk": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Maritalk AI"
     },
     "meta_llama": {
       "model_count": 4,
@@ -384,7 +651,19 @@
         "meta_llama/Llama-3.3-70B-Instruct",
         "meta_llama/Llama-3.3-8B-Instruct",
         "meta_llama/Llama-4-Maverick-17B-128E-Instruct-FP8"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Meta Llama API"
+    },
+    "milvus": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Milvus Vector Database"
     },
     "mistral": {
       "model_count": 36,
@@ -392,7 +671,11 @@
         "mistral/codestral-2405",
         "mistral/codestral-latest",
         "mistral/codestral-mamba-latest"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Mistral AI"
     },
     "moonshot": {
       "model_count": 17,
@@ -400,14 +683,38 @@
         "moonshot/kimi-k2-0711-preview",
         "moonshot/kimi-latest",
         "moonshot/kimi-latest-128k"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Moonshot AI"
     },
     "morph": {
       "model_count": 2,
       "sample_models": [
         "morph/morph-v3-fast",
         "morph/morph-v3-large"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Morph AI"
+    },
+    "nebius": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Nebius AI Platform"
+    },
+    "nlp_cloud": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "NLP Cloud"
     },
     "nscale": {
       "model_count": 16,
@@ -415,14 +722,30 @@
         "nscale/Qwen/QwQ-32B",
         "nscale/Qwen/Qwen2.5-Coder-32B-Instruct",
         "nscale/Qwen/Qwen2.5-Coder-3B-Instruct"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Nscale AI"
+    },
+    "novita": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Novita AI"
     },
     "nvidia_nim": {
       "model_count": 2,
       "sample_models": [
         "nvidia_nim/nvidia/nv-rerankqa-mistral-4b-v3",
         "nvidia_nim/nvidia/llama-3_2-nv-rerankqa-1b-v2"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "NVIDIA NIM"
     },
     "oci": {
       "model_count": 13,
@@ -430,15 +753,40 @@
         "oci/meta.llama-3.1-405b-instruct",
         "oci/meta.llama-3.2-90b-vision-instruct",
         "oci/meta.llama-3.3-70b-instruct"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Oracle Cloud Infrastructure AI"
+    },
+    "oobabooga": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": false,
+      "auth_type": "None",
+      "provider_type": "local",
+      "description": "Local Oobabooga instance - no API key required"
     },
     "ollama": {
       "model_count": 29,
       "sample_models": [
-        "ollama/codegeex4",
-        "ollama/codegemma",
-        "ollama/codellama"
-      ]
+        "qwen3:14b",
+        "llama3.2:3b",
+        "gemma3:latest"
+      ],
+      "requires_auth": false,
+      "auth_type": "None",
+      "provider_type": "local",
+      "description": "Local Ollama instance - no API key required",
+      "default_base_url": "http://localhost:11434"
+    },
+    "ollama_chat": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": false,
+      "auth_type": "None",
+      "provider_type": "local",
+      "description": "Local Ollama Chat instance - no API key required"
     },
     "openai": {
       "model_count": 3,
@@ -446,7 +794,19 @@
         "openai/container",
         "openai/sora-2",
         "openai/sora-2-pro"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "OpenAI API"
+    },
+    "openai_like": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "OpenAI-compatible API"
     },
     "openrouter": {
       "model_count": 91,
@@ -454,7 +814,11 @@
         "openrouter/anthropic/claude-2",
         "openrouter/anthropic/claude-3-5-haiku",
         "openrouter/anthropic/claude-3-5-haiku-20241022"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "OpenRouter API"
     },
     "ovhcloud": {
       "model_count": 15,
@@ -462,37 +826,38 @@
         "ovhcloud/DeepSeek-R1-Distill-Llama-70B",
         "ovhcloud/Llama-3.1-8B-Instruct",
         "ovhcloud/Meta-Llama-3_1-70B-Instruct"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "OVHcloud AI"
     },
-    "palm": {
-      "model_count": 6,
-      "sample_models": [
-        "palm/chat-bison",
-        "palm/chat-bison-001",
-        "palm/text-bison"
-      ]
+    "pg_vector": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "pgvector Database"
     },
-    "parallel_ai": {
-      "model_count": 2,
-      "sample_models": [
-        "parallel_ai/search",
-        "parallel_ai/search-pro"
-      ]
-    },
-    "perplexity": {
-      "model_count": 26,
-      "sample_models": [
-        "perplexity/search",
-        "perplexity/codellama-34b-instruct",
-        "perplexity/codellama-70b-instruct"
-      ]
+    "predibase": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Predibase Platform"
     },
     "recraft": {
       "model_count": 2,
       "sample_models": [
         "recraft/recraftv2",
         "recraft/recraftv3"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Recraft AI"
     },
     "replicate": {
       "model_count": 13,
@@ -500,7 +865,11 @@
         "replicate/meta/llama-2-13b",
         "replicate/meta/llama-2-13b-chat",
         "replicate/meta/llama-2-70b"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Replicate AI"
     },
     "runwayml": {
       "model_count": 6,
@@ -508,7 +877,11 @@
         "runwayml/gen4_turbo",
         "runwayml/gen4_aleph",
         "runwayml/gen3a_turbo"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Runway ML"
     },
     "sagemaker": {
       "model_count": 6,
@@ -516,7 +889,19 @@
         "sagemaker/meta-textgeneration-llama-2-13b",
         "sagemaker/meta-textgeneration-llama-2-13b-f",
         "sagemaker/meta-textgeneration-llama-2-70b"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "AWS SageMaker"
+    },
+    "sagemaker_chat": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "AWS SageMaker Chat"
     },
     "sambanova": {
       "model_count": 16,
@@ -524,13 +909,11 @@
         "sambanova/DeepSeek-R1",
         "sambanova/DeepSeek-R1-Distill-Llama-70B",
         "sambanova/DeepSeek-V3-0324"
-      ]
-    },
-    "searxng": {
-      "model_count": 1,
-      "sample_models": [
-        "searxng/search"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "SambaNova AI"
     },
     "snowflake": {
       "model_count": 24,
@@ -538,29 +921,30 @@
         "snowflake/claude-3-5-sonnet",
         "snowflake/deepseek-r1",
         "snowflake/gemma-7b"
-      ]
-    },
-    "standard": {
-      "model_count": 3,
-      "sample_models": [
-        "standard/1024-x-1024/dall-e-3",
-        "standard/1024-x-1792/dall-e-3",
-        "standard/1792-x-1024/dall-e-3"
-      ]
-    },
-    "tavily": {
-      "model_count": 2,
-      "sample_models": [
-        "tavily/search",
-        "tavily/search-advanced"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Snowflake Cortex"
     },
     "text-completion-codestral": {
       "model_count": 2,
       "sample_models": [
         "text-completion-codestral/codestral-2405",
         "text-completion-codestral/codestral-latest"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Mistral Codestral Text Completions"
+    },
+    "text-completion-openai": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "OpenAI Text Completions API"
     },
     "together_ai": {
       "model_count": 31,
@@ -568,7 +952,27 @@
         "together_ai/baai/bge-base-en-v1.5",
         "together_ai/BAAI/bge-base-en-v1.5",
         "together_ai/Qwen/Qwen2.5-72B-Instruct-Turbo"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Together AI"
+    },
+    "topaz": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Topaz AI"
+    },
+    "triton": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "NVIDIA Triton Inference Server"
     },
     "v0": {
       "model_count": 3,
@@ -576,7 +980,11 @@
         "v0/v0-1.0-md",
         "v0/v0-1.5-lg",
         "v0/v0-1.5-md"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Vercel v0"
     },
     "vercel_ai_gateway": {
       "model_count": 91,
@@ -584,7 +992,11 @@
         "vercel_ai_gateway/alibaba/qwen-3-14b",
         "vercel_ai_gateway/alibaba/qwen-3-235b",
         "vercel_ai_gateway/alibaba/qwen-3-30b"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Vercel AI Gateway"
     },
     "vertex_ai": {
       "model_count": 86,
@@ -592,7 +1004,27 @@
         "vertex_ai/gemini-3-pro-preview",
         "vertex_ai/claude-3-5-haiku",
         "vertex_ai/claude-3-5-haiku@20241022"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Google Vertex AI"
+    },
+    "vertex_ai_beta": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Google Vertex AI Beta"
+    },
+    "volcengine": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Volcengine AI"
     },
     "voyage": {
       "model_count": 17,
@@ -600,7 +1032,20 @@
         "voyage/rerank-2",
         "voyage/rerank-2-lite",
         "voyage/voyage-2"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Voyage AI"
+    },
+    "vllm": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": false,
+      "auth_type": "None",
+      "provider_type": "local",
+      "description": "Local vLLM instance - no API key required",
+      "default_base_url": "http://localhost:8000/v1"
     },
     "wandb": {
       "model_count": 14,
@@ -608,7 +1053,11 @@
         "wandb/openai/gpt-oss-120b",
         "wandb/openai/gpt-oss-20b",
         "wandb/zai-org/GLM-4.5"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "Weights & Biases"
     },
     "watsonx": {
       "model_count": 28,
@@ -616,7 +1065,19 @@
         "watsonx/ibm/granite-3-8b-instruct",
         "watsonx/mistralai/mistral-large",
         "watsonx/bigscience/mt0-xxl-13b"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "IBM watsonx"
+    },
+    "watsonx_text": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "IBM watsonx Text Completions"
     },
     "xai": {
       "model_count": 27,
@@ -624,7 +1085,19 @@
         "xai/grok-2",
         "xai/grok-2-1212",
         "xai/grok-2-latest"
-      ]
+      ],
+      "requires_auth": true,
+      "auth_type": "Bearer Token",
+      "provider_type": "remote",
+      "description": "xAI Grok"
+    },
+    "xinference": {
+      "model_count": 0,
+      "sample_models": [],
+      "requires_auth": false,
+      "auth_type": "None",
+      "provider_type": "local",
+      "description": "Local Xorbits Inference instance - no API key required"
     }
   }
 }
