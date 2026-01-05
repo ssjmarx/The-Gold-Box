@@ -73,16 +73,16 @@ class AIService:
             if not provider:
                 raise ProviderException(f'Provider "{provider_id}" not found')
             
-            # Get API key from key_manager using service factory - keys should be loaded at startup
-            from ..system_services.service_factory import get_key_manager
-            
-            key_manager = get_key_manager()
-            
-            if not hasattr(key_manager, 'keys_data') or not key_manager.keys_data:
-                raise APIKeyException("Key manager keys_data not available - keys not loaded at startup")
-            
             # Only check for API key if provider requires authentication
             if provider.get('requires_auth', True):
+                # Get API key from key_manager using service factory - keys should be loaded at startup
+                from ..system_services.service_factory import get_key_manager
+                
+                key_manager = get_key_manager()
+                
+                if not hasattr(key_manager, 'keys_data') or not key_manager.keys_data:
+                    raise APIKeyException("Key manager keys_data not available - keys not loaded at startup")
+                
                 api_key = key_manager.keys_data.get(provider_id)
                 if not api_key:
                     raise APIKeyException(f"API key not configured for provider '{provider_id}' in key manager")
