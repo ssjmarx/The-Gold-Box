@@ -111,7 +111,9 @@ class AISessionManager:
             'last_activity': current_time,
             'last_message_timestamp': None,  # No messages sent to AI yet
             'conversation_history': [],  # Store full conversation history
-            'has_first_turn_complete': False  # Track first AI turn completion
+            'has_first_turn_complete': False,  # Track first AI turn completion
+            'paused_conversation': None,  # Store paused conversation state for resume
+            'paused_at': None  # Timestamp when conversation was paused
         }
         
         # logger.info(f"Created new AI session {new_session_id} for client {client_id} with {provider}/{model}")
@@ -330,58 +332,21 @@ class AISessionManager:
         logger.info(f"Role: {role}")
         
         if tool_calls:
-            # Log tool calls summary
-            tool_names = [tc.get('function', {}).get('name', 'unknown') for tc in tool_calls]
-            logger.info(f"Tool calls: {len(tool_calls)} - {tool_names}")
-            for tc in tool_calls:
-                # Format tool call details with decoded arguments
-                func = tc.get('function', {})
-                tool_id = tc.get('id', 'unknown')
-                func_name = func.get('name', 'unknown')
-                func_args = func.get('arguments', '{}')
-                
-                # Parse and decode arguments JSON with recursive decoding
-                try:
-                    import json
-                    decoded_args = self._decode_content_for_display(func_args)
-                    args_dict = json.loads(decoded_args)
-                    # Recursively decode all nested strings
-                    decoded_dict = self._decode_json_recursively(args_dict)
-                    formatted_args = json.dumps(decoded_dict, indent=4, ensure_ascii=False)
-                except:
-                    formatted_args = self._decode_content_for_display(func_args)
-                
-                logger.info(f"  Tool call details:")
-                logger.info(f"    id: {tool_id}")
-                logger.info(f"    type: function")
-                logger.info(f"    function:")
-                logger.info(f"      name: {func_name}")
-                logger.info(f"      arguments: {formatted_args}")
+            # Tool calls already logged by ai_service.py, skip here
+            pass
         elif role == 'tool':
-            # Log tool results (full content with newlines rendered)
-            logger.info(f"Tool call ID: {tool_call_id}")
-            logger.info(f"Content length: {len(content)}")
-            # Parse and format JSON content for better readability
-            try:
-                import json
-                # Parse to JSON to get proper structure
-                parsed = json.loads(content)
-                # Recursively decode all nested strings
-                decoded_obj = self._decode_json_recursively(parsed)
-                # Re-dump with proper formatting
-                formatted_json = json.dumps(decoded_obj, indent=6, ensure_ascii=False)
-                logger.info(f"Tool result content:\n{formatted_json}")
-            except:
-                # If JSON parsing fails, use decode method
-                decoded_content = self._decode_content_for_display(content)
-                logger.info(f"Tool result content:\n{decoded_content}")
-        else:
-            # Log full content for system/user/assistant messages with newlines rendered
-            # Decode escape sequences and render newlines properly in log
-            decoded_content = self._decode_content_for_display(content)
-            logger.info(f"  {decoded_content}")
-        
-        logger.info(f"===== END ADDING MESSAGE =====")
+            # Log tool result summary only
+            success = '"success": true' in content or '"success": True' in content
+            logger.info(f"  Tool result: {tool_call_id} - {'SUCCESS' if success else 'FAILURE'} ({len(content)} chars)")
+        elif role == 'assistant':
+            # Log assistant content summary
+            logger.info(f"  Assistant message: {len(content)} chars")
+        elif role == 'user':
+            # Log user message summary
+            logger.info(f"  User message: {len(content)} chars")
+        elif role == 'system':
+            # System messages logged at debug level only
+            logger.debug(f"  System message: {len(content)} chars")
         
         return True
     
@@ -571,6 +536,138 @@ class AISessionManager:
         session_data['last_activity'] = current_time
         
         logger.info(f"Marked first turn complete for session {session_id}")
+        return True
+    
+    def pause_conversation(self, session_id: str, conversation_state: Dict[str, Any]) -> bool:
+        """
+        Store conversation state when it hits safety limit for potential resume
+        
+        Args:
+            session_id: Session identifier
+            conversation_state: Dictionary containing the in-memory conversation and iteration count
+            
+        Returns:
+            True if successful, False if session not found
+        """
+        if session_id not in self.sessions:
+            logger.warning(f"Attempted to pause non-existent session {session_id}")
+            return False
+        
+        current_time = time.time()
+        session_data = self.sessions[session_id]
+        
+        # Validate session is not expired
+        if current_time - session_data.get('last_activity', 0) >= self.session_timeout_minutes * 60:
+            logger.warning(f"Attempted to pause expired session {session_id}")
+            return False
+        
+        # Store paused conversation state
+        session_data['paused_conversation'] = conversation_state
+        session_data['paused_at'] = current_time
+        session_data['last_activity'] = current_time
+        
+        logger.info(f"Paused conversation for session {session_id} - {conversation_state.get('iterations', 0)} iterations completed")
+        return True
+    
+    def get_paused_conversation(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve paused conversation state for resumption
+        
+        Args:
+            session_id: Session identifier
+            
+        Returns:
+            Paused conversation state or None if not found/expired
+        """
+        if session_id not in self.sessions:
+            return None
+        
+        current_time = time.time()
+        session_data = self.sessions[session_id]
+        
+        # Check if session is expired
+        if current_time - session_data.get('last_activity', 0) >= self.session_timeout_minutes * 60:
+            logger.info(f"Session {session_id} expired during paused conversation retrieval")
+            del self.sessions[session_id]
+            return None
+        
+        # Check if there's a paused conversation
+        paused_at = session_data.get('paused_at')
+        if paused_at is None:
+            logger.debug(f"No paused conversation found for session {session_id}")
+            return None
+        
+        # Check if paused conversation is too old (30 seconds = 30000 ms)
+        if current_time - paused_at > 30:
+            logger.info(f"Paused conversation for session {session_id} is expired (>30 seconds old)")
+            self.cleanup_paused_conversation(session_id)
+            return None
+        
+        return session_data.get('paused_conversation')
+    
+    def resume_conversation(self, session_id: str) -> bool:
+        """
+        Mark that a paused conversation is being resumed (clears pause state but keeps history)
+        
+        Args:
+            session_id: Session identifier
+            
+        Returns:
+            True if successful, False if session not found or no paused conversation
+        """
+        if session_id not in self.sessions:
+            logger.warning(f"Attempted to resume non-existent session {session_id}")
+            return False
+        
+        current_time = time.time()
+        session_data = self.sessions[session_id]
+        
+        # Validate session is not expired
+        if current_time - session_data.get('last_activity', 0) >= self.session_timeout_minutes * 60:
+            logger.warning(f"Attempted to resume expired session {session_id}")
+            return False
+        
+        # Check if there's a paused conversation
+        if session_data.get('paused_conversation') is None:
+            logger.warning(f"No paused conversation to resume for session {session_id}")
+            return False
+        
+        logger.info(f"Resuming conversation for session {session_id}")
+        
+        # Clear paused state (conversation history is preserved in conversation_history)
+        session_data['paused_conversation'] = None
+        session_data['paused_at'] = None
+        session_data['last_activity'] = current_time
+        
+        return True
+    
+    def cleanup_paused_conversation(self, session_id: str) -> bool:
+        """
+        Clean up paused conversation state (treats it as if the turn ended normally)
+        
+        Args:
+            session_id: Session identifier
+            
+        Returns:
+            True if successful, False if session not found
+        """
+        if session_id not in self.sessions:
+            return False
+        
+        current_time = time.time()
+        session_data = self.sessions[session_id]
+        
+        # Validate session is not expired
+        if current_time - session_data.get('last_activity', 0) >= self.session_timeout_minutes * 60:
+            logger.warning(f"Attempted to cleanup paused conversation for expired session {session_id}")
+            return False
+        
+        # Clear paused state
+        session_data['paused_conversation'] = None
+        session_data['paused_at'] = None
+        session_data['last_activity'] = current_time
+        
+        logger.info(f"Cleaned up paused conversation for session {session_id}")
         return True
     
     def auto_cleanup(self) -> None:

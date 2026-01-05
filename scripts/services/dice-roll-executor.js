@@ -125,6 +125,26 @@ class DiceRollExecutor {
                         }
                     }
                 });
+                
+                // CRITICAL FIX: Also send roll data via message collector for immediate backend sync
+                // This ensures dice rolls are available for get_message_history in same session
+                if (window.goldBox && window.goldBox.messageCollector) {
+                    window.goldBox.messageCollector.sendDiceRoll({
+                        formula: formula,
+                        total: roll.total,
+                        results: roll.dice.map(d => ({
+                            number: d.number,
+                            results: d.results.map(r => ({
+                                result: r.result,
+                                active: r.active,
+                                discarded: r.discarded
+                            }))
+                        })),
+                        flavor: flavor || '',
+                        timestamp: Date.now()
+                    });
+                    console.log('DiceRollExecutor: Roll data sent via message collector');
+                }
             } catch (err) {
                 console.error('DiceRollExecutor: Error sending roll to chat:', err);
                 // Continue anyway - roll was evaluated successfully

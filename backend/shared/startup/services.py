@@ -93,10 +93,6 @@ def initialize_websocket_manager():
                     import time
                     message_type = message.get("type")
                     
-                    # Log all incoming message types (except ping/pong for performance)
-                    if message_type != "ping":
-                        logger.info(f"WebSocket: Received message type '{message_type}' from client {client_id}")
-                    
                     # FAST PATH: Handle immediate messages without blocking
                     # These must complete quickly and synchronously
                     
@@ -111,13 +107,11 @@ def initialize_websocket_manager():
                     # Handle roll results from frontend (for AI tool roll_dice) - CRITICAL FAST PATH
                     # This must be processed immediately to avoid timeouts in AI tool execution
                     if message_type == "roll_result":
-                        logger.info(f"WebSocket: [FAST PATH] Routing roll_result message to handler for client {client_id}")
                         await self._handle_roll_result(client_id, message)
                         return
                     
                     # Handle settings sync from frontend (frontend is source of truth) - FAST PATH
                     if message_type == "settings_sync":
-                        logger.info(f"WebSocket: [FAST PATH] Handling settings_sync for client {client_id}")
                         await self._handle_settings_sync(client_id, message)
                         return
                     
@@ -126,56 +120,52 @@ def initialize_websocket_manager():
                     
                     # Handle individual chat messages from frontend
                     if message_type == "chat_message":
-                        logger.info(f"WebSocket: [SLOW PATH] Creating background task for chat_message")
                         asyncio.create_task(self._handle_chat_message(client_id, message))
                         return
                     
                     # Handle individual dice rolls from frontend
                     if message_type == "dice_roll":
-                        logger.info(f"WebSocket: [SLOW PATH] Creating background task for dice_roll")
                         asyncio.create_task(self._handle_dice_roll(client_id, message))
                         return
                     
                     # Handle combat context messages from frontend
                     if message_type == "combat_context":
-                        logger.info(f"WebSocket: [SLOW PATH] Creating background task for combat_context")
                         asyncio.create_task(self._handle_combat_context(client_id, message))
                         return
                     
                     # Handle combat state messages from frontend - FAST PATH
                     if message_type == "combat_state":
-                        logger.info(f"WebSocket: [FAST PATH] Handling combat_state for client {client_id}")
                         await self._handle_combat_state(client_id, message)
                         return
                     
                     # Handle error messages from frontend - FAST PATH
                     if message_type == "error":
-                        logger.info(f"WebSocket: [FAST PATH] Routing error message to handler for client {client_id}")
                         await self._handle_error_message(client_id, message)
                         return
                     
                     # Handle ai_turn_complete messages from backend - FAST PATH
                     if message_type == "ai_turn_complete":
-                        logger.info(f"WebSocket: [FAST PATH] Handling ai_turn_complete for client {client_id}")
                         await self._handle_ai_turn_complete(client_id, message)
                         return
                     
                     # Handle game delta messages from frontend - FAST PATH
                     if message_type == "game_delta":
-                        logger.info(f"WebSocket: [FAST PATH] Handling game_delta for client {client_id}")
                         await self._handle_game_delta(client_id, message)
                         return
                     
                     # Handle world state sync messages from frontend - FAST PATH
                     if message_type == "world_state_sync":
-                        logger.info(f"WebSocket: [FAST PATH] Handling world_state_sync for client {client_id}")
                         await self._handle_world_state_sync(client_id, message)
                         return
                     
                     # Handle token actor details messages from frontend - FAST PATH
                     if message_type == "token_actor_details":
-                        logger.info(f"WebSocket: [FAST PATH] Handling token_actor_details for client {client_id}")
                         await self._handle_token_actor_details(client_id, message)
+                        return
+                    
+                    # Handle token attribute modified messages from frontend - FAST PATH
+                    if message_type == "token_attribute_modified":
+                        await self._handle_token_attribute_modified(client_id, message)
                         return
                     
                     # Handle chat requests - check for active test session first - SLOW PATH
@@ -470,8 +460,66 @@ def initialize_websocket_manager():
                         }
                     })
             
+            def _convert_websocket_message_to_compact(self, message: Dict[str, Any]) -> Dict[str, Any]:
+                """Convert WebSocket JSON message to compact format - bypass HTML parsing"""
+                msg_type = message.get("type", "")
+                
+                # Handle dice rolls from WebSocket
+                if msg_type == "roll":
+                    compact = {
+                        "t": "dr",
+                        "ts": message.get("timestamp", int(time.time() * 1000)),
+                        "f": message.get("formula", ""),
+                        "tt": message.get("total", 0),
+                        "r": message.get("results", []),
+                        "ft": message.get("flavor", "")
+                    }
+                    
+                    # Add speaker info if present
+                    speaker = message.get("speaker")
+                    if speaker:
+                        if isinstance(speaker, dict):
+                            compact["s"] = speaker.get("name", "")
+                            if speaker.get("alias"):
+                                compact["a"] = speaker.get("alias")
+                        else:
+                            compact["s"] = str(speaker)
+                    
+                    return compact
+                
+                # Handle chat messages from WebSocket
+                elif msg_type in ["chat", "cm"]:
+                    compact = {
+                        "t": "cm",
+                        "ts": message.get("timestamp", int(time.time() * 1000)),
+                        "c": message.get("content", "")
+                    }
+                    
+                    # Add speaker info if present
+                    speaker = message.get("speaker")
+                    if speaker:
+                        if isinstance(speaker, dict):
+                            compact["s"] = speaker.get("name", "")
+                            if speaker.get("alias"):
+                                compact["a"] = speaker.get("alias")
+                        else:
+                            compact["s"] = str(speaker)
+                    
+                    return compact
+                
+                # Unknown type - return None to fall back to HTML parsing
+                return None
+            
             def _convert_single_message_to_compact(self, message: Dict[str, Any]) -> Dict[str, Any]:
-                """Convert a single raw HTML message to compact JSON format - DELEGATE TO UNIFIED PROCESSOR"""
+                """Convert message to compact JSON - handle both JSON and HTML formats"""
+                
+                # Check if this is a WebSocket JSON message (has direct type field)
+                if isinstance(message, dict) and "type" in message:
+                    compact = self._convert_websocket_message_to_compact(message)
+                    if compact:
+                        return compact
+                
+                # Fall back to HTML parsing for legacy/relay messages
                 # Import unified processor at function level to avoid circular import issues
                 from shared.core.unified_message_processor import get_unified_processor
                 
@@ -503,8 +551,99 @@ def initialize_websocket_manager():
                     combat_state = message_data.get("combat_state")
                     request_id = message.get("request_id")
                     
-                    if not combat_state:
-                        logger.warning(f"Received combat_state message without combat_state data from client {client_id}")
+                    # Support BOTH formats:
+                    # 1. Single combat state: data.combat_state (backward compatible)
+                    # 2. Multiple encounters: data.encounters + data.active_combat_id (new format)
+                    
+                    if combat_state:
+                        # Single encounter format - store combat state
+                        logger.info(f"Received single combat state from client {client_id}")
+                        
+                        # FIXED: Handle deletion response - if combat_state has no combat_id, this means deletion succeeded
+                        # In this case, we should remove the encounter from cache (if we can figure out which one)
+                        # Since we can't know which encounter was deleted from the response alone,
+                        # the delete_encounter command will handle cleanup by checking if combat is still active
+                        if not combat_state.get("combat_id"):
+                            logger.warning(f"Received combat_state without combat_id for client {client_id} - likely deletion response")
+                            # Store the invalid state to allow delete_encounter to detect the issue
+                            # The deletion command will see the encounter is still active and force remove it
+                        
+                        # Check if this is a response to a combat_state_refresh request
+                        if request_id:
+                            from services.ai_tools.ai_tool_executor import _pending_roll_requests
+                            if request_id in _pending_roll_requests:
+                                future = _pending_roll_requests[request_id]
+                                if not future.done():
+                                    logger.info(f"Resolving pending combat_state_refresh request {request_id}")
+                                    future.set_result(combat_state)
+                                else:
+                                    logger.warning(f"Pending request {request_id} already done")
+                        
+                        # Store combat state in message collector
+                        from services.system_services.service_factory import get_message_collector
+                        message_collector = get_message_collector()
+                        
+                        success = message_collector.set_combat_state(client_id, combat_state)
+                        if success:
+                            logger.info(f"Combat state stored for client {client_id}: in_combat={combat_state.get('in_combat')}")
+                            
+                            # Update CombatEncounterService to keep it synchronized
+                            from services.system_services.service_factory import get_combat_encounter_service
+                            combat_service = get_combat_encounter_service()
+                            update_success = combat_service.update_combat_state(combat_state)
+                            if update_success:
+                                logger.info(f"CombatEncounterService updated from WebSocket: in_combat={combat_state.get('in_combat')}, combat_id={combat_state.get('combat_id')}")
+                            else:
+                                logger.warning(f"Failed to update CombatEncounterService from WebSocket: {combat_state}")
+                        else:
+                            logger.warning(f"Failed to store combat state for client {client_id}")
+                    
+                    elif encounters:
+                        # Multiple encounters format - store all encounters
+                        logger.info(f"Received multiple encounters from client {client_id}: {len(encounters)} encounters")
+                        
+                        # FIXED: Also store in WebSocketMessageCollector for consistency
+                        # This maintains single source of truth for encounter state
+                        from services.system_services.service_factory import get_message_collector
+                        message_collector = get_message_collector()
+                        success = message_collector.set_combat_state_from_frontend(client_id, {
+                            'encounters': encounters,
+                            'active_combat_id': active_combat_id
+                        })
+                        
+                        if not success:
+                            logger.warning(f"Failed to store multiple encounters in WebSocketMessageCollector")
+                        else:
+                            logger.info(f"Stored {len(encounters)} encounters in WebSocketMessageCollector for client {client_id}")
+                        
+                        # Store each encounter in CombatEncounterService (legacy/backup storage)
+                        from services.system_services.service_factory import get_combat_encounter_service
+                        combat_service = get_combat_encounter_service()
+                        
+                        # Track which encounter is active
+                        active_encounter = None
+                        for encounter in encounters:
+                            if encounter.get('is_active'):
+                                active_encounter = encounter
+                            
+                            # Update service with this encounter
+                            update_success = combat_service.update_combat_state(encounter)
+                            if update_success:
+                                logger.debug(f"CombatEncounterService updated: combat_id={encounter.get('combat_id')}, is_active={encounter.get('is_active')}")
+                        
+                        # Respond with active encounter if request_id provided
+                        if request_id and active_encounter:
+                            from services.ai_tools.ai_tool_executor import _pending_roll_requests
+                            if request_id in _pending_roll_requests:
+                                future = _pending_roll_requests[request_id]
+                                if not future.done():
+                                    logger.info(f"Resolving pending combat_state_refresh request {request_id}")
+                                    future.set_result(active_encounter)
+                                else:
+                                    logger.warning(f"Pending request {request_id} already done")
+                    
+                    else:
+                        logger.warning(f"Received combat_state message without valid combat data from client {client_id}")
                         return
                     
                     # Check if this is a response to a combat_state_refresh request
@@ -995,7 +1134,7 @@ def initialize_websocket_manager():
                     ai_role = universal_settings.get('ai_role', 'gm')
                     
                     # Generate enhanced system prompt based on AI role using unified processor
-                    system_prompt = processor.generate_enhanced_system_prompt(ai_role, compact_messages)
+                    system_prompt = processor.generate_enhanced_system_prompt(ai_role, compact_messages, universal_settings)
                     import json
                     compact_json_context = json.dumps(compact_messages, indent=2)
                     

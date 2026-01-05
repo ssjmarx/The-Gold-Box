@@ -135,7 +135,8 @@ class TestingHarness:
             ai_role = universal_settings.get('ai role', 'gm')
             system_prompt = self._unified_processor.generate_enhanced_system_prompt(
                 ai_role,
-                [combat_context_message]
+                [combat_context_message],
+                universal_settings
             )
             
             # Step 8: Use the SHARED UTILITY to build initial messages with delta injection
@@ -149,8 +150,14 @@ class TestingHarness:
             # Step 9: Decode messages for display (for better readability)
             decoded_messages = self._decode_messages_for_display(initial_messages)
             
+            # Import truncation utility
+            from shared.utils.log_utils import truncate_for_log
+            
+            # Truncate messages for logging to avoid cluttering logs
+            truncated_messages = [truncate_for_log(msg) for msg in decoded_messages]
+            
             logger.info(f"===== TRANSPARENT INTERCEPTOR - EXACT AI MESSAGES =====")
-            logger.info(f"Exact messages that would be sent to AI:\n{json.dumps(decoded_messages, indent=2, ensure_ascii=False)}")
+            logger.info(f"Exact messages that would be sent to AI:\n{json.dumps(truncated_messages, indent=2, ensure_ascii=False)}")
             logger.info(f"===== END TRANSPARENT INTERCEPTOR =====")
             
             # Step 10: Mark first turn as complete (if this was first turn)

@@ -146,6 +146,12 @@ class UniversalSettings:
             'default': 'AI Assistant for tabletop RPGs',
             'description': 'AI role/personality for responses'
         },
+        'player list': {
+            'type': str, 
+            'required': False, 
+            'default': '',
+            'description': 'Comma-separated list of player characters the user is controlling'
+        },
         'relay client id': {
             'type': str, 
             'required': False, 
@@ -427,6 +433,17 @@ class UniversalSettings:
             
             # Build provider config with explicit field access
             provider_config = {}
+            
+            # DEBUG: Log model name before processing
+            import logging
+            debug_logger = logging.getLogger(__name__)
+            debug_logger.info(f"=== DEBUG: Provider Config Extraction ===")
+            debug_logger.info(f"use_tactical: {use_tactical}")
+            debug_logger.info(f"Required fields: {required_fields}")
+            for settings_field, config_field in required_fields.items():
+                debug_logger.info(f"  {settings_field} -> {config_field}: {settings[settings_field]}")
+                provider_config[config_field] = settings[settings_field]
+            debug_logger.info(f"======================================")
             
             # Add required fields (must exist)
             for settings_field, config_field in required_fields.items():

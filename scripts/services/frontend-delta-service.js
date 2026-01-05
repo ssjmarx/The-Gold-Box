@@ -7,6 +7,8 @@
  * - Track deleted messages removed from Foundry chat since last AI turn
  * - Track new dice rolls executed since last AI turn
  * - Track combat encounters started/ended since last AI turn
+ * - Track combat turn advances since last AI turn
+ * - Track combatant attribute changes (damage/healing/other) since last AI turn
  * - Provide complete delta object to backend when AI turn button is clicked
  * - Automatically reset all deltas when AI turn completes
  * 
@@ -28,6 +30,14 @@ export class FrontendDeltaService {
     // Combat event tracking
     this.encounterStarted = null;
     this.encounterEnded = null;
+    
+    // NEW: Turn advancement tracking
+    this.turnAdvanced = false;
+    this.lastTurnNumber = 0;
+    this.lastRoundNumber = 0;
+    
+    // NEW: Combatant attribute change tracking
+    this.combatantChanged = null;
     
     console.log('The Gold Box: FrontendDeltaService initialized');
   }
@@ -81,6 +91,20 @@ export class FrontendDeltaService {
       delta.hasChanges = true;
     }
     
+    // NEW: Add turn advanced if it occurred
+    if (this.turnAdvanced) {
+      delta.TurnAdvanced = true;
+      delta.LastTurnNumber = this.lastTurnNumber;
+      delta.LastRoundNumber = this.lastRoundNumber;
+      delta.hasChanges = true;
+    }
+    
+    // NEW: Add combatant changed if it occurred
+    if (this.combatantChanged !== null) {
+      delta.CombatantChanged = this.combatantChanged;
+      delta.hasChanges = true;
+    }
+    
     // If no changes, add message for clarity
     if (!delta.hasChanges) {
       delta.message = "No changes to game state since last AI turn";
@@ -100,7 +124,11 @@ export class FrontendDeltaService {
       DeletedMessages: this.deletedMessages,
       NewDiceRolls: this.newDiceRolls.length,
       EncounterStarted: this.encounterStarted,
-      EncounterEnded: this.encounterEnded
+      EncounterEnded: this.encounterEnded,
+      TurnAdvanced: this.turnAdvanced,
+      LastTurnNumber: this.lastTurnNumber,
+      LastRoundNumber: this.lastRoundNumber,
+      CombatantChanged: this.combatantChanged
     };
     
     this.newMessages = 0;
@@ -108,6 +136,14 @@ export class FrontendDeltaService {
     this.newDiceRolls = [];
     this.encounterStarted = null;
     this.encounterEnded = null;
+    
+    // NEW: Reset turn advancement tracking
+    this.turnAdvanced = false;
+    this.lastTurnNumber = 0;
+    this.lastRoundNumber = 0;
+    
+    // NEW: Reset combatant change tracking
+    this.combatantChanged = null;
     
     console.log(`The Gold Box: Delta counts reset. Before reset:`, countsBeforeReset);
   }
@@ -179,6 +215,45 @@ export class FrontendDeltaService {
       console.log('The Gold Box: Encounter ended');
     }
   }
+
+  /**
+   * Record that combat turn has advanced
+   * Called by CombatMonitor when turn advances
+   * 
+   * @param {number} round - Current round number
+   * @param {number} turn - Current turn number (1-based)
+   */
+  setTurnAdvanced(round, turn) {
+    // Only set turnAdvanced if turn actually changed
+    if (round !== this.lastRoundNumber || turn !== this.lastTurnNumber) {
+      this.turnAdvanced = true;
+      this.lastRoundNumber = round;
+      this.lastTurnNumber = turn;
+      console.log(`The Gold Box: Turn advanced to round ${round}, turn ${turn}`);
+    }
+  }
+
+  /**
+   * Record that a combatant's attributes have changed
+   * Called by CombatMonitor when combatant attributes change
+   * 
+   * @param {Object} combatantData - Combatant change data
+   * @param {string} combatantData.tokenId - Token ID
+   * @param {string} combatantData.attributePath - Attribute path that changed
+   * @param {any} combatantData.oldValue - Previous value
+   * @param {any} combatantData.newValue - New value
+   * @param {string} combatantData.changeType - Type of change (damage/healing/other)
+   */
+  setCombatantChanged(combatantData) {
+    this.combatantChanged = {
+      token_id: combatantData.tokenId,
+      attribute_path: combatantData.attributePath,
+      old_value: combatantData.oldValue,
+      new_value: combatantData.newValue,
+      change_type: combatantData.changeType
+    };
+    console.log(`The Gold Box: Combatant changed: token ${combatantData.tokenId}, path ${combatantData.attributePath}, ${combatantData.changeType}`);
+  }
 }
 
 // Create global instance and attach to window
@@ -190,14 +265,14 @@ if (!window.FrontendDeltaService) {
 // Register Foundry hooks for message tracking
 Hooks.on('createChatMessage', (chatMessage) => {
   // Only increment counter for user-created messages, not AI-generated messages
-  // AI-generated messages have the isAIMessage flag
+  // AI-generated messages have flags['gold-box']?.isAIMessage flag
   const isAIMessage = chatMessage.flags?.['gold-box']?.isAIMessage;
   if (!isAIMessage) {
     window.FrontendDeltaService?.incrementNewMessages();
     
     // Check if this is a dice roll message
     if (chatMessage.isRoll && chatMessage.rolls) {
-      // Extract roll data from the message
+      // Extract roll data from message
       const roll = chatMessage.rolls[0];
       if (roll) {
         const rollData = {

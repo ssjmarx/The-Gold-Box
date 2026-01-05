@@ -2,300 +2,277 @@
 
 This document describes all environmental variables and configuration options available when starting The Gold Box backend server, along with detailed frontend settings reference.
 
+## Quick Reference
+
+| Setting Type | Location | Example |
+|--------------|----------|---------|
+| Server Port | Env var or backend.sh | `GOLD_BOX_PORT=8080` |
+| CORS Origins | Env var (production required) | `CORS_ORIGINS=https://foundry.example.com` |
+| Backend URL | Foundry Module Settings | `http://localhost:5000` |
+| AI Provider | Foundry Module Settings | `openai`, `anthropic`, `ollama` |
+| AI Model | Foundry Module Settings | `gpt-4`, `claude-3-5-sonnet-20241022` |
+
 ## Environment Variables
 
 ### Server Configuration
 
-| Variable | Default | Description | Example |
-|-----------|----------|-------------|----------|
-| `GOLD_BOX_PORT` | `5000` | Server port number | `GOLD_BOX_PORT=8080` |
-| `USE_DEVELOPMENT_SERVER` | `false` | Force development mode via environment | `USE_DEVELOPMENT_SERVER=true` |
-
-### Environment Modes
-
-**Development Mode (`USE_DEVELOPMENT_SERVER=true`)**:
-- CORS automatically configured for localhost Foundry VTT ports
-- Debug endpoints enabled (`/docs`, `/redoc`)
-- Verbose logging enabled
-- Auto-reload on code changes
-
-**Production Mode (default)**:
-- CORS must be explicitly configured via `CORS_ORIGINS`
-- Debug endpoints disabled
-- Optimized logging
-- Enhanced security headers
+| Variable | Default | Description |
+|-----------|----------|-------------|
+| `GOLD_BOX_PORT` | `5000` | Server port number |
+| `USE_DEVELOPMENT_SERVER` | `false` | Force development mode (auto-configures CORS, enables debug) |
 
 ### CORS Configuration
 
-| Variable | Default | Description | Example |
-|-----------|----------|-------------|----------|
-| `CORS_ORIGINS` | *required in production* | Comma-separated allowed origins | `CORS_ORIGINS=https://foundry.example.com,https://game.foundryvtt.com` |
+| Variable | Default | Description |
+|-----------|----------|-------------|
+| `CORS_ORIGINS` | *required in production* | Comma-separated allowed origins |
 
-**Development Origins** (automatically configured):
-- `http://localhost:30000`
-- `http://127.0.0.1:30000`
-- `http://localhost:30001`
-- `http://127.0.0.1:30001`
-- `http://localhost:30002`
-- `http://127.0.0.1:30002`
+**Development Origins** (automatically configured): `http://localhost:30000-30002`, `http://127.0.0.1:30000-30002`
 
 ### Logging Configuration
 
-| Variable | Default | Description | Example |
-|-----------|----------|-------------|----------|
-| `LOG_LEVEL` | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`) | `LOG_LEVEL=DEBUG` |
-| `LOG_FILE` | `goldbox.log` | Log file path | `LOG_FILE=/var/log/goldbox.log` |
-
-**Log Levels Explained**:
-- **`DEBUG`**: All events including detailed request/response data
-- **`INFO`**: General server information and important events
-- **`WARNING`**: Potential issues and non-critical errors
-- **`ERROR`**: Errors that don't stop the server
-- **`CRITICAL`**: Critical errors that may cause server shutdown
+| Variable | Default | Description |
+|-----------|----------|-------------|
+| `LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` |
+| `LOG_FILE` | `goldbox.log` | Log file path |
 
 ### Security Configuration
 
-| Variable | Default | Description | Example |
-|-----------|----------|-------------|----------|
-| `RATE_LIMIT_MAX_REQUESTS` | `5` | Maximum requests per time window | `RATE_LIMIT_MAX_REQUESTS=10` |
-| `RATE_LIMIT_WINDOW_SECONDS` | `60` | Time window in seconds | `RATE_LIMIT_WINDOW_SECONDS=30` |
-| `SESSION_TIMEOUT_MINUTES` | `60` | Session timeout in minutes | `SESSION_TIMEOUT_MINUTES=120` |
-| `SESSION_WARNING_MINUTES` | `10` | Warning before timeout (minutes) | `SESSION_WARNING_MINUTES=15` |
+| Variable | Default | Description |
+|-----------|----------|-------------|
+| `RATE_LIMIT_MAX_REQUESTS` | `5` | Maximum requests per time window |
+| `RATE_LIMIT_WINDOW_SECONDS` | `60` | Time window in seconds |
+| `SESSION_TIMEOUT_MINUTES` | `60` | Session timeout in minutes |
+| `SESSION_WARNING_MINUTES` | `10` | Warning before timeout (minutes) |
 
 ### API Keys Configuration
 
 The Gold Box supports multiple methods for API key configuration:
 
-| Variable Pattern | Description | Example |
-|----------------|-------------|----------|
-| `{PROVIDER}_API_KEY` | Generic API key pattern | `ANTHROPIC_API_KEY=sk-ant-...` |
-| `{provider}_API_KEY` | Lowercase variant | `anthropic_api_key=sk-ant-...` |
+**Generic Pattern**: `{PROVIDER}_API_KEY` or `{provider}_api_key`
 
-**Supported Provider Variables**:
-- `OPENAI_API_KEY` - OpenAI services
-- `ANTHROPIC_API_KEY` - Anthropic Claude
-- `GOOGLE_API_KEY` - Google Gemini
-- `GROQ_API_KEY` - Groq
-- `TOGETHER_AI_API_KEY` - Together AI
-- `REPLICATE_API_TOKEN` - Replicate
-- `FIREWORKS_AI_API_KEY` - Fireworks AI
-- `XAI_API_KEY` - xAI (Grok)
-- `COHERE_API_KEY` - Cohere
-- `MISTRAL_API_KEY` - Mistral AI
+**Supported Providers**: `OPENAI`, `ANTHROPIC`, `GOOGLE`, `GROQ`, `TOGETHER_AI`, `REPLICATE`, `FIREWORKS_AI`, `XAI`, `COHERE`, `MISTRAL`
 
 ## Frontend Settings Reference
 
-The Gold Box module provides configurable settings through the Foundry VTT interface. Access these via **Game Settings → Module Settings → The Gold Box**.
+Access via **Game Settings → Module Settings → The Gold Box**.
 
 ### Connection Settings
 
-| Setting | Description | Default |
-|---------|-------------|---------|
-| **Backend URL** | URL of the Python backend server | `http://localhost:5000` |
-| **Backend Password** | Admin password for backend operations (from server startup) | `""` |
+| Setting | Default | Description |
+|---------|---------|-------------|
+| **Backend URL** | `http://localhost:5000` | URL of Python backend server |
+| **Backend Password** | `""` | Admin password for backend operations |
+
+### Local AI Providers
+
+The Gold Box supports local AI providers that don't require API keys.
+
+**Supported Local Providers**:
+- `ollama` (http://localhost:11434)
+- `vllm` (http://localhost:8000/v1)
+- `lm_studio` (http://localhost:1234/v1)
+- `llamafile` (http://localhost:8080/v1)
+- `xinference` (http://localhost:9997/v1)
+- `lemonade` (custom URL)
+
+| Setting | Description | Example |
+|---------|-------------|----------|
+| **General LLM Provider** | Local provider name | `ollama` |
+| **General LLM Model** | Model name for local provider | `qwen3:14b` |
+| **General LLM Base URL** | Local instance URL | `http://localhost:11434` |
+
+#### Local Provider Setup
+
+1. Start your local provider (Ollama, vLLM, etc.)
+2. Configure in Foundry: Module Settings → The Gold Box → AI Configuration
+3. Select local provider from "General LLM Provider" dropdown
+4. Enter model name and base URL
+5. No API key required
+
+#### Model Naming Conventions
+
+**Ollama**: `ollama/qwen3:14b` (with tag), `ollama/llama3.2:latest`
+**vLLM**: `meta-llama/Llama-3.2-3B-Instruct` (no tag)
+**LM Studio**: `llama-3.2-3b-instruct` (simple name)
+
+**Note**: Some providers require prefix (`ollama/`), others don't. Try both if connection fails.
+
+#### Dual Provider Configuration
+
+Configure different providers for general and tactical AI:
+
+```javascript
+{
+  "aiRole": "dm",
+  "generalProvider": "ollama",
+  "generalModel": "ollama/qwen3:14b",
+  "generalBaseURL": "http://localhost:11434",
+  "tacticalProvider": "openai",  // Future feature
+  "tacticalModel": "gpt-4",
+  "tacticalBaseURL": "https://api.openai.com/v1"
+}
+```
 
 ### AI Configuration
 
-| Setting | Description | Default |
-|---------|-------------|---------|
-| **AI Role** | Role AI should play in your game (`dm`, `dm_assistant`, `player`) | `dm` |
-| **General LLM Provider** | LiteLLM provider name (e.g., `openai`, `anthropic`, `glm`) | `""` |
-| **General LLM Model** | Model name for the provider (e.g., `gpt-3.5-turbo`, `claude-3-5-sonnet-20241022`) | `""` |
-| **General LLM Base URL** | Custom base URL for provider endpoints (optional) | `""` |
-| **General LLM API Version** | API version for the provider | `v1` |
-| **General LLM Timeout** | Request timeout in seconds | `30` |
-| **General LLM Max Retries** | Maximum retry attempts for failed requests | `3` |
-| **General LLM Custom Headers** | Custom headers in JSON format (advanced) | `""` |
+**⚠️ Model Compatibility Note**
 
-### Tactical AI Configuration
+The Gold Box is primarily designed for SOTA (State-of-the-Art) function-calling models.
 
-| Setting | Description | Default |
-|---------|-------------|---------|
-| **Tactical LLM Provider** | Provider for combat-specific AI (placeholder) | `""` |
-| **Tactical LLM Model** | Model for combat scenarios (placeholder) | `""` |
-| **Tactical LLM Base URL** | Custom base URL for tactical AI (placeholder) | `""` |
-| **Tactical LLM API Version** | API version for tactical AI | `v1` |
-| **Tactical LLM Timeout** | Request timeout in seconds | `30` |
-| **Tactical LLM Max Retries** | Maximum retry attempts | `3` |
-| **Tactical LLM Custom Headers** | Custom headers in JSON format | `""` |
+**Recommended Models**:
+- GLM-4.7 (excellent function calling)
+- GPT-4/GPT-4o (strong support)
+- Claude 3.5 Sonnet (good capabilities)
+- Gemini 2.0 Pro (capable)
+
+**Less Powerful Models**: May struggle with complex function calling. Consider disabling function calling for better performance.
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| **AI Role** | `dm` | Role: `dm`, `dm_assistant`, `player` |
+| **General LLM Provider** | `""` | LiteLLM provider name |
+| **General LLM Model** | `""` | Model name |
+| **General LLM Base URL** | `""` | Custom base URL (optional) |
+| **General LLM API Version** | `v1` | API version |
+| **General LLM Timeout** | `30` | Request timeout (seconds) |
+| **General LLM Max Retries** | `3` | Maximum retry attempts |
+| **General LLM Custom Headers** | `""` | Custom headers (JSON format) |
+
+### Function Calling Mode
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| **Disable Function Calling** | `false` | Enable legacy compatibility mode |
+
+**Function Calling Enabled (`false`, default)**:
+- AI uses structured tools: `get_message_history`, `post_message`, `roll_dice`, `get_encounter`, `create_encounter`, `delete_encounter`, `advance_combat_turn`, `get_actor_details`, `modify_token_attribute`
+- Dynamically queries game state and performs actions
+- **Best for**: SOTA models
+
+**Function Calling Disabled (`true`)**:
+- Legacy mode prepackages context into single prompt
+- AI receives 15 recent messages and combat state upfront
+- AI cannot query game state, manage combat, or modify attributes
+- **Best for**: Older/local models or faster responses
+
+**Performance Comparison**:
+
+| Aspect | Function Calling | Legacy Mode |
+|--------|-------------------|--------------|
+| Response Time | Slower (tool loop) | 30-50% faster |
+| API Calls | Multiple per turn | Single per turn |
+| Capabilities | Full tool access | Chat + dice only |
+| Model Requirements | SOTA models needed | Any model |
+
+### Tactical AI Configuration (Future Feature)
+
+Placeholder for future releases. Currently, all AI responses use General LLM Provider and Model settings.
 
 ### Context Configuration
 
-| Setting | Description | Default |
-|---------|-------------|---------|
-| **Maximum Message Context** | Number of recent chat messages to include in AI context | `15` |
-| **AI Response Timeout** | Maximum time to wait for AI response before re-enabling button (seconds) | `60` |
+| Setting | Default | Description |
+|---------|---------|-------------|
+| **Maximum Message Context** | `15` | Recent chat messages in AI context |
+| **AI Response Timeout** | `60` | Max time to wait for AI response (seconds) |
 
 ## Key Management
 
 ### Interactive Key Setup
 
-| Variable | Default | Description | Example |
-|-----------|----------|-------------|----------|
-| `GOLD_BOX_KEYCHANGE` | `false` | Force key management wizard | `GOLD_BOX_KEYCHANGE=true` |
+| Variable | Default | Description |
+|-----------|----------|-------------|
+| `GOLD_BOX_KEYCHANGE` | `false` | Force key management wizard |
 
 **Key Management Features**:
-- **Encrypted Storage**: AES-256 encryption for all API keys
-- **Admin Password Protection**: Single password for encryption and admin operations
-- **Multiple Service Support**: Configure keys for multiple AI services
-- **Environment Variable Loading**: Secure key injection from environment
-- **Dynamic Provider Support**: Add new providers without code changes
+- AES-256 encryption for all API keys
+- Admin password protection
+- Multiple service support
+- Environment variable loading
+- Dynamic provider support
 
 ### Setup Commands
 
 ```bash
-# First-time setup with interactive wizard
+# First-time setup
 python server.py
 
-# Force key change mode
+# Force key change
 GOLD_BOX_KEYCHANGE=true python server.py
 
-# Start with existing keys
-python server.py  # Will prompt for encryption password
-
-# Start with environment variables
+# With environment variables
 export OPENAI_API_KEY=sk-your-key
 export ANTHROPIC_API_KEY=sk-ant-your-key
 python server.py
 ```
 
-### Key Management Interface
-
-The interactive key management wizard provides:
-- **Add New Keys**: Securely add API keys for any supported provider
-- **Update Existing Keys**: Change encrypted stored keys
-- **Delete Keys**: Remove unused provider keys
-- **Test Connections**: Verify API key validity
-- **Import from Environment**: Load keys from environment variables
-- **Export to Environment**: Export keys to environment variables
-
 ## Custom Provider Wizard
 
-The Gold Box supports creating custom AI providers that follow OpenAI-compatible API format.
+The Gold Box supports creating custom AI providers following OpenAI-compatible API format.
 
 ### Creating a Custom Provider
 
-1. **Start Backend Server**: Run `python server.py` or use the key management wizard with `GOLD_BOX_KEYCHANGE=true`
+1. Start backend: `python server.py` or `GOLD_BOX_KEYCHANGE=true python server.py`
+2. Select "Add Custom Provider" from key management menu
+3. Enter provider name (e.g., `my-provider`, `local-llm`)
+4. Enter base URL (e.g., `https://api.example.com/v1`, `http://localhost:11434/v1`)
+5. Enter model name (e.g., `my-model-name`, `qwen3:14b`)
+6. Enter API key (or select "None" for local providers)
+7. Test connection and save
 
-2. **Select Key Management**: Choose the key management menu option
+### Authentication Options
 
-3. **Add Custom Provider**: Select "Add Custom Provider" from the menu
+1. **Bearer Token** - Standard JWT/API token
+2. **API Key in Header** - Custom header name
+3. **API Key in Query** - URL parameter
+4. **Basic Authentication** - Username:Password
+5. **Custom Header** - Specify header name and value
+6. **None (Local Provider)** - No authentication
 
-4. **Enter Provider Name**: Choose a unique identifier (e.g., `my-provider`, `local-llm`)
+### Provider Type
 
-5. **Enter Base URL**: Provide the API base URL (e.g., `https://api.example.com/v1`)
+Choose between **Remote Provider** (cloud API requiring auth) or **Local Provider** (self-hosted, no auth).
 
-6. **Enter Model Name**: Specify the default model name (e.g., `my-model-name`)
+### Model Name Guidelines
 
-7. **Enter API Key**: Provide your API key for the custom provider
-
-8. **Test Connection**: The wizard will test the connection to verify configuration
-
-9. **Save Configuration**: Confirm to save your custom provider settings
-
-### Custom Provider Description
-
-The custom provider wizard creates a new AI provider configuration that follows OpenAI-compatible API standards. Once created, your custom provider will appear in Foundry VTT module settings under "General LLM Provider" and can be used just like any built-in provider.
-
-**Supported Features for Custom Providers**:
-- OpenAI-compatible chat completion endpoints
-- Standard request/response format
-- API key authentication
-- Custom base URL support
-- Model selection
-
-### Example Custom Provider Configuration
-
-```bash
-# Example: Setting up a local LLM server
-Provider Name: local-llm
-Base URL: http://localhost:11434/v1
-Model Name: llama-3.2-3b-instruct
-API Key: sk-local-key-12345
-```
-
-After configuration, select `local-llm` as your "General LLM Provider" in Foundry module settings.
+- **Allowed**: Letters, numbers, dots, hyphens, underscores, colons, slashes
+- **No spaces**
+- **Examples**: ✅ `gpt-4`, `qwen3:14b`, `openrouter/anthropic/claude-3` | ❌ `gpt 4` (space), `model@name` (@ symbol)
 
 ## Memory Configuration
 
-The Gold Box provides full conversation history support with intelligent token management, allowing the AI to remember complete conversation threads while staying within token limits.
+The Gold Box provides conversation history support with intelligent token management.
+
+**Note**: As of v0.3.6, memory settings are not exposed in Foundry UI and must be configured via backend API.
 
 ### Memory Settings
 
-Memory settings are configured in the `memorySettings` object:
-
-```javascript
-{
-  "memorySettings": {
-    "maxHistoryTokens": 5000,      // Maximum tokens for conversation history
-    "maxHistoryMessages": 50,        // Maximum number of messages to keep
-    "maxHistoryHours": 24            // Maximum age of messages (hours)
-  }
-}
-```
-
-**Note**: As of v0.3.6, memory settings are not exposed in the Foundry module settings UI and must be configured via backend API or direct modification.
-
-### Memory Settings Options
-
-| Setting | Default | Description | Range |
-|---------|----------|-------------|--------|
-| `maxHistoryTokens` | `5000` | Maximum tokens for conversation history | 100-100000 |
-| `maxHistoryMessages` | `50` | Maximum number of messages to store | 1-1000 |
-| `maxHistoryHours` | `24` | Maximum age of messages in hours | 1-168 (1 week) |
+| Setting | Default | Range | Description |
+|---------|---------|-------|-------------|
+| `maxHistoryTokens` | `5000` | 100-100000 | Maximum tokens for history |
+| `maxHistoryMessages` | `50` | 1-1000 | Maximum messages to store |
+| `maxHistoryHours` | `24` | 1-168 | Maximum age (hours) |
 
 ### Memory Management Features
 
-**Token-Based Pruning**: Automatically removes oldest messages when token limit exceeded, preserving system messages.
+**Token-Based Pruning**: Removes oldest messages when token limit exceeded
+**Time-Based Expiration**: Removes messages older than specified time
+**Message Count Limits**: Removes oldest messages when count exceeded
 
-**Time-Based Expiration**: Messages older than specified time limit are automatically removed during retrieval.
+### Configuration Examples
 
-**Message Count Limits**: When message count exceeds limit, oldest messages are removed first.
-
-### Memory Configuration Examples
-
-**Default Configuration**:
 ```javascript
-{
-  "memorySettings": {
-    "maxHistoryTokens": 5000,
-    "maxHistoryMessages": 50,
-    "maxHistoryHours": 24
-  }
-}
-```
+// Default
+{"memorySettings": {"maxHistoryTokens": 5000, "maxHistoryMessages": 50, "maxHistoryHours": 24}}
 
-**Large Memory for Long Conversations**:
-```javascript
-{
-  "memorySettings": {
-    "maxHistoryTokens": 20000,      // 20k tokens for complex scenarios
-    "maxHistoryMessages": 200,       // Keep up to 200 messages
-    "maxHistoryHours": 72           // Remember up to 3 days
-  }
-}
-```
+// Large memory for long conversations
+{"memorySettings": {"maxHistoryTokens": 20000, "maxHistoryMessages": 200, "maxHistoryHours": 72}}
 
-**Small Memory for Quick Sessions**:
-```javascript
-{
-  "memorySettings": {
-    "maxHistoryTokens": 1000,       // 1k tokens for brief sessions
-    "maxHistoryMessages": 20,        // Keep last 20 messages
-    "maxHistoryHours": 12           // Remember last 12 hours
-  }
-}
-```
+// Small memory for quick sessions
+{"memorySettings": {"maxHistoryTokens": 1000, "maxHistoryMessages": 20, "maxHistoryHours": 12}}
 
-**No Conversation History (Delta Only)**:
-```javascript
-{
-  "memorySettings": {
-    "maxHistoryTokens": 0,          // Disable history
-    "maxHistoryMessages": 0,
-    "maxHistoryHours": 0
-  }
-}
+// No conversation history (delta only)
+{"memorySettings": {"maxHistoryTokens": 0, "maxHistoryMessages": 0, "maxHistoryHours": 0}}
 ```
 
 ## Advanced Configuration
@@ -303,14 +280,11 @@ Memory settings are configured in the `memorySettings` object:
 ### Production Deployment
 
 ```bash
-# Production configuration example
 export GOLD_BOX_PORT=8080
 export CORS_ORIGINS=https://your-foundry-domain.com
 export LOG_LEVEL=WARNING
 export RATE_LIMIT_MAX_REQUESTS=20
-export RATE_LIMIT_WINDOW_SECONDS=60
 export SESSION_TIMEOUT_MINUTES=120
-export GOLD_BOX_OPENAI_COMPATIBLE_API_KEY=your-production-key
 
 python server.py
 ```
@@ -318,31 +292,14 @@ python server.py
 ### Development Configuration
 
 ```bash
-# Development configuration example
 export USE_DEVELOPMENT_SERVER=true
 export GOLD_BOX_PORT=5000
 export LOG_LEVEL=DEBUG
-export GOLD_BOX_OPENAI_COMPATIBLE_API_KEY=your-dev-key
 
 python server.py
-```
 
-### Backend Script Configuration
-
-```bash
-# Using backend.sh script with environment variables
-export USE_DEVELOPMENT_SERVER=true
-export GOLD_BOX_PORT=5000
-export LOG_LEVEL=DEBUG
-
-# Run setup script
-./backend.sh
-
-# Force development mode via script
+# or using backend.sh
 ./backend.sh --dev
-
-# Force development mode via environment
-USE_DEVELOPMENT_SERVER=true ./backend.sh
 ```
 
 ### Docker Configuration
@@ -350,18 +307,13 @@ USE_DEVELOPMENT_SERVER=true ./backend.sh
 **Dockerfile**:
 ```dockerfile
 FROM python:3.9-slim
-
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install -r requirements.txt
-
 COPY . .
-
-# Production configuration
 ENV GOLD_BOX_PORT=8080
 ENV LOG_LEVEL=INFO
 ENV CORS_ORIGINS=https://your-foundry-domain.com
-
 EXPOSE 8080
 CMD ["python", "server.py"]
 ```
@@ -378,32 +330,25 @@ services:
       - GOLD_BOX_PORT=8080
       - LOG_LEVEL=INFO
       - CORS_ORIGINS=https://foundry.example.com
-      - GOLD_BOX_OPENAI_COMPATIBLE_API_KEY=${OPENAI_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
     volumes:
       - ./goldbox.log:/app/goldbox.log
 ```
 
-### Environment File
-
-Create a `.env` file for local development:
+### Environment File (.env)
 
 ```bash
-# .env file example
 FLASK_ENV=development
-FLASK_DEBUG=true
 GOLD_BOX_PORT=5000
 LOG_LEVEL=DEBUG
-RATE_LIMIT_MAX_REQUESTS=10
-SESSION_TIMEOUT_MINUTES=60
-GOLD_BOX_OPENAI_COMPATIBLE_API_KEY=your-openai-key
-GOLD_BOX_NOVELAI_API_API_KEY=your-novelai-key
-GOLD_BOX_OPENCODE_COMPATIBLE_API_KEY=your-opencode-key
+OPENAI_API_KEY=your-openai-key
+ANTHROPIC_API_KEY=your-anthropic-key
 USE_DEVELOPMENT_SERVER=true
 ```
 
 ### Security Configuration File
 
-The `backend/security_config.ini` file provides endpoint-specific security settings:
+The `backend/security_config.ini` file provides endpoint-specific settings:
 
 ```ini
 [global]
@@ -425,67 +370,37 @@ session_required = True
 security_headers = True
 ```
 
-**Security Options**:
-- **`enabled`**: Global security switch
-- **`audit_logging`**: Enable security event logging
-- **`rate_limit_requests`**: Max requests per endpoint
-- **`rate_limit_window`**: Time window for rate limiting
-- **`input_validation`**: `none`, `basic`, or `strict` validation
-- **`session_required`**: Require authenticated session
-- **`security_headers`**: Enable security HTTP headers
-
 ## Troubleshooting
 
 ### Common Issues
 
-**Port Already in Use**:
-```bash
-# Server automatically finds next available port
-# Check console for actual port used
-```
+**Port Already in Use**: Server automatically finds next available port
 
-**CORS Issues in Production**:
-```bash
-# Must explicitly set CORS origins
-export CORS_ORIGINS=https://your-foundry-domain.com
-```
+**CORS Issues in Production**: `export CORS_ORIGINS=https://your-foundry-domain.com`
 
-**API Key Problems**:
-```bash
-# Force key management wizard
-GOLD_BOX_KEYCHANGE=true python server.py
+**API Key Problems**: `GOLD_BOX_KEYCHANGE=true python server.py` to reconfigure
 
-# Check environment variables
-python server.py --check-keys
-```
+**Rate Limiting Too Strict**: `export RATE_LIMIT_MAX_REQUESTS=20`
 
-**Rate Limiting Too Strict**:
-```bash
-# Increase rate limits
-export RATE_LIMIT_MAX_REQUESTS=20
-export RATE_LIMIT_WINDOW_SECONDS=30
-```
+**Local Provider Connection Failed**:
+- Verify local provider is running
+- Check base URL (include `/v1` if needed)
+- Try both model name formats (with/without prefix like `ollama/`)
 
-**Development Mode Issues**:
-```bash
-# Force development mode
-export USE_DEVELOPMENT_SERVER=true
-# or
-./backend.sh --dev
-```
+**Local Provider Model Not Found**:
+- Verify model name format matches your provider
+- Check model is downloaded/available
+- Try without version tags (e.g., `llama3.2` instead of `llama3.2:3b`)
 
 ### Debug Mode
 
-Enable detailed debugging:
 ```bash
 export LOG_LEVEL=DEBUG
-export FLASK_DEBUG=true
 python server.py
 ```
 
 ### Testing Configuration
 
-Test your configuration:
 ```bash
 # Health check
 curl http://localhost:5000/api/health
@@ -495,70 +410,47 @@ curl http://localhost:5000/api/info
 
 # Security verification
 curl http://localhost:5000/api/security
-
-# Test with specific environment
-GOLD_BOX_PORT=5001 python server.py
 ```
 
 ## Security Best Practices
 
 ### Production Security
 
-1. **Explicit CORS Configuration**:
-   ```bash
-   export CORS_ORIGINS=https://your-domain.com,https://backup-domain.com
-   ```
-
-2. **Strong Admin Password**:
-   - Use minimum 12 characters
-   - Include numbers, symbols, and mixed case
-   - Store securely (password manager)
-
-3. **API Key Protection**:
-   - Use environment variables, not hardcoded keys
-   - Rotate keys regularly
-   - Monitor usage for unusual activity
-
-4. **Session Management**:
-   ```bash
-   export SESSION_TIMEOUT_MINUTES=60  # Reasonable timeout
-   export SESSION_WARNING_MINUTES=10  # User warning
-   ```
+1. **Explicit CORS**: `export CORS_ORIGINS=https://your-domain.com`
+2. **Strong Admin Password**: Minimum 12 characters with numbers, symbols, mixed case
+3. **API Key Protection**: Use environment variables, rotate regularly, monitor usage
+4. **Session Management**: Reasonable timeout (60-120 minutes)
 
 ### Key Storage Security
 
-The Gold Box uses encrypted storage with:
-- **AES-256 encryption** for API keys
-- **PBKDF2 key derivation** (100,000 iterations)
-- **Secure file permissions** (0o600 for keys file)
-- **Admin password protection** for key management
+- AES-256 encryption for API keys
+- PBKDF2 key derivation (100,000 iterations)
+- Secure file permissions (0o600 for keys file)
+- Admin password protection
 
 ### Network Security
 
-- **Rate limiting** prevents abuse
-- **CORS restrictions** limit cross-origin requests
-- **Input validation** blocks injection attacks
-- **Session management** prevents session hijacking
+- Rate limiting prevents abuse
+- CORS restrictions limit cross-origin requests
+- Input validation blocks injection attacks
+- Session management prevents hijacking
 
 ## Performance Optimization
 
 ### High-Traffic Configuration
 
 ```bash
-# Handle increased traffic
 export RATE_LIMIT_MAX_REQUESTS=50
-export RATE_LIMIT_WINDOW_SECONDS=60
-export SESSION_TIMEOUT_MINUTES=15  # Shorter sessions
-export LOG_LEVEL=WARNING  # Reduce logging overhead
+export SESSION_TIMEOUT_MINUTES=15
+export LOG_LEVEL=WARNING
 ```
 
 ### Resource Management
 
 ```bash
-# Optimize for performance
-export FLASK_ENV=production  # Disable debug overhead
-export LOG_FILE=/dev/null  # No file logging (syslog instead)
-export SESSION_TIMEOUT_MINUTES=30  # Regular cleanup
+export FLASK_ENV=production
+export LOG_FILE=/dev/null
+export SESSION_TIMEOUT_MINUTES=30
 ```
 
 ## Monitoring and Maintenance
@@ -582,21 +474,18 @@ grep "session" goldbox.log
 ### Health Monitoring
 
 ```bash
-# Automated health check
 #!/bin/bash
 response=$(curl -s http://localhost:5000/api/health)
 status=$(echo $response | jq -r '.status')
 
 if [ "$status" != "healthy" ]; then
     echo "Alert: The Gold Box backend unhealthy"
-    # Send notification, restart service, etc.
 fi
 ```
 
 ## Support
 
-For configuration help:
-- **Documentation**: [Backend README](backend/README.md)
-- **Main Project**: [The Gold Box README](README.md)
-- **Dependencies**: [DEPENDENCIES.md](DEPENDENCIES.md)
-- **Issues**: [GitHub Issues](https://github.com/ssjmarx/The-Gold-Box/issues)
+- **Backend README**: `backend/README.md`
+- **Main Project**: `README.md`
+- **Dependencies**: `DEPENDENCIES.md`
+- **GitHub Issues**: https://github.com/ssjmarx/The-Gold-Box/issues

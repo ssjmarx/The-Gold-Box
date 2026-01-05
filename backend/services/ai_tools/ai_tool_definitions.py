@@ -16,7 +16,7 @@ def get_tool_definitions() -> list:
             "type": "function",
             "function": {
                 "name": "get_message_history",
-                "description": "Retrieve recent chat messages from Foundry chat for context. Use once at the start of a turn to get new messages.",
+                "description": "Retrieve recent chat messages from Foundry chat for context. Call at the start of your turn to get new messages. Efficient: only call once per turn, not before each tool use.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -36,7 +36,7 @@ def get_tool_definitions() -> list:
             "type": "function",
             "function": {
                 "name": "post_message",
-                "description": "Send one or more chat messages or chat cards to Foundry as your response. Messages can be chat text, or structured chat cards with Foundry-specific formatting. This function accepts markdown styling.",
+                "description": "Send one or more chat messages or chat cards to Foundry as your response. Multiple messages can be batched in a single call (e.g., post a scene description, and an NPC speaking, in seperate messages at same time). Chat Cards are created using HTML formatting. Use messages array to batch multiple outputs efficiently.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -94,7 +94,7 @@ def get_tool_definitions() -> list:
             "type": "function",
             "function": {
                 "name": "roll_dice",
-                "description": "Roll one or more Foundry-formatted dice formulas. Each roll can include optional flavor text. The rolls are executed in Foundry and the results are returned.",
+                "description": "Roll one or more Foundry-formatted dice formulas. Multiple rolls can be batched in a single call (e.g., roll attack and damage together, or roll multiple saving throws simultaneously). Each roll can include optional flavor text. The rolls are executed in Foundry and results are returned.",
                 "parameters": {
                     "type": "object",
                     "properties": {

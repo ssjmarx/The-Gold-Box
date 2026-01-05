@@ -42,7 +42,7 @@ class MessageCollector {
         data: enrichedMessage
       });
       
-      console.log('MessageCollector: Sent chat message via WebSocket:', enrichedMessage.type);
+      console.log('MessageCollector: Sent chat message via WebSocket:', enrichedMessage);
     } else {
       console.warn('MessageCollector: WebSocket not connected - cannot send message');
     }
@@ -68,7 +68,7 @@ class MessageCollector {
         data: enrichedRoll
       });
       
-      console.log('MessageCollector: Sent dice roll via WebSocket:', enrichedRoll.formula);
+      console.log('MessageCollector: Sent dice roll via WebSocket:', enrichedRoll);
     } else {
       console.warn('MessageCollector: WebSocket not connected - cannot send roll');
     }
@@ -215,6 +215,11 @@ class MessageCollector {
       const formattedMessage = this.formatMessage(message);
       if (formattedMessage) {
         this.addMessage(formattedMessage);
+        
+        // CRITICAL FIX: Also send message to backend via WebSocket
+        // This ensures messages are immediately available for get_message_history
+        this.sendChatMessage(formattedMessage);
+        
         console.log('MessageCollector: Collected chat message:', formattedMessage.type);
       }
     } catch (error) {
@@ -234,6 +239,11 @@ class MessageCollector {
         const formattedRoll = this.formatRoll(message);
         if (formattedRoll) {
           this.addRoll(formattedRoll);
+          
+          // CRITICAL FIX: Also send roll to backend via WebSocket
+          // This ensures dice rolls are immediately available for get_message_history
+          this.sendDiceRoll(formattedRoll);
+          
           console.log('MessageCollector: Collected dice roll:', formattedRoll.formula);
         }
       }
@@ -273,6 +283,8 @@ class MessageCollector {
 
   /**
    * Format dice roll for backend processing
+   * CRITICAL FIX: Ensure all required fields are populated for unified message processor
+   * The unified processor expects: t (type), f (formula), tt (total), ft (flavor), r (results)
    */
   formatRoll(message) {
     try {
@@ -281,14 +293,36 @@ class MessageCollector {
       }
 
       const primaryRoll = message.rolls[0]; // Use first roll as primary
+      
+      // Extract roll details - handle both Foundry Roll objects and WebSocket roll data
+      const formula = primaryRoll.formula || message.formula || '';
+      const total = primaryRoll.total !== undefined ? primaryRoll.total : message.total;
+      const flavor = message.flavor || '';
+      
+      // Extract dice results - handle different data structures
+      let diceResults = [];
+      if (primaryRoll.dice && Array.isArray(primaryRoll.dice)) {
+        diceResults = primaryRoll.dice.map(die => ({
+          number: die.number,
+          results: die.results ? die.results.map(r => ({
+            result: r.result,
+            active: r.active,
+            discarded: r.discarded
+          })) : []
+        }));
+      } else if (message.results && Array.isArray(message.results)) {
+        diceResults = message.results;
+      } else if (primaryRoll.results && Array.isArray(primaryRoll.results)) {
+        diceResults = primaryRoll.results;
+      }
 
       return {
         id: message.id || `roll_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`,
         type: 'dice_roll',
-        formula: primaryRoll.formula || '',
-        total: primaryRoll.total || 0,
-        results: primaryRoll.results || [],
-        flavor: message.flavor || '',
+        formula: formula,
+        total: total,
+        results: diceResults,
+        flavor: flavor,
         timestamp: message.timestamp || Date.now(),
         speaker: {
           id: message.speaker?.id || message.author?.id,

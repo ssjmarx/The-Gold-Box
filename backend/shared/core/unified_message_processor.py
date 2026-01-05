@@ -646,13 +646,14 @@ class UnifiedMessageProcessor:
         
         return sanitized
     
-    def generate_enhanced_system_prompt(self, ai_role: str, compact_messages: List[Dict[str, Any]]) -> str:
+    def generate_enhanced_system_prompt(self, ai_role: str, compact_messages: List[Dict[str, Any]], context: Optional[Dict[str, Any]] = None) -> str:
         """
         Generate enhanced system prompt based on AI role and message context
         
         Args:
             ai_role: AI role ('gm', 'gm assistant', 'player')
             compact_messages: List of compact messages for context
+            context: Optional context dictionary with settings like player_list
             
         Returns:
             Enhanced system prompt string
@@ -703,10 +704,23 @@ class UnifiedMessageProcessor:
         
         # Get AI role specific prompt content
         role_prompts = {
-            'gm': 'You are assigned as a full gamemaster. Your role is to describe scene, describe NPC actions, and create dice rolls whenever NPCs do anything that requires one. Keep generating descriptions, actions, and dice rolls until every NPC in the scene has gone, and then turn action back over to the players.',
-            'gm assistant': 'You are assigned as a GM\'s assistant. Your role is to aid the GM in whatever task they are currently doing, which they will usually prompt for you in the most recent message.',
-            'player': 'You are assigned as a Player. Your role is to participate in story via in-character chat and actions. Describe what your character is doing and roll dice as appropriate for your actions.'
+            'gm': 'You are assigned as a full gamemaster. Your role is to describe scenes, describe NPC actions, and manage combat encounters. EFFICIENCY: Batch your actions when possible - combine narrative text with dice rolls, handle multiple NPCs\' turns together (e.g., roll all attacks for multiple NPCs in one response, then apply damage to all in another response), and query multiple actors\' details before acting. Keep generating descriptions, actions, and dice rolls until every NPC in scene has gone, then turn action back over to the players.',
+            'gm assistant': 'You are assigned as a GM\'s assistant. Your role is to aid the GM in whatever task they are currently doing, which they will usually prompt for you in their most recent message. EFFICIENCY: Batch related actions when requested - roll multiple dice formulas together, apply effects to multiple actors simultaneously, and combine chat messages logically.',
+            'player': 'You are assigned as a player, representing character(s) {player_list}. Your role is to participate in story via in-character chat and actions. EFFICIENCY: Roll multiple dice formulas in a single call when appropriate (e.g., attack roll + damage roll, or multiple saving throws together). Combine your character\'s description with dice rolls efficiently.'
         }
+        
+        # Get player_list from context if available
+        player_list = context.get('player_list', '') if context else ''
+        
+        # Replace {player_list} placeholder in player prompt
+        player_role_prompt = role_prompts.get('player', '')
+        if player_list:
+            player_role_prompt = player_role_prompt.replace('{player_list}', player_list)
+        else:
+            player_role_prompt = player_role_prompt.replace('{player_list}', 'not specified')
+        
+        # Update role prompts with processed player role
+        role_prompts['player'] = player_role_prompt
         
         role_specific_prompt = role_prompts.get(ai_role.lower(), role_prompts['gm'])
         

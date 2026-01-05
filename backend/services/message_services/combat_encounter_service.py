@@ -21,14 +21,7 @@ class CombatEncounterService:
     
     def __init__(self):
         """Initialize combat encounter service"""
-        self.combat_state: Dict[str, Any] = {
-            "in_combat": False,
-            "combat_id": None,
-            "round": 0,
-            "turn": 0,
-            "combatants": [],
-            "last_updated": None
-        }
+        self.encounters: Dict[str, Dict[str, Any]] = {}  # Dictionary of encounters keyed by combat_id
         
         logger.info("CombatEncounterService initialized")
     
@@ -48,18 +41,33 @@ class CombatEncounterService:
                 logger.warning(f"Invalid combat data received: {combat_data}")
                 return False
             
-            # Update combat state
-            self.combat_state.update({
-                "in_combat": combat_data.get("in_combat", False),
-                "combat_id": combat_data.get("combat_id"),
-                "round": combat_data.get("round", 0),
-                "turn": combat_data.get("turn", 0),
-                "combatants": combat_data.get("combatants", []),
-                "last_updated": int(time.time() * 1000)
-            })
+            # Get or create encounter in the encounters dictionary
+            if target_encounter_id:
+                # Check if encounter exists
+                if target_encounter_id not in self.encounters:
+                    # NEW ENCOUNTER: Create it automatically instead of rejecting
+                    logger.info(f"Creating new encounter via update_combat_state: {target_encounter_id}")
+                    self.encounters[target_encounter_id] = combat_data.copy()
+                    logger.info(f"New encounter created: {target_encounter_id}")
+                else:
+                    # EXISTING ENCOUNTER: Update it
+                    encounter = self.encounters[target_encounter_id]
+                    encounter.update(combat_data)
+                    self.encounters[target_encounter_id] = encounter
+                    logger.debug(f"Updated existing encounter: {target_encounter_id}")
+            else:
+                # Create new encounter from combat data directly
+                new_encounter_id = combat_data.get("combat_id")
+                if not new_encounter_id:
+                    logger.warning(f"Cannot create encounter without combat_id in data")
+                    return False
+                
+                self.encounters[new_encounter_id] = combat_data.copy()
+                logger.info(f"Created new encounter: {new_encounter_id}")
             
-            # logger.info(f"Combat state updated: in_combat={self.combat_state['in_combat']}, "
-            #            f"combatants={len(self.combat_state['combatants'])}")
+            logger.info(f"Combat state updated: in_combat={combat_data.get('in_combat')}, "
+                        f"combat_id={target_encounter_id}, "
+                        f"combatants={len(combat_data.get('combatants', []))}")
             return True
             
         except Exception as e:
@@ -76,8 +84,43 @@ class CombatEncounterService:
         try:
             if not self.combat_state["in_combat"]:
                 return {
-                    "in_combat": False,
-                    "combat_context": "Not in combat"
+                    "in_combat": True,
+                    "combat_context": combat_context,
+                    "raw_state": encounter.copy(),
+                    "encounters": [encounter.copy()]
+                }
+            else:
+                # Get all encounters context
+                active_encounters = [enc for enc in self.encounters.values() if enc.get("in_combat", False)]
+                
+                if not active_encounters:
+                    return {
+                        "in_combat": False,
+                        "combat_context": "Not in combat",
+                        "encounters": []
+                    }
+                
+                # Format all encounters for AI
+                encounter_contexts = []
+                for encounter in active_encounters:
+                    context = self._format_combat_for_ai(encounter)
+                    encounter_contexts.append({
+                        "combat_id": encounter.get("combat_id"),
+                        "context": context,
+                        "raw_state": encounter.copy()
+                    })
+                
+                # Build combined context string
+                combined_context = f"Active Combat Encounters ({len(active_encounters)}):\n\n"
+                for i, ec in enumerate(encounter_contexts, 1):
+                    combined_context += f"--- Encounter {i} (ID: {ec['combat_id']}) ---\n"
+                    combined_context += ec["context"] + "\n\n"
+                
+                return {
+                    "in_combat": True,
+                    "combat_context": combined_context,
+                    "encounters": [ec["raw_state"] for ec in encounter_contexts],
+                    "active_count": len(active_encounters)
                 }
             
             # Format combat context for AI
@@ -103,12 +146,19 @@ class CombatEncounterService:
         Returns:
             True if in combat, False otherwise
         """
-        return self.combat_state.get("in_combat", False)
+        # Check if any encounter is active
+        for encounter in self.encounters.values():
+            if encounter.get("in_combat", False):
+                return True
+        return False
     
-    def get_current_turn(self) -> Optional[Dict[str, Any]]:
+    def get_current_turn(self, encounter_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """
         Get current combatant information
         
+        Args:
+            encounter_id: Optional encounter ID to get current turn for
+            
         Returns:
             Current combatant data or None if not in combat
         """
@@ -116,9 +166,19 @@ class CombatEncounterService:
             if not self.is_in_combat():
                 return None
             
-            for combatant in self.combat_state.get("combatants", []):
-                if combatant.get("is_current_turn", False):
-                    return combatant
+            # Determine which encounter to check
+            encounters_to_check = []
+            if encounter_id:
+                if encounter_id in self.encounters:
+                    encounters_to_check = [self.encounters[encounter_id]]
+            else:
+                # Check all active encounters, return first current turn found
+                encounters_to_check = [enc for enc in self.encounters.values() if enc.get("in_combat", False)]
+            
+            for encounter in encounters_to_check:
+                for combatant in encounter.get("combatants", []):
+                    if combatant.get("is_current_turn", False):
+                        return combatant
             
             return None
             
@@ -126,10 +186,13 @@ class CombatEncounterService:
             logger.error(f"Error getting current turn: {e}")
             return None
     
-    def get_turn_order(self) -> List[Dict[str, Any]]:
+    def get_turn_order(self, encounter_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Get turn order with initiative values
         
+        Args:
+            encounter_id: Optional encounter ID to get turn order for
+            
         Returns:
             List of combatants sorted by initiative (highest first)
         """
@@ -137,11 +200,23 @@ class CombatEncounterService:
             if not self.is_in_combat():
                 return []
             
-            combatants = self.combat_state.get("combatants", [])
+            # Determine which encounter to get turn order for
+            encounters_to_check = []
+            if encounter_id:
+                if encounter_id in self.encounters:
+                    encounters_to_check = [self.encounters[encounter_id]]
+            else:
+                # Get turn order from all active encounters
+                encounters_to_check = [enc for enc in self.encounters.values() if enc.get("in_combat", False)]
+            
+            # Combine combatants from all relevant encounters
+            all_combatants = []
+            for encounter in encounters_to_check:
+                all_combatants.extend(encounter.get("combatants", []))
             
             # Sort by initiative (highest first), then by name for ties
             sorted_combatants = sorted(
-                combatants,
+                all_combatants,
                 key=lambda x: (-x.get("initiative", 0), x.get("name", ""))
             )
             
@@ -156,9 +231,23 @@ class CombatEncounterService:
         Get combat state formatted for frontend consumption
         
         Returns:
-            Combat state dictionary
+            Dictionary with all active encounters
         """
-        return self.combat_state.copy()
+        active_encounters = [enc for enc in self.encounters.values() if enc.get("in_combat", False)]
+        
+        if active_encounters:
+            # Return first active encounter for backward compatibility
+            return active_encounters[0].copy()
+        else:
+            # Return empty state
+            return {
+                "in_combat": False,
+                "combat_id": None,
+                "round": 0,
+                "turn": 0,
+                "combatants": [],
+                "last_updated": int(time.time() * 1000)
+            }
     
     def clear_combat_state(self) -> bool:
         """
@@ -168,20 +257,48 @@ class CombatEncounterService:
             True if cleared successfully
         """
         try:
-            self.combat_state = {
-                "in_combat": False,
-                "combat_id": None,
-                "round": 0,
-                "turn": 0,
-                "combatants": [],
-                "last_updated": int(time.time() * 1000)
-            }
+            if encounter_id:
+                # Clear specific encounter
+                if encounter_id in self.encounters:
+                    del self.encounters[encounter_id]
+                    logger.info(f"Encounter {encounter_id} cleared")
+                else:
+                    logger.warning(f"Cannot clear non-existent encounter: {encounter_id}")
+                    return False
+            else:
+                # Clear all encounters
+                self.encounters.clear()
+                logger.info("All combat states cleared")
             
             logger.info("Combat state cleared")
             return True
             
         except Exception as e:
             logger.error(f"Error clearing combat state: {e}")
+            return False
+    
+    def delete_encounter(self, encounter_id: str) -> bool:
+        """
+        Delete specific encounter by ID
+        
+        Args:
+            encounter_id: ID of encounter to delete
+            
+        Returns:
+            True if deleted successfully, False if encounter not found
+        """
+        try:
+            if encounter_id not in self.encounters:
+                logger.warning(f"Cannot delete non-existent encounter: {encounter_id}")
+                return False
+            
+            del self.encounters[encounter_id]
+            logger.info(f"Encounter {encounter_id} deleted")
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error deleting encounter: {e}")
             return False
     
     def _validate_combat_data(self, combat_data: Dict[str, Any]) -> bool:
@@ -225,11 +342,17 @@ class CombatEncounterService:
         """
         Format combat information for AI consumption
         
+        Args:
+            encounter_state: Encounter state to format (required)
+            
         Returns:
             Formatted combat context string
         """
         try:
-            state = self.combat_state
+            if not encounter_state:
+                return "No combat state available"
+            
+            state = encounter_state
             
             context_parts = [
                 f"Combat Status: Active",
@@ -373,11 +496,23 @@ class CombatEncounterService:
         Returns:
             Service statistics dictionary
         """
+        active_encounters = [enc for enc in self.encounters.values() if enc.get("in_combat", False)]
+        
+        # Get total combatants from all active encounters
+        total_combatants = 0
+        last_updated = None
+        for encounter in active_encounters:
+            total_combatants += len(encounter.get("combatants", []))
+            if encounter.get("last_updated"):
+                if last_updated is None or encounter["last_updated"] > last_updated:
+                    last_updated = encounter["last_updated"]
+        
         return {
             "service": "CombatEncounterService",
             "in_combat": self.is_in_combat(),
-            "combatant_count": len(self.combat_state.get("combatants", [])),
-            "last_updated": self.combat_state.get("last_updated"),
+            "active_encounters": len(active_encounters),
+            "combatant_count": total_combatants,
+            "last_updated": last_updated,
             "timestamp": datetime.now().isoformat()
         }
 

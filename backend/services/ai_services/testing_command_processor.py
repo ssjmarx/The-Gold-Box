@@ -211,25 +211,33 @@ class TestingCommandProcessor:
         # Check if there are multiple parameters (spaces present)
         # If yes, skip single key-value pattern and go to multi-parameter parsing
         if ' ' in args_string.strip():
-            # Multiple parameters - use multi-parameter pattern
+            # Use regex to preserve quoted values (shlex would remove quotes before we can check)
+            # Pattern: key=value where value can be quoted or unquoted
             pattern = r'(\w+)=("[^"]*"|\'[^\']*\'|\S+)'
             matches = re.findall(pattern, args_string)
             
             for key, value in matches:
-                # Remove quotes from value
+                # Remove quotes from value if present
+                is_quoted = False
                 if value.startswith('"') and value.endswith('"'):
                     value = value[1:-1]
                 elif value.startswith("'") and value.endswith("'"):
                     value = value[1:-1]
                 
-                # Try to convert to int or float
-                try:
-                    value = int(value)
-                except ValueError:
+                # Handle boolean values
+                if value.lower() in ('true', 'false'):
+                    value = value.lower() == 'true'
+                # Handle numeric values - but ONLY if not quoted
+                # Quoted values (including quoted numbers) stay as strings
+                elif not is_quoted:
                     try:
                         value = float(value)
                     except ValueError:
-                        pass  # Keep as string
+                        try:
+                            value = float(value)
+                        except ValueError:
+                            pass  # Keep as string
+                # else: quoted value stays as string (value already set)
                 
                 arguments[key] = value
             
@@ -257,14 +265,20 @@ class TestingCommandProcessor:
                 elif value_str.startswith("'") and value_str.endswith("'"):
                     value_str = value_str[1:-1]
                 
-                # Try to convert to int or float
-                try:
-                    value = int(value_str)
-                except ValueError:
+                # Handle boolean values
+                if value_str.lower() in ('true', 'false'):
+                    value = value_str.lower() == 'true'
+                # Handle numeric values - but ONLY if not quoted
+                # Quoted values (including quoted numbers) stay as strings
+                elif not is_quoted:
                     try:
                         value = float(value_str)
                     except ValueError:
-                        value = value_str  # Keep as string
+                        try:
+                            value = float(value_str)
+                        except ValueError:
+                            value = value_str  # Keep as string
+                # else: quoted value stays as string (value_str already set after quote removal)
                 
                 arguments[key] = value
             
@@ -282,14 +296,63 @@ class TestingCommandProcessor:
             elif value.startswith("'") and value.endswith("'"):
                 value = value[1:-1]
             
-            # Try to convert to int or float
-            try:
-                value = int(value)
-            except ValueError:
+            # Handle boolean values
+            if value.lower() in ('true', 'false'):
+                value = value.lower() == 'true'
+            # Handle numeric values - but ONLY if not quoted
+            # Quoted values (including quoted numbers) stay as strings
+            elif not is_quoted:
                 try:
                     value = float(value)
                 except ValueError:
-                    pass  # Keep as string
+                    try:
+                        value = float(value)
+                    except ValueError:
+                        pass  # Keep as string
+            # else: quoted value stays as string (value already set after quote removal)
+            
+            arguments[key] = value
+        
+        return arguments
+    
+    def _parse_key_value_pairs(self, args_string: str) -> Dict[str, Any]:
+        """
+        Parse key=value pairs from a string
+        
+        Args:
+            args_string: String containing key=value pairs
+            
+        Returns:
+            Dictionary of parsed key-value pairs
+        """
+        arguments = {}
+        pattern = r'(\w+)=("[^"]*"|\'[^\']*\'|\S+)'
+        matches = re.findall(pattern, args_string)
+        
+        for key, value in matches:
+            # Remove quotes from value
+            is_quoted = False
+            if value.startswith('"') and value.endswith('"'):
+                value = value[1:-1]
+                is_quoted = True
+            elif value.startswith("'") and value.endswith("'"):
+                value = value[1:-1]
+                is_quoted = True
+            
+            # Handle boolean values - always convert to Python bool
+            if value.lower() in ('true', 'false'):
+                value = value.lower() == 'true'
+            # Handle numeric values - but ONLY if not quoted
+            # Quoted values (including quoted numbers) stay as strings
+            elif not is_quoted:
+                try:
+                    value = int(value)
+                except ValueError:
+                    try:
+                        value = float(value)
+                    except ValueError:
+                        pass  # Keep as string
+            # else: quoted value stays as string (value already set after quote removal)
             
             arguments[key] = value
         

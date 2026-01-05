@@ -660,3 +660,29 @@ def get_context_builder() -> Any:
         )
     
     return ServiceRegistry.get('context_builder')
+
+def get_websocket_message_collector() -> Any:
+    """
+    Get websocket message collector from ServiceRegistry.
+    
+    Returns:
+        WebSocketMessageCollector instance from ServiceRegistry
+        
+    Raises:
+        RuntimeError: If ServiceRegistry is not ready or websocket_message_collector is not registered
+    """
+    from .registry import ServiceRegistry
+    
+    if not ServiceRegistry.is_ready():
+        raise RuntimeError(
+            "ServiceRegistry is not ready. Services must be initialized during server startup. "
+            "Check that run_server_startup() completed successfully."
+        )
+    
+    if not ServiceRegistry.is_registered('websocket_message_collector'):
+        raise RuntimeError(
+            "websocket_message_collector is not registered in ServiceRegistry. "
+            "Check that websocket_message_collector is properly registered during startup."
+        )
+    
+    return ServiceRegistry.get('websocket_message_collector')

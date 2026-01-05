@@ -730,7 +730,21 @@ class GoldBoxModule {
             console.log('The Gold Box: Test mode turn completed');
           }
           
-          console.log('The Gold Box: ===== END AI_TURN_COMPLETE MESSAGE =====');
+          console.log('The Gold Box: ===== END AI_TURN_COMPLETE =====');
+          break;
+          
+        case 'ai_turn_paused':
+          console.log('The Gold Box: ===== AI_TURN_PAUSED MESSAGE RECEIVED =====');
+          console.log('The Gold Box: AI turn paused by safety limit');
+          console.log('The Gold Box: Message data:', JSON.stringify(message.data));
+          
+          // Set button to PAUSED state (shows "Resume AI Turn")
+          if (this.uiManager && this.uiManager.aiTurnButtonHandler) {
+            this.uiManager.aiTurnButtonHandler.onAITurnPaused();
+          }
+          
+          console.log('The Gold Box: Button set to PAUSED state');
+          console.log('The Gold Box: ===== END AI_TURN_PAUSED =====');
           break;
           
         case 'error':

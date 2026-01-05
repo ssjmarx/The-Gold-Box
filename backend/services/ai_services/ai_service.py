@@ -61,6 +61,13 @@ class AIService:
             max_retries = config.get('max_retries', 3)
             headers = config.get('headers', {})
             
+            # DEBUG: Log model name at entry point
+            logger.info(f"=== DEBUG: Model name at ai_service.py entry ===")
+            logger.info(f"provider_id: {provider_id}")
+            logger.info(f"model: {model}")
+            logger.info(f"model type: {type(model)}")
+            logger.info(f"==============================================")
+            
             # Get provider configuration
             provider = self.provider_manager.get_provider(provider_id)
             if not provider:
@@ -102,22 +109,31 @@ class AIService:
             # Add tools if provided (function calling)
             if tools:
                 completion_params["tools"] = tools
-                # Log summary of tools being sent to AI
-                logger.info(f"Tools available to AI: {len(tools)} tools")
-                # Log individual tools at debug level only
-                logger.debug(f"Tool details: {[t.get('function', {}).get('name', 'unknown') for t in tools]}")
-                
-            # Log summary of messages being sent to AI (detailed logs now in add_conversation_message)
-            logger.info(f"===== SENDING TO AI =====")
-            logger.info(f"LiteLLM Call: model={model}, messages={len(messages)}")
-            logger.info(f"===== END SENDING TO AI =====")
             
             # Apply custom configuration if provided
-            if config.get('base_url'):
-                completion_params['api_base'] = config['base_url']
+            # IMPORTANT: Don't set api_base for providers that use prefixed model names
+            # (ollama, ollama_chat, ollama_openai, etc.) because setting api_base
+            # triggers LiteLLM provider auto-detection which strips the prefix from model names
+            # LiteLLM will auto-detect provider from model prefix and use default base URL
+            base_url_from_config = config.get('base_url')
+            if base_url_from_config and provider_id not in ['ollama', 'ollama_chat', 'ollama_openai']:
+                completion_params['api_base'] = base_url_from_config
+                logger.debug(f"Setting api_base={base_url_from_config} for provider {provider_id}")
+            elif base_url_from_config and provider_id in ['ollama', 'ollama_chat', 'ollama_openai']:
+                # For local providers with prefixed models, don't set api_base
+                # LiteLLM will auto-detect provider from model prefix and use default base URL
+                logger.debug(f"Skipping api_base for {provider_id} to preserve model prefix auto-detection")
+            
+            # For custom providers without provider prefixes, explicitly tell LiteLLM which provider to use
+            # Don't set this for providers that use prefixed model names (ollama, ollama_chat, etc.)
+            # because LiteLLM will auto-detect the provider from the model prefix
+            if provider_id in ['custom', 'custom_openai', 'openai_like']:
+                completion_params['custom_llm_provider'] = provider_id
+                logger.debug(f"Setting custom_llm_provider={provider_id} for prefixed model support")
             
             if config.get('headers'):
-                completion_params['custom_llm_provider'] = "openai"  # Use OpenAI format for custom headers
+                # Set custom headers without forcing OpenAI client
+                # Let LiteLLM auto-detect provider from model name
                 completion_params['headers'] = config['headers']
             
             # Apply timeout with proper type conversion
@@ -137,9 +153,33 @@ class AIService:
                 logger.info(f"===== RECEIVED FROM AI =====")
                 logger.info(f"LiteLLM Response: finish_reason={getattr(choice, 'finish_reason', 'unknown')}")
                 
-                if hasattr(choice.message, 'tool_calls') and choice.message.tool_calls:
-                    tool_names = [tc.function.name for tc in choice.message.tool_calls]
-                    logger.info(f"  tool_calls: {len(choice.message.tool_calls)} - {tool_names}")
+                # Check for tool_calls and content
+                if hasattr(choice, 'message'):
+                    msg = choice.message
+                    
+                    # Check for tool_calls attribute
+                    if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                        tool_calls = msg.tool_calls
+                        tool_count = len(tool_calls)
+                        tool_names = [tc.function.name for tc in tool_calls]
+                        logger.info(f"  Tool calls: {tool_count} - {tool_names}")
+                    else:
+                        logger.info(f"  Tool calls: 0")
+                    
+                    # Log content
+                    content = msg.content or ""
+                    if content:
+                        logger.info(f"  Content length: {len(content)} characters")
+                    else:
+                        logger.info(f"  Content length: 0 characters (empty)")
+                    
+                    # Check for thinking/reasoning_content
+                    if hasattr(msg, 'reasoning_content') and msg.reasoning_content:
+                        thinking = msg.reasoning_content
+                        logger.info(f"  Thinking length: {len(str(thinking))} characters")
+                    elif hasattr(msg, 'thinking') and msg.thinking:
+                        thinking = msg.thinking
+                        logger.info(f"  Thinking length: {len(str(thinking))} characters")
                 
                 if choice.message and choice.message.content:
                     logger.info(f"  content length: {len(choice.message.content)} characters")
@@ -156,7 +196,6 @@ class AIService:
                     # Check for tool_calls (function calling)
                     if hasattr(choice.message, 'tool_calls') and choice.message.tool_calls:
                         tool_calls = choice.message.tool_calls
-                        logger.info(f"AI requested {len(tool_calls)} tool call(s)")
                     
                     # If content is empty, check for reasoning_content (but we'll ignore it per requirements)
                     if not content and hasattr(choice.message, 'reasoning_content') and choice.message.reasoning_content:
@@ -402,14 +441,8 @@ class AIService:
                     ai_messages.append(user_message)
                     
                     # Store in conversation history immediately
-                    success = ai_session_manager.add_conversation_message(session_id, user_message)
-                    if success:
-                        logger.debug(f"Stored user message in conversation history for session {session_id} with timestamp {user_timestamp}")
-                    else:
-                        logger.warning(f"Failed to store user message in conversation history for session {session_id}")
+                    ai_session_manager.add_conversation_message(session_id, user_message)
                 
-                logger.info(f"Using conversation history for session {session_id}: {len(conversation_history)} history + {len(processed_messages)} new = {len(ai_messages)} total messages")
-            else:
                 # No session_id - fallback to single message with compact context
                 import json
                 compact_json_context = json.dumps(processed_messages, indent=2)
@@ -417,7 +450,6 @@ class AIService:
                 ai_messages = [
                     {"role": "user", "content": f"Chat Context (Compact JSON Format):\n{compact_json_context}"}
                 ]
-                logger.debug("No session_id provided, using single message without history")
             
             # Generate dynamic combat-aware prompt from processed_messages
             from .combat_prompt_generator import get_combat_prompt_generator
@@ -469,19 +501,8 @@ class AIService:
                         "timestamp": int(time.time() * 1000)
                     }
                     
-                    success = ai_session_manager.add_conversation_message(session_id, ai_message)
-                    if success:
-                        logger.info(f"Stored AI response in conversation history for session {session_id}")
-                        
-                        # Update delta timestamp to prevent re-gathering this AI response
-                        # Use the AI response timestamp directly (when it was created)
-                        success = ai_session_manager.update_session_timestamp(session_id, ai_message['timestamp'])
-                        if success:
-                            logger.debug(f"Updated delta timestamp for session {session_id} to {ai_message['timestamp']} to exclude AI response from next retrieval")
-                        else:
-                            logger.warning(f"Failed to update delta timestamp for session {session_id}")
-                    else:
-                        logger.warning(f"Failed to store AI response in conversation history for session {session_id}")
+                    ai_session_manager.add_conversation_message(session_id, ai_message)
+                    ai_session_manager.update_session_timestamp(session_id, ai_message['timestamp'])
             
             return response
             
@@ -512,16 +533,12 @@ class AIService:
                     if isinstance(combat_data, dict):
                         # Direct combat data from frontend
                         if combat_data.get('in_combat', False):
-                            logger.debug("Tactical LLM selected: in_combat=True from direct combat data")
                             return True
                         
                         # Check nested combat_context structure
                         nested_combat = combat_data.get('combat_context', {})
                         if isinstance(nested_combat, dict) and nested_combat.get('in_combat', False):
-                            logger.debug("Tactical LLM selected: in_combat=True from nested combat context")
                             return True
-            
-            logger.debug("General LLM selected: no active combat detected")
             return False
             
         except Exception as e:

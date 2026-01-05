@@ -36,6 +36,7 @@ class SettingsManager {
     this.registerMaxHistoryTokens();
     this.registerAIResponseTimeout();
     this.registerAIRole();
+    this.registerPlayerList();
     this.registerDisableFunctionCalling();
     this.registerGeneralLLMSettings();
     this.registerTacticalLLMSettings();
@@ -129,6 +130,22 @@ class SettingsManager {
       default: "dm",
       group: "general"
     });
+  }
+
+  /**
+   * Register Player Characters setting
+   */
+  registerPlayerList() {
+    game.settings.register(this.moduleName, 'playerList', {
+      name: "Player Characters",
+      hint: "Enter the names of characters you are controlling (comma-separated). This tells the AI which characters you represent.",
+      scope: "world",
+      config: true,
+      type: String,
+      default: "",
+      group: "general"
+    });
+    console.log('SettingsManager: Successfully registered playerList setting');
   }
 
   /**
@@ -372,6 +389,7 @@ class SettingsManager {
         'max history tokens': this.getSetting('maxHistoryTokens', 5000),
         'chat processing mode': 'api', // Always use API mode now
         'ai role': this.getSetting('aiRole', 'dm'),
+        'player list': this.getSetting('playerList', ''),
         'disable function calling': this.getSetting('disableFunctionCalling', false),
         'general llm provider': this.getSetting('generalLlmProvider', ''),
         'general llm base url': this.getSetting('generalLlmBaseUrl', ''),

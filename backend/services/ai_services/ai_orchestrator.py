@@ -36,8 +36,6 @@ class AIOrchestrator:
         # Services resolved lazily to avoid startup circular dependencies
         self._ai_service = None
         self._tool_executor = None
-        
-        logger.info("AIOrchestrator initialized")
     
     def _get_ai_service(self):
         """Lazy load AI service"""
@@ -85,15 +83,8 @@ class AIOrchestrator:
         collector = get_websocket_message_collector()
         context_builder = get_context_builder()
         
-        # DEBUG: Log session details for troubleshooting
-        logger.info(f"===== AI ORCHESTRATOR TURN CHECK =====")
-        logger.info(f"Session ID: {session_id}")
-        logger.info(f"Client ID: {client_id}")
-        
         # Check if this is first turn for this session
         is_first_turn = not ai_session_manager.is_first_turn_complete(session_id)
-        logger.info(f"First turn check: {is_first_turn}")
-        logger.info(f"===== END TURN CHECK =====")
         
         # Request fresh world state from frontend on first turn
         if is_first_turn:
@@ -110,13 +101,10 @@ class AIOrchestrator:
                         "data": {},
                         "timestamp": time.time()
                     })
-                    logger.info(f"Requested world state refresh for first turn (client {client_id})")
                     
                     # Brief pause to allow frontend to respond
                     import asyncio
                     await asyncio.sleep(0.5)
-                else:
-                    logger.warning(f"WebSocket manager not available, cannot request world state refresh")
                     
             except Exception as e:
                 logger.error(f"Error requesting world state refresh: {e}")
@@ -126,7 +114,6 @@ class AIOrchestrator:
         game_delta = collector.get_game_delta(client_id)
         if game_delta:
             collector.clear_game_delta(client_id)
-            logger.info(f"Cleared game delta after retrieving for session {session_id}")
         
         # Use initial_messages as-is (shared utility will inject context/delta)
         conversation = initial_messages.copy()
@@ -216,7 +203,6 @@ class AIOrchestrator:
             # Mark first turn as complete if this was the first turn
             if is_first_turn:
                 ai_session_manager.set_first_turn_complete(session_id)
-                logger.info(f"Marked first turn complete for session {session_id}")
             
             return {
                 'success': True,
@@ -280,6 +266,176 @@ class AIOrchestrator:
                 
                 # Store in session
                 ai_session_manager.add_conversation_message(session_id, tool_result_message)
+        
+        # Store paused state for potential resume
+        paused_state = {
+            'conversation': conversation,
+            'iterations': iteration,
+            'tokens_used': response_data.get('tokens_used', 0),
+            'config': config,
+            'tools': tools,
+            'max_iterations': max_iterations
+        }
+        ai_session_manager.pause_conversation(session_id, paused_state)
+        
+        # Return partial success - allow continuation
+        return {
+            'success': True,
+            'partial': True,
+            'reached_limit': True,
+            'response': '',
+            'iterations': iteration,
+            'tokens_used': response_data.get('tokens_used', 0)
+        }
+    
+    async def resume_function_call_loop(
+        self,
+        session_id: str,
+        client_id: str
+    ) -> Dict[str, Any]:
+        """
+        Resume a paused function call loop
+        
+        Args:
+            session_id: Session ID for conversation history storage
+            client_id: Client ID for message collection (transient, from WebSocket)
+        
+        Returns:
+            Final AI response when complete
+        """
+        from ..ai_services.ai_session_manager import get_ai_session_manager
+        from ..message_services.websocket_message_collector import get_websocket_message_collector
+        from ..system_services.service_factory import get_context_builder
+        import json
+        
+        ai_session_manager = get_ai_session_manager()
+        
+        # Get paused conversation state
+        paused_state = ai_session_manager.get_paused_conversation(session_id)
+        if not paused_state:
+            return {
+                'success': False,
+                'error': 'No paused conversation found or it has expired'
+            }
+        
+        # Mark as resumed
+        ai_session_manager.resume_conversation(session_id)
+        
+        # Restore conversation state
+        conversation = paused_state.get('conversation', [])
+        iteration = paused_state.get('iterations', 0)
+        
+        # Get services needed for continuation
+        from ..ai_services.ai_session_manager import get_ai_session_manager as get_ai_session
+        ai_session = get_ai_session()
+        collector = get_websocket_message_collector()
+        
+        # Get provider config from paused state
+        config = paused_state.get('config', {})
+        tools = paused_state.get('tools', [])
+        max_iterations = paused_state.get('max_iterations', 20)
+        
+        # Continue loop
+        while iteration < max_iterations:
+            iteration += 1
+            
+            # Call AI with current conversation
+            ai_service = self._get_ai_service()
+            response_data = await ai_service.call_ai_provider(
+                messages=conversation,
+                config=config,
+                tools=tools
+            )
+            
+            # Check if AI made tool calls
+            if response_data.get('has_tool_calls'):
+                tool_calls = response_data['tool_calls']
+                
+                # Build assistant message with tool_calls (OpenAI format)
+                assistant_message = {
+                    "role": "assistant",
+                    "content": response_data.get('response', ''),
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments
+                            }
+                        }
+                        for tc in tool_calls
+                    ]
+                }
+                
+                # Append to in-memory conversation
+                conversation.append(assistant_message)
+                
+                # Store in session using existing method
+                ai_session_manager.add_conversation_message(session_id, assistant_message)
+                
+                # Execute each tool call
+                for tool_call in tool_calls:
+                    tool_name = tool_call.function.name
+                    tool_args = json.loads(tool_call.function.arguments)
+                    
+                    # Execute tool with explicit client_id
+                    tool_executor = self._get_tool_executor()
+                    tool_result = await tool_executor.execute_tool(
+                        tool_name, 
+                        tool_args, 
+                        client_id
+                    )
+                    
+                    # Build tool result message (OpenAI format)
+                    tool_result_message = {
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": json.dumps(tool_result)
+                    }
+                    
+                    # Append to in-memory conversation
+                    conversation.append(tool_result_message)
+                    
+                    # Store in session using existing method
+                    ai_session_manager.add_conversation_message(session_id, tool_result_message)
+                
+                # Continue loop (AI will see tool results and make next decision)
+                continue
+            
+            # No tool calls - AI is done
+            
+            # Build final assistant message
+            final_message = {
+                "role": "assistant",
+                "content": response_data.get('response', '')
+            }
+            
+            # Append to in-memory conversation
+            conversation.append(final_message)
+            
+            # Store in session using existing method
+            ai_session_manager.add_conversation_message(session_id, final_message)
+            
+            return {
+                'success': True,
+                'response': response_data.get('response', ''),
+                'iterations': iteration,
+                'tokens_used': response_data.get('tokens_used', 0),
+                'complete': True  # Signal that AI turn is complete
+            }
+        
+        # Max iterations reached again - pause again
+        # Store paused state for potential resume
+        paused_state = {
+            'conversation': conversation,
+            'iterations': iteration,
+            'tokens_used': response_data.get('tokens_used', 0),
+            'config': config,
+            'tools': tools,
+            'max_iterations': max_iterations
+        }
+        ai_session_manager.pause_conversation(session_id, paused_state)
         
         # Return partial success - allow continuation
         return {
