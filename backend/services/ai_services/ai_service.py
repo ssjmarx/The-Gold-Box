@@ -61,6 +61,13 @@ class AIService:
             max_retries = config.get('max_retries', 3)
             headers = config.get('headers', {})
             
+            # DEBUG: Log model name at entry point
+            logger.info(f"=== DEBUG: Model name at ai_service.py entry ===")
+            logger.info(f"provider_id: {provider_id}")
+            logger.info(f"model: {model}")
+            logger.info(f"model type: {type(model)}")
+            logger.info(f"==============================================")
+            
             # Get provider configuration
             provider = self.provider_manager.get_provider(provider_id)
             if not provider:
@@ -112,13 +119,25 @@ class AIService:
                 completion_params["tools"] = tools
             
             # Apply custom configuration if provided
-            if config.get('base_url'):
-                completion_params['api_base'] = config['base_url']
+            # IMPORTANT: Don't set api_base for providers that use prefixed model names
+            # (ollama, ollama_chat, ollama_openai, etc.) because setting api_base
+            # triggers LiteLLM provider auto-detection which strips the prefix from model names
+            # LiteLLM will auto-detect provider from model prefix and use default base URL
+            base_url_from_config = config.get('base_url')
+            if base_url_from_config and provider_id not in ['ollama', 'ollama_chat', 'ollama_openai']:
+                completion_params['api_base'] = base_url_from_config
+                logger.debug(f"Setting api_base={base_url_from_config} for provider {provider_id}")
+            elif base_url_from_config and provider_id in ['ollama', 'ollama_chat', 'ollama_openai']:
+                # For local providers with prefixed models, don't set api_base
+                # LiteLLM will auto-detect provider from model prefix and use default base URL
+                logger.debug(f"Skipping api_base for {provider_id} to preserve model prefix auto-detection")
             
-            # For custom providers like custom_openai, explicitly tell LiteLLM which provider to use
-            # This is needed because model names don't have provider prefixes
+            # For custom providers without provider prefixes, explicitly tell LiteLLM which provider to use
+            # Don't set this for providers that use prefixed model names (ollama, ollama_chat, etc.)
+            # because LiteLLM will auto-detect the provider from the model prefix
             if provider_id in ['custom', 'custom_openai', 'openai_like']:
                 completion_params['custom_llm_provider'] = provider_id
+                logger.debug(f"Setting custom_llm_provider={provider_id} for prefixed model support")
             
             if config.get('headers'):
                 # Set custom headers without forcing OpenAI client
