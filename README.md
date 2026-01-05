@@ -15,8 +15,8 @@ This project would not be possible without the following:
 ## Features
 
 - **AI-Powered TTRPG Assistant**: Intelligent responses that remember conversation history and context
-- **Combat-Aware AI**: Context-aware instructions based on combat state with turn order awareness
-- **Multi-Provider Support**: Connect to 70+ AI providers including OpenAI, Anthropic, GLM, and more
+- **Combat-Aware AI**: Actively manages combat encounters, advances turns, and tracks combatants
+- **Multi-Provider Support**: Connect to 100+ AI providers including OpenAI, Anthropic, GLM, and local models (Ollama, vLLM, LM Studio)
 - **Secure Backend**: Encrypted API key storage with comprehensive security framework
 - **Advanced Processing**: Token-efficient delta filtering and intelligent conversation history management
 
@@ -56,8 +56,8 @@ The setup script will:
 3. Configure:
    - **Backend Password**: Set from server startup (admin operations)
    - **AI Role**: Choose DM, DM Assistant, or Player
-   - **General LLM Provider**: Your AI service (e.g., openai, anthropic, openrouter).  Should be the same one you set up an API for with in the server.
-   - **General LLM Model**: Your model (e.g., gpt-3.5-turbo, claude-3-5-sonnet-20241022, glm-4.6).  Should be one of the models supported by your provider as given by litellm, see: https://models.litellm.ai/
+   - **General LLM Provider**: Your AI service (e.g., openai, anthropic, openrouter, ollama). For local providers like Ollama, vLLM, or LM Studio, no API key required.
+   - **General LLM Model**: Your model (e.g., gpt-3.5-turbo, claude-3-5-sonnet-20241022, glm-4.6, qwen3:14b). Should be one of the models supported by your provider. See: https://models.litellm.ai/
    - **Maximum Message Context**: Recent messages to include (default: 15)
 
 ### 4. Use in Game
@@ -80,4 +80,4 @@ If you like the project and want to support future development, consider donatin
 
 This project is licensed under **Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License**. See [LICENSE](LICENSE) file for details.
 
-**Current Version: 0.3.9.1** - Hotfix!
+**Current Version: 0.3.10** - The Combatant

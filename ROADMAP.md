@@ -264,7 +264,7 @@ The `World State Overview` now includes:
 ### **Patch 0.3.10: The Combatant**
 
 **Status:** ✅ **COMPLETE**
-**Completed:** 2026-01-XX
+**Completed:** 2026-01-05
 
 **Goal:** To give AI tools to actively manage and participate in combat encounters, moving it from a passive observer to an active combatant.
 
@@ -289,7 +289,7 @@ No major changes to `World State Overview`, as AI can now query for this informa
 ### **Local Model Support & LiteLLM Update**
 
 **Status:** ✅ **COMPLETE**
-**Completed:** 2026-01-XX
+**Completed:** 2026-01-05
 
 **Goal:** Enable users to configure local AI providers (Ollama, vLLM, etc.) directly in Foundry VTT without requiring API keys, and synchronize provider list with latest LiteLLM offerings.
 
