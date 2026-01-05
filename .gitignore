@@ -39,6 +39,7 @@ sessions.json
 .last_response.json
 .token_id
 .combat_id*
+.actor_ids
 
 # IDE and editor files
 .vscode/

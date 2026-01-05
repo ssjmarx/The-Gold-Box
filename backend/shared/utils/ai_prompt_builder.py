@@ -10,6 +10,9 @@ from typing import Dict, Any, List
 
 logger = logging.getLogger(__name__)
 
+# Import log truncation utility
+from shared.utils.log_utils import truncate_for_log
+
 
 def build_initial_messages_with_delta(
     universal_settings: Dict[str, Any],
@@ -53,7 +56,7 @@ def build_initial_messages_with_delta(
 World State Overview:
 {json.dumps(initial_context, indent=2)}
 """
-                logger.info(f"Full initial context injected for first turn")
+                logger.info(f"Full initial context injected for first turn: {truncate_for_log(initial_context)}")
                 system_prompt_with_context = system_prompt + context_display
             except Exception as e:
                 logger.warning(f"Failed to build initial context: {e}")
@@ -74,7 +77,7 @@ World State Overview:
 Recent changes to the game:
 {json.dumps(message_delta, indent=2)}
 """
-                logger.info(f"Delta hasChanges: True - including full delta JSON")
+                logger.info(f"Delta hasChanges: True - including full delta JSON: {truncate_for_log(message_delta)}")
             else:
                 # No changes - show clear message
                 delta_display = """

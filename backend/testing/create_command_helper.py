@@ -5,6 +5,13 @@ Properly constructs JSON requests for test commands without bash escaping issues
 """
 
 import sys
+import os
+# Add backend directory to Python path to import shared module
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
+# Import truncation utility for JSON logging
+from shared.utils.log_utils import truncate_for_log
+
 import json
 import argparse
 import re

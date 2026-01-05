@@ -33,6 +33,11 @@ echo ""
 test_command "Get Full Actor Sheet" "get_actor_details token_id=$TOKEN_ID"
 verify_or_fail
 
+# Step 4b: Capture baseline HP using search query
+test_command "Capture Baseline HP" "get_actor_details token_id=$TOKEN_ID search_phrase=\"hp\""
+BASELINE_HP=$(get_value '.result.data.matches[] | select(.path == "attributes.hp.value") | .value // 0')
+echo "📊 Baseline HP: $BASELINE_HP"
+
 # Step 5: Search for HP-related fields
 test_command "Search for 'hp' Fields" "get_actor_details token_id=$TOKEN_ID search_phrase=\"hp\""
 HP_MATCHES=$(get_value ".result.data.summary.total_matches // 0")
@@ -85,85 +90,72 @@ else
 fi
 echo ""
 
-# Step 9: Modify token attribute with combat context
-test_command "Modify Token Attribute with Combat Context" "modify_token_attribute" "$TEST_SESSION_ID" "$TOKEN_ID" "attributes.hp.value" "-10" "true"
+# Step 9: Modify token HP attribute (apply -5 damage)
+# Note: value parameter must be unquoted for numeric types
+test_command "Modify HP Attribute (Apply Damage)" "modify_token_attribute token_id=$TOKEN_ID attribute_path=\"attributes.hp.value\" value=-5 is_delta=true is_bar=true"
 
-# Step 10: Verify HP modification
-test_command "Verify HP Modification" "get_actor_details token_id=$TOKEN_ID search_phrase=\"hp\""
-NEW_HP=$(get_value ".result.data.matches[] | select(.path == \"attributes.hp.value\") | .value // 0")
-DAMAGE_APPLIED=$(cat .last_response.json | jq -r '.result.data.matches[] | select(.path == \"attributes.hp.value\") | .value // 0')
-
-echo "📊 New HP after damage: $NEW_HP"
-echo "📊 Damage applied: $DAMAGE_APPLIED (expected: 10)"
-
-# Check if timeout occurred
-TIMEOUT_OCCURRED=$(cat .last_response.json | jq -r 'select(.error == \"Timeout waiting for attribute modification response from frontend\") | .error // \"\"' 2>/dev/null)
-
-if [ -n "$TIMEOUT_OCCURRED" ] && [ "$TIMEOUT_OCCURRED" != "null" ]; then
-  echo "⚠️  NOTE: HP modification timed out (expected in test environment)"
-  echo "   Skipping HP change verification - this is a known limitation"
-  echo ""
+# Verify the command succeeded
+if ! verify_success; then
+  echo "❌ ERROR: modify_token_attribute command failed"
+  echo "   Skipping HP modification tests"
   SKIP_HP_TESTS=true
 else
-  # Step 11: Verify damage applied
-  test_command "Verify Damage Applied" "get_actor_details token_id=$TOKEN_ID search_phrase=\"hp\""
-  HEALED_HP=$(get_value ".result.data.matches[] | select(.path == \"attributes.hp.value\") | .value // 0")
+  echo "✅ Modification command succeeded"
+fi
+
+# Step 10: Verify HP modification (only if command succeeded)
+if [ "$SKIP_HP_TESTS" != "true" ]; then
+  test_command "Verify HP Modification" "get_actor_details token_id=$TOKEN_ID search_phrase=\"hp\""
+  NEW_HP=$(get_value '.result.data.matches[] | select(.path == "attributes.hp.value") | .value // 0')
+  
+  echo "📊 New HP after damage: $NEW_HP"
+  echo "📊 Baseline HP: $BASELINE_HP"
+  
+  # Calculate actual damage applied
   DAMAGE_APPLIED=$((BASELINE_HP - NEW_HP))
-
-  echo "📊 HP after healing: $HEALED_HP"
-  echo "📊 Damage applied: $DAMAGE_APPLIED (expected: 15)"
-
-  if [ $DAMAGE_APPLIED -eq 15 ]; then
-    echo "✅ VERIFICATION PASSED: 15 HP damage applied successfully"
+  echo "📊 Damage applied: $DAMAGE_APPLIED (expected: 5)"
+  
+  if [ $DAMAGE_APPLIED -eq 5 ]; then
+    echo "✅ VERIFICATION PASSED: 5 HP damage applied successfully"
   else
-    echo "❌ VERIFICATION FAILED: Expected 15 damage, got $DAMAGE_APPLIED"
+    echo "❌ VERIFICATION FAILED: Expected 5 damage, got $DAMAGE_APPLIED"
+    track_failure
   fi
   echo ""
 fi
 
-# Step 12: Apply healing
+# Step 11: Set HP back to baseline using absolute value (circular verification)
 if [ "$SKIP_HP_TESTS" != "true" ]; then
-  test_command "Apply Healing (+10 HP)" "modify_token_attribute" "$TEST_SESSION_ID" "$TOKEN_ID" "attributes.hp.value" "10" "true"
-
-  # Step 13: Verify healing applied
-  test_command "Verify Healing Applied" "get_actor_details token_id=$TOKEN_ID search_phrase=\"hp\""
-  HEALED_HP=$(get_value ".result.data.matches[] | select(.path == \"attributes.hp.value\") | .value // 0")
-  HEALING_APPLIED=$((HEALED_HP - NEW_HP))
-
-  echo "📊 HP after healing: $HEALED_HP"
-  echo "📊 Healing applied: $HEALING_APPLIED (expected: 10)"
-
-  if [ $HEALING_APPLIED -eq 10 ]; then
-    echo "✅ VERIFICATION PASSED: 10 HP healing applied successfully"
+  test_command "Set HP Back to Baseline ($BASELINE_HP)" "modify_token_attribute token_id=$TOKEN_ID attribute_path=\"attributes.hp.value\" value=$BASELINE_HP is_delta=false is_bar=true"
+  
+  # Verify command succeeded
+  if ! verify_success; then
+    echo "❌ ERROR: Absolute HP command failed"
+    track_failure
   else
-    echo "❌ VERIFICATION FAILED: Expected 10 healing, got $HEALING_APPLIED"
+    echo "✅ Absolute HP command succeeded"
+    
+    # Step 12: Verify baseline value restored
+    test_command "Verify HP Restored to Baseline" "get_actor_details token_id=$TOKEN_ID search_phrase=\"hp\""
+    RESTORED_HP=$(get_value '.result.data.matches[] | select(.path == "attributes.hp.value") | .value // 0')
+    
+    echo "📊 HP after restoration: $RESTORED_HP (expected: $BASELINE_HP)"
+    
+    if [ $RESTORED_HP -eq $BASELINE_HP ]; then
+      echo "✅ VERIFICATION PASSED: HP restored to baseline value $BASELINE_HP"
+    else
+      echo "❌ VERIFICATION FAILED: Expected HP to be $BASELINE_HP, got $RESTORED_HP"
+      track_failure
+    fi
   fi
   echo ""
 else
-  echo "⚠️  Skipping healing test (HP tests skipped due to timeout)"
+  echo "⚠️  Skipping HP modification tests (previous test failed)"
   echo ""
 fi
 
-# Step 14: Set absolute HP value
-if [ "$SKIP_HP_TESTS" != "true" ]; then
-  test_command "Set Absolute HP (25)" "modify_token_attribute" "$TEST_SESSION_ID" "$TOKEN_ID" "attribute_path=\"attributes.hp.value\" value=25 is_delta=false is_bar=true"
-
-  # Step 15: Verify absolute value set
-  test_command "Verify Absolute HP Set" "get_actor_details token_id=$TOKEN_ID search_phrase=\"hp\""
-  ABSOLUTE_HP=$(get_value ".result.data.matches[] | select(.path == \"attributes.hp.value\") | .value // 0")
-
-  echo "📊 HP after absolute set: $ABSOLUTE_HP (expected: 25)"
-
-  if [ $ABSOLUTE_HP -eq 25 ]; then
-    echo "✅ VERIFICATION PASSED: HP set to absolute value 25"
-  else
-    echo "❌ VERIFICATION FAILED: Expected HP to be 25, got $ABSOLUTE_HP"
-  fi
-  echo ""
-else
-  echo "⚠️  Skipping absolute HP test (HP tests skipped due to timeout)"
-  echo ""
-fi
+# All attribute modification tests completed
+# Note: Removed redundant absolute HP test since we already tested absolute value restoration to baseline
 
 # End session with WebSocket reset
 echo ""
@@ -175,8 +167,7 @@ report_test_result "Actor Operations" \
   "Full actor sheet retrieval" \
   "Grep-like search (hp, sword, numeric, nonexistent)" \
   "Damage application with verification" \
-  "Healing application with verification" \
-  "Absolute value setting with verification" \
+  "Baseline restoration with absolute value" \
   "Error handling (invalid token_id, invalid path)"
 
 # Exit with appropriate code

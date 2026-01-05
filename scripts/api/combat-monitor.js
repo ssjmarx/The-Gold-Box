@@ -174,25 +174,26 @@ class CombatMonitor {
                 const allCombats = game.combats ? Array.from(game.combats.values()) : [];
                 const activeCombatId = game.combat ? game.combat._id : null;
                 
-                // Send response with updated state of all encounters
+                // FIXED: Send response with single combat_state for most recent encounter
+                // This ensures backend receives the expected message format to resolve futures
                 const encounterStates = allCombats.filter(c => c.started).map(combat => {
                     const combatantsArray = combat.setupTurns() || [];
                     
-                // Determine current turn
-                let currentTurnId = null;
-                let effectiveTurn = 0;
-                
-                if (combat.round === 0 && (combat.turn === null || combat.turn === undefined)) {
-                    if (combatantsArray.length > 0) {
-                        currentTurnId = combatantsArray[0]._id;
-                        effectiveTurn = 0;
+                    // Determine current turn
+                    let currentTurnId = null;
+                    let effectiveTurn = 0;
+                    
+                    if (combat.round === 0 && (combat.turn === null || combat.turn === undefined)) {
+                        if (combatantsArray.length > 0) {
+                            currentTurnId = combatantsArray[0]._id;
+                            effectiveTurn = 0;
+                        }
+                    } else if (combatantsArray.length > 0) {
+                        effectiveTurn = combat.turn || 0;
+                        if (effectiveTurn < combatantsArray.length) {
+                            currentTurnId = combatantsArray[effectiveTurn]._id;
+                        }
                     }
-                } else if (combatantsArray.length > 0) {
-                    effectiveTurn = combat.turn || 0;
-                    if (effectiveTurn < combatantsArray.length) {
-                        currentTurnId = combatantsArray[effectiveTurn]._id;
-                    }
-                }
                     
                     const combatants = combatantsArray.map(c => ({
                         name: c.name || 'Unknown',
@@ -214,13 +215,23 @@ class CombatMonitor {
                     };
                 });
                 
+                // Use most recently updated encounter (or first if no active)
+                const mostRecentEncounter = encounterStates.length > 0 
+                    ? encounterStates.reduce((a, b) => (a.last_updated > b.last_updated ? a : b))
+                    : null;
+                
                 const responseMessage = {
                     type: 'combat_state',
                     request_id: requestId,
                     data: {
-                        encounters: encounterStates,
-                        active_combat_id: activeCombatId,
-                        timestamp: Date.now()
+                        combat_state: mostRecentEncounter || {
+                            in_combat: false,
+                            combat_id: null,
+                            round: 0,
+                            turn: 0,
+                            combatants: [],
+                            last_updated: Date.now()
+                        }
                     }
                 };
                 

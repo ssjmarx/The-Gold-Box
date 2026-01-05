@@ -13,6 +13,9 @@ import subprocess
 import os
 from datetime import datetime
 
+# Import log truncation utility
+from shared.utils.log_utils import truncate_for_log
+
 from shared.core.unified_message_processor import get_unified_processor
 from services.system_services.universal_settings import extract_universal_settings, get_provider_config
 
@@ -392,7 +395,7 @@ async def process_with_function_calling_or_standard(
             # Decode escape sequences in content strings for better readability
             decoded_messages = _decode_messages_for_display(initial_messages)
             logger.info(f"===== SENDING INITIAL MESSAGES TO AI =====")
-            logger.info(f"Complete initial_messages array:\n{json.dumps(decoded_messages, indent=2, ensure_ascii=False)}")
+            logger.info(f"Complete initial_messages array: {truncate_for_log(decoded_messages)}")
             logger.info(f"===== END SENDING INITIAL MESSAGES =====")
         else:
             # STANDARD MODE: System prompt + chat context
@@ -410,7 +413,7 @@ async def process_with_function_calling_or_standard(
             config=provider_config,
             session_id=session_id,
             client_id=client_id,  # Transient parameter from WebSocket
-            max_iterations=10  # Safety limit
+            max_iterations=20  # Safety limit (increased from 10 to 20)
         )
         
         logger.info(f"AI Orchestrator completed function calling loop: {ai_response_data.get('iterations', 0)} iterations")
@@ -431,6 +434,23 @@ async def process_with_function_calling_or_standard(
                 logger.info(f"Sent ai_turn_complete message to client {client_id}")
             except Exception as e:
                 logger.error(f"Error sending ai_turn_complete message: {e}")
+        
+        # Send ai_turn_paused message if safety limit was reached
+        if ai_response_data.get('reached_limit', False):
+            try:
+                ws_manager = get_websocket_manager()
+                paused_message = {
+                    "type": "ai_turn_paused",
+                    "data": {
+                        "session_id": session_id,
+                        "iterations": ai_response_data.get('iterations', 0),
+                        "tokens_used": ai_response_data.get('tokens_used', 0)
+                    }
+                }
+                await ws_manager.send_to_client(client_id, paused_message)
+                logger.info(f"Sent ai_turn_paused message to client {client_id} - {ai_response_data.get('iterations', 0)} iterations completed")
+            except Exception as e:
+                logger.error(f"Error sending ai_turn_paused message: {e}")
         
         return ai_response_data
         

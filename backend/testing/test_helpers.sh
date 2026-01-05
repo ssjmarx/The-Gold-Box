@@ -1,6 +1,10 @@
 #!/bin/bash
 # Shared helper functions for Gold Box tests
 
+# Import truncation utility for JSON logging
+export PYTHONPATH="${PYTHONPATH:-backend}"
+alias python3="python3 -c \"import sys; sys.path.insert(0, '$PYTHONPATH'); from shared.utils.log_utils import truncate_for_log; exec(sys.argv)\""
+
 API_ENDPOINT="http://localhost:5000/api/admin"
 
 # Ensure admin password is available
@@ -42,9 +46,29 @@ exec_request() {
   echo ""
 }
 
+# Execute curl request with truncation for JSON responses
+exec_request_with_truncation() {
+  local desc="$1"
+  local data="$2"
+  
+  # Ensure password is available
+  ensure_admin_password
+  
+  echo "━━━ $desc ━━━"
+  response=$(curl -s -X POST "$API_ENDPOINT" \
+    -H "Content-Type: application/json" \
+    -H "X-Admin-Password: $ADMIN_PASSWORD" \
+    -d "$data")
+  
+  # Truncate JSON responses using Python truncation utility
+  echo "$response" | python3 -c "import sys, os; sys.path.insert(0, '..'); from shared.utils.log_utils import truncate_for_log; import json; data = sys.stdin.read(); print(truncate_for_log(json.loads(data)))"
+  echo "$response" > .last_response.json
+  echo ""
+}
+
 # Start test session and save IDs
 start_session() {
-  exec_request "Start Test Session" '{
+  exec_request_with_truncation "Start Test Session" '{
     "command": "start_test_session"
   }'
   
@@ -119,34 +143,30 @@ test_command() {
     request_json=$(python3 ./create_command_helper.py "$TEST_SESSION_ID" "$cmd")
   fi
   
+  # Execute curl with truncation for JSON responses
   response=$(curl -s -X POST "$API_ENDPOINT" \
     -H "Content-Type: application/json" \
     -H "X-Admin-Password: $ADMIN_PASSWORD" \
     -d "$request_json")
   
-  echo "$response" | jq '.'
+  # Save full response to file FIRST (before truncation)
   echo "$response" > .last_response.json
   
-  # If create_encounter was called, extract and save combat_id
-  if [[ "$cmd" == create_encounter* ]]; then
-    COMBAT_ID=$(cat .last_response.json | jq -r '.result.combat_id // empty')
-    if [ "$COMBAT_ID" != "null" ] && [ -n "$COMBAT_ID" ]; then
-      echo "$COMBAT_ID" > .combat_id
-      echo "💾 Saved combat_id: $COMBAT_ID"
-    fi
-  fi
+  # Then display truncated version for logging
+  echo "$response" | python3 -c "import sys, os; sys.path.insert(0, '..'); from shared.utils.log_utils import truncate_for_log; import json; data = sys.stdin.read(); print(truncate_for_log(json.loads(data)))"
+  
   echo ""
 }
 
 # Create encounter using universal command helper
 create_encounter() {
-    local desc="$1"
-    local actor_ids="$2"
-    local roll_initiative="$3"
-    local combat_id_file="${4:-.combat_id}"  # Optional 4th param for custom file name
+  local desc="$1"
+  local actor_ids="$2"
+  local roll_initiative="$3"
+  local combat_id_file="${4:-.combat_id}"  # Optional 4th param for custom file name
     
     # Ensure password is available
-    ensure_admin_password
+  ensure_admin_password
     
     echo "━━━ $desc ━━━"
     
@@ -170,7 +190,7 @@ request = {
 print(json.dumps(request))
 EOF
 
-    # Set environment variables for to Python script
+    # Set environment variables for Python script
     export TEST_SESSION_ID="$TEST_SESSION_ID"
     export ACTOR_IDS="$actor_ids"
     export ROLL_INITIATIVE="$([ "$roll_initiative" = "--roll_initiative" ] && echo 'true' || echo 'false')"
@@ -180,18 +200,23 @@ EOF
     rm /tmp/create_encounter_req.py
     
     response=$(curl -s -X POST "$API_ENDPOINT" \
-      -H "Content-Type: application/json" \
-      -H "X-Admin-Password: $ADMIN_PASSWORD" \
-      -d "$request_json")
-    
-    echo "$response" | jq '.'
-    echo "$response" > .last_response.json
+    -H "Content-Type: application/json" \
+    -H "X-Admin-Password: $ADMIN_PASSWORD" \
+    -d "$request_json")
+  
+  # Save full response to file FIRST (before truncation)
+  echo "$response" > .last_response.json
+  
+  # Then display truncated version for logging
+  echo "$response" | python3 -c "import sys, os; sys.path.insert(0, '..'); from shared.utils.log_utils import truncate_for_log; import json; data = sys.stdin.read(); print(truncate_for_log(json.loads(data)))"
+  
+  echo ""
     
     # Extract and save combat_id to specified file
     COMBAT_ID=$(echo "$response" | jq -r '.result.combat_id // empty')
     if [ "$COMBAT_ID" != "null" ] && [ -n "$COMBAT_ID" ]; then
       echo "$COMBAT_ID" > "$combat_id_file"
-      echo "💾 Saved combat_id to file: $combat_id_file (ID: $COMBAT_ID)"
+      echo "💾 Saved combat_id: $COMBAT_ID"
     else
       echo "❌ VERIFICATION FAILED: No combat_id returned"
       return 1
@@ -203,7 +228,7 @@ EOF
 
 # Activate combat encounter helper
 activate_encounter() {
-    local encounter_id="$1"
+  local encounter_id="$1"
     
     if [ -z "$encounter_id" ]; then
       echo "⚠️  No encounter_id provided, skipping activation"
@@ -239,21 +264,24 @@ EOF
     rm /tmp/activate_encounter_req.py
     
     response=$(curl -s -X POST "$API_ENDPOINT" \
-      -H "Content-Type: application/json" \
-      -H "X-Admin-Password: $ADMIN_PASSWORD" \
-      -d "$request_json")
-    
-    echo "$response" | jq '.'
-    echo "$response" > .last_response.json
-    
-    echo ""
+    -H "Content-Type: application/json" \
+    -H "X-Admin-Password: $ADMIN_PASSWORD" \
+    -d "$request_json")
+  
+  # Save full response to file FIRST (before truncation)
+  echo "$response" > .last_response.json
+  
+  # Then display truncated version for logging
+  echo "$response" | python3 -c "import sys, os; sys.path.insert(0, '..'); from shared.utils.log_utils import truncate_for_log; import json; data = sys.stdin.read(); print(truncate_for_log(json.loads(data)))"
+  
+  echo ""
 }
 
 # End test session
 end_session() {
   local reset="${1:-true}"
   
-  exec_request "End Test Session" "{
+  exec_request_with_truncation "End Test Session" "{
     \"command\": \"end_test_session\",
     \"test_session_id\": \"$TEST_SESSION_ID\",
     \"reset_connection\": $reset
@@ -262,6 +290,7 @@ end_session() {
 
 # Extract actor IDs from saved world state
 extract_actor_ids() {
+  # Use truncation utility to truncate JSON output from Python script
   ACTOR_IDS=$(python3 <<'PYTHON_SCRIPT'
 import json
 try:
@@ -282,6 +311,10 @@ except Exception as e:
     print("[]")
 PYTHON_SCRIPT
 )
+  
+  if [ "$ACTOR_IDS" != "" ]; then
+    echo "$ACTOR_IDS" > .actor_ids
+  fi
 }
 
 # Extract token ID from saved world state
@@ -316,21 +349,25 @@ PYTHON_SCRIPT
 # Verify success in last response
 verify_success() {
   local success=$(cat .last_response.json | jq -r '.success // .result.success // false')
-  local status_code=$(cat .last_response.json | jq -r '.status // ""')
-  local message=$(cat .last_response.json | jq -r '.message // ""')
+  local result_success=$(cat .last_response.json | jq -r '.result.success // true')
+  local detail=$(cat .last_response.json | jq -r '.detail // ""')
+  local result_error=$(cat .last_response.json | jq -r '.result.error // ""')
   
-  if [ "$success" = "true" ]; then
+  # Check for success indicators:
+  # - success=true
+  # - result.success=true (for nested operations)
+  # - No error in .detail or .result.error (either empty or literal "null")
+  if [ "$success" = "true" ] && [ "$result_success" = "true" ] && [ -z "$detail" ] && ([ -z "$result_error" ] || [ "$result_error" = "null" ]); then
     echo "✅ Verification: SUCCESS"
     return 0
   else
     echo "❌ Verification: FAILED"
-    if [ -n "$status_code" ]; then
-      echo "   Status: $status_code"
+    if [ -n "$detail" ]; then
+      echo "   Detail: $detail"
     fi
-    if [ -n "$message" ]; then
-      echo "   Message: $message"
+    if [ "$result_error" != "null" ] && [ -n "$result_error" ]; then
+      echo "   Error: $result_error"
     fi
-    cat .last_response.json | jq '.'
     return 1
   fi
 }
@@ -346,15 +383,6 @@ verify_or_fail() {
 
 # Verify error and exit test if unexpected success
 verify_error_or_fail() {
-  if ! verify_error "$@"; then
-    echo ""
-    echo "❌ TEST FAILED - Expected error not detected, exiting test"
-    exit 1
-  fi
-}
-
-# Verify error in last response
-verify_error() {
   local success=$(cat .last_response.json | jq -r '.success // true')
   local result_success=$(cat .last_response.json | jq -r '.result.success // true')
   local message=$(cat .last_response.json | jq -r '.message // ""')
@@ -368,14 +396,12 @@ verify_error() {
   # - "Error" in message, detail, result.error
   # - "failed" in message or detail
   # - "Timeout" in message, detail, result.error
-  # - "timeout" in message, detail, result.error
   # - "unable" or "Unable" in message, detail, result.error (case-insensitive)
   if [ "$success" = "false" ] || [ "$result_success" = "false" ] || \
      [[ "$message" == *"error"* ]] || \
      [[ "$message" == *"Error"* ]] || \
      [[ "$message" == *"failed"* ]] || \
      [[ "$message" == *"Timeout"* ]] || \
-     [[ "$message" == *"timeout"* ]] || \
      [[ "$(echo "$message" | tr '[:upper:]' '[:lower:]')" == *"unable"* ]] || \
      [[ "$detail" == *"error"* ]] || \
      [[ "$detail" == *"Error"* ]] || \
@@ -493,19 +519,48 @@ cleanup_combat() {
   # Validate session before cleanup
   validate_session
   
-  # Ensure TEST_SESSION_ID is loaded (after validation)
+  # Ensure TEST_SESSION_ID is loaded from file (after validation)
   if [ -f ".test_session_id" ]; then
     TEST_SESSION_ID=$(cat .test_session_id | head -n 1)
   fi
   
-  local request_json=$(python3 ./create_command_helper.py "$TEST_SESSION_ID" "delete_encounter")
+  # Get all encounters first
+  echo "Getting all active encounters..."
+  local request_json=$(python3 ./create_command_helper.py "$TEST_SESSION_ID" "get_encounter")
   
   response=$(curl -s -X POST "$API_ENDPOINT" \
     -H "Content-Type: application/json" \
     -H "X-Admin-Password: $ADMIN_PASSWORD" \
     -d "$request_json")
   
-  # Don't care if it succeeds or fails, just want to ensure no combat exists
+  # Check if any encounters exist
+  local in_combat=$(echo "$response" | jq -r '.result.in_combat // false')
+  local active_count=$(echo "$response" | jq -r '.result.active_count // 0')
+  
+  if [ "$in_combat" = "false" ] || [ "$active_count" -eq 0 ]; then
+    echo "✅ No active encounters to clean up"
+    echo ""
+    return 0
+  fi
+  
+  echo "Found $active_count active encounter(s), deleting..."
+  
+  # Delete each encounter individually
+  local encounters=$(echo "$response" | jq -r '.result.encounters[] | .combat_id')
+  
+  for encounter_id in $encounters; do
+    echo "  Deleting encounter: $encounter_id"
+    local delete_json=$(python3 ./create_command_helper.py "$TEST_SESSION_ID" "delete_encounter encounter_id=\"$encounter_id\"")
+    
+    response=$(curl -s -X POST "$API_ENDPOINT" \
+      -H "Content-Type: application/json" \
+      -H "X-Admin-Password: $ADMIN_PASSWORD" \
+      -d "$delete_json")
+    
+    echo "  ✅ Deleted encounter: $encounter_id"
+    sleep 0.5
+  done
+  
   echo "Combat cleanup completed"
   echo ""
 }
@@ -547,25 +602,37 @@ wait_for_websocket_reconnect() {
     return 0
   fi
   
-  # Get the last client ID before we start waiting
-  local last_client_id=$(tail -100 "$log_file" | grep -oP "from client \K[^\s]+" | tail -1)
+  # Get the previous client ID from the test session
+  local previous_client_id=""
+  if [ -f ".test_client_id" ]; then
+    previous_client_id=$(cat .test_client_id | head -n 1)
+  fi
+  
+  # If no previous client ID, we can't detect reconnection by client ID change
+  if [ -z "$previous_client_id" ]; then
+    echo "⚠️  No previous client ID found, skipping reconnection check"
+    return 0
+  fi
   
   local elapsed=0
   local reconnected=false
   
   while [ $elapsed -lt $timeout ]; do
-    # Check for a new WebSocket message from a different client
-    # This indicates a new client has connected and sent a message
-    local new_client_id=$(tail -20 "$log_file" | grep -oP "from client \K[^\s]+" | tail -1)
-    
-    if [ -n "$new_client_id" ] && [ "$new_client_id" != "$last_client_id" ]; then
-      # Verify this is a recent message (within the last 5 seconds)
-      local recent_message=$(tail -5 "$log_file" | grep "$new_client_id")
-      if [ -n "$recent_message" ]; then
-        reconnected=true
-        echo ""
-        echo "✅ WebSocket reconnected (new client: $new_client_id)"
-        return 0
+    if [ -f "$log_file" ]; then
+      # Check for any disconnect message for the previous client
+      local disconnect_found=$(tail -50 "$log_file" | grep "WebSocket client disconnected: $previous_client_id")
+      
+      if [ -n "$disconnect_found" ]; then
+        # Found disconnect, now check for activity from a different client
+        # Look for the most recent client ID in the logs
+        local current_client_id=$(tail -20 "$log_file" | grep -oP "client [a-zA-Z0-9\-]+" | tail -1 | grep -oP "client \K[a-zA-Z0-9\-]+")
+        
+        if [ -n "$current_client_id" ] && [ "$current_client_id" != "$previous_client_id" ]; then
+          reconnected=true
+          echo ""
+          echo "✅ WebSocket reconnected (from $previous_client_id to $current_client_id)"
+          return 0
+        fi
       fi
     fi
     

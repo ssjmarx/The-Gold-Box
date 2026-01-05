@@ -10,10 +10,12 @@ class AITurnButtonHandler {
   constructor(uiManager, moduleInstance) {
     this.uiManager = uiManager;
     this.moduleInstance = moduleInstance;
-    this.state = 'DISCONNECTED'; // States: DISCONNECTED, CONNECTED, THINKING
+    this.state = 'DISCONNECTED'; // States: DISCONNECTED, CONNECTED, THINKING, PAUSED
     this.button = null;
     this.ellipsisIndex = 0;
     this.ellipsisInterval = null;
+    this.pausedTimeout = null; // 30-second timeout for resume
+    this.pausedAt = null; // Track when pause started
   }
   
   // State transitions
@@ -42,6 +44,9 @@ class AITurnButtonHandler {
       case 'THINKING':
         this.setThinkingState();
         break;
+      case 'PAUSED':
+        this.setPausedState();
+        break;
     }
   }
   
@@ -55,6 +60,7 @@ class AITurnButtonHandler {
     this.button.text('Not Connected');
     this.button.prop('disabled', true);
     this.stopEllipsisAnimation();
+    this.clearPausedTimeout();
   }
   
   setConnectedState() {
@@ -67,6 +73,7 @@ class AITurnButtonHandler {
     this.button.text('Take AI Turn');
     this.button.prop('disabled', false);
     this.stopEllipsisAnimation();
+    this.clearPausedTimeout();
   }
   
   setThinkingState() {
@@ -78,6 +85,26 @@ class AITurnButtonHandler {
     });
     this.button.prop('disabled', true);
     this.startEllipsisAnimation();
+    this.clearPausedTimeout();
+  }
+  
+  setPausedState() {
+    this.button.css({
+      'background': 'linear-gradient(135deg, #FFA500 0%, #FF8C00 50%, #FF6347 100%)',
+      'color': '#ffffff',
+      'opacity': '1',
+      'cursor': 'pointer'
+    });
+    this.button.text('Resume AI Turn');
+    this.button.prop('disabled', false);
+    this.stopEllipsisAnimation();
+    
+    // Start 30-second timeout
+    this.clearPausedTimeout();
+    this.pausedAt = Date.now();
+    this.pausedTimeout = setTimeout(() => {
+      this.onPausedTimeout();
+    }, 30000); // 30 seconds
   }
   
   startEllipsisAnimation() {
@@ -102,6 +129,14 @@ class AITurnButtonHandler {
     }
   }
   
+  clearPausedTimeout() {
+    if (this.pausedTimeout) {
+      clearTimeout(this.pausedTimeout);
+      this.pausedTimeout = null;
+    }
+    this.pausedAt = null;
+  }
+  
   // Event handlers
   onWebSocketConnected() {
     this.setState('CONNECTED');
@@ -119,13 +154,29 @@ class AITurnButtonHandler {
     this.setState('CONNECTED');
   }
   
+  onAITurnPaused() {
+    this.setState('PAUSED');
+  }
+  
+  onResumeAITurn() {
+    this.setState('THINKING');
+  }
+  
+  onPausedTimeout() {
+    console.log('AI Turn: Paused state expired after 30 seconds');
+    this.clearPausedTimeout();
+    this.setState('CONNECTED');
+  }
+  
   onAITurnError(error) {
     console.error('AI Turn error:', error);
+    this.clearPausedTimeout();
     this.setState('CONNECTED');
   }
   
   destroy() {
     this.stopEllipsisAnimation();
+    this.clearPausedTimeout();
     this.button = null;
   }
 }
@@ -496,6 +547,21 @@ class GoldBoxUIManager {
           }
         }
       });
+      
+      // CRITICAL FIX: Also send message via message collector for immediate backend sync
+      // This ensures post_message results are available for get_message_history in same session
+      if (window.goldBox && window.goldBox.messageCollector) {
+        window.goldBox.messageCollector.sendChatMessage({
+          type: 'chat',
+          content: htmlContent,
+          speaker: {
+            name: 'The Gold Box',
+            alias: 'The Gold Box'
+          },
+          timestamp: Date.now()
+        });
+        console.log('The Gold Box: Message data sent via message collector');
+      }
       
     } catch (error) {
       console.error('The Gold Box: Error displaying chat message:', error);

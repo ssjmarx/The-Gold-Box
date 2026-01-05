@@ -55,7 +55,9 @@ create_encounter "Create Encounter 1" "$ACTOR_IDS" --roll_initiative ".combat_id
 # Step 6: Verify encounter 1 was created and capture combat_id
 test_command "Verify Encounter 1 Created" "get_encounter"
 IN_COMBAT=$(get_value ".result.in_combat // false")
-COMBATANTS_COUNT=$(get_value ".result.combatants | length // 0")
+# FIXED: Access combatants from encounters array when calling get_encounter without specific ID
+# When no encounter_id is provided, response has .result.encounters array, not .result.combatants directly
+COMBATANTS_COUNT=$(get_value ".result.encounters[0].combatants | length // 0")
 
 if [ "$IN_COMBAT" = "true" ]; then
   echo "✅ VERIFICATION PASSED: Combat is active"
@@ -88,7 +90,9 @@ create_encounter "Create Encounter 2" "$ACTOR_IDS" "" ".combat_id_2"
 # Step 8: Verify encounter 2 was created and capture combat_id
 test_command "Verify Encounter 2 Created" "get_encounter"
 IN_COMBAT=$(get_value ".result.in_combat // false")
-COMBATANTS_COUNT=$(get_value ".result.combatants | length // 0")
+# FIXED: Access combatants from encounters array when calling get_encounter without specific ID
+# When no encounter_id is provided, response has .result.encounters array, not .result.combatants directly
+COMBATANTS_COUNT=$(get_value ".result.encounters[0].combatants | length // 0")
 
 if [ "$IN_COMBAT" = "true" ]; then
   echo "✅ VERIFICATION PASSED: Combat is active"
@@ -161,15 +165,25 @@ echo "Advancing turn in Encounter 1 (ID: $COMBAT_ID_1)"
 test_command "Advance Turn Encounter 1" "advance_combat_turn" "$COMBAT_ID_1"
 
 # Step 12: Verify turn advanced in Encounter 1 only
+# FIXED: Store pre-advancement values to verify actual increment
+test_command "Get Encounter 1 Pre-Advancement" "get_encounter" "$COMBAT_ID_1"
+PREV_TURN=$(get_value ".result.turn // -1")
+PREV_ROUND=$(get_value ".result.round // 0")
+
+echo "📊 Encounter 1 Pre-Advancement - Turn: $PREV_TURN, Round: $PREV_ROUND"
+
+test_command "Advance Turn Encounter 1" "advance_combat_turn" "$COMBAT_ID_1"
+
 test_command "Verify Turn Advanced Encounter 1" "get_encounter" "$COMBAT_ID_1"
 TURN=$(get_value ".result.turn // -1")
 ROUND=$(get_value ".result.round // 0")
 
-echo "📊 Encounter 1 - Current turn: $TURN, Round: $ROUND"
-if [ $TURN -ge 0 ]; then
-  echo "✅ VERIFICATION PASSED: Turn advanced successfully"
+echo "📊 Encounter 1 Post-Advancement - Turn: $TURN, Round: $ROUND"
+# FIXED: Verify that turn or round actually increased
+if [ $TURN -gt $PREV_TURN ] || [ $ROUND -gt $PREV_ROUND ]; then
+  echo "✅ VERIFICATION PASSED: Turn/Round advanced successfully (turn: $PREV_TURN → $TURN, round: $PREV_ROUND → $ROUND)"
 else
-  echo "❌ VERIFICATION FAILED: Turn should have advanced (got $TURN)"
+  echo "❌ VERIFICATION FAILED: Turn/Round did not advance (turn: $PREV_TURN → $TURN, round: $PREV_ROUND → $ROUND)"
   track_failure
 fi
 echo ""
@@ -183,11 +197,11 @@ ENCOUNTER_2_ROUND=$(get_value ".result.round // 0")
 
 echo "📊 Encounter 2 - Current turn: $ENCOUNTER_2_TURN, Round: $ENCOUNTER_2_ROUND"
 
-# Encounter 2 should still be at turn 1
-if [ "$ENCOUNTER_2_TURN" -eq 1 ]; then
-  echo "✅ VERIFICATION PASSED: Encounter 2 unchanged (turn 1)"
-elif [ "$ENCOUNTER_2_TURN" -ne 1 ]; then
-  echo "❌ VERIFICATION FAILED: Encounter 2 was affected by Encounter 1's turn advancement"
+# Encounter 2 should still be at turn 0 (created without rolling initiative)
+if [ "$ENCOUNTER_2_TURN" -eq 0 ]; then
+  echo "✅ VERIFICATION PASSED: Encounter 2 unchanged (turn 0, as expected for no initiative roll)"
+elif [ "$ENCOUNTER_2_TURN" -ne 0 ]; then
+  echo "❌ VERIFICATION FAILED: Encounter 2 was affected by Encounter 1's turn advancement (expected turn 0, got $ENCOUNTER_2_TURN)"
   track_failure
 else
   echo "❌ VERIFICATION FAILED: Cannot verify Encounter 2 state"
@@ -199,8 +213,17 @@ echo ""
 echo "Deleting Encounter 1 (ID: $COMBAT_ID_1)"
 test_command "Delete Encounter 1" "delete_encounter" "$COMBAT_ID_1"
 
+# Check if deletion timed out but encounter was actually deleted
+DELETE_SUCCESS=$(get_value ".result.success // false")
+if [ "$DELETE_SUCCESS" = "false" ]; then
+  echo "⚠️  Deletion timed out or failed, but proceeding with verification..."
+fi
+
 # Step 15: Verify Encounter 1 deleted but Encounter 2 remains
-test_command "Verify Encounter 1 Deleted" "get_encounter" "$COMBAT_ID_2"
+# Note: If deletion failed/timed out, this verification may also fail
+# This is acceptable as long as other test components pass
+# FIXED: Call get_encounter without ID to get all encounters and check active_count
+test_command "Verify Encounter 1 Deleted" "get_encounter"
 IN_COMBAT=$(get_value ".result.in_combat // false")
 ACTIVE_COUNT=$(get_value ".result.active_count // 0")
 
@@ -244,10 +267,11 @@ verify_error_or_fail
 test_command "Advance Turn (No Combat - Should Error)" "advance_combat_turn" "non_existent_encounter_id"
 verify_error_or_fail
 
-# Step 20: Try to get non-existent encounter (should return not active)
-test_command "Get Non-Existent Encounter (Should Return Inactive)" "get_encounter" "non_existent_encounter_id"
-verify_success
-echo "✅ Verification: Non-existent encounter correctly returns inactive"
+# Step 20: Try to get non-existent encounter (should error)
+# FIXED: After server fix, get_encounter now returns error for non-existent encounters
+test_command "Get Non-Existent Encounter (Should Error)" "get_encounter" "non_existent_encounter_id"
+verify_error_or_fail
+echo "✅ Verification: Non-existent encounter correctly returns error"
 echo ""
 
 # Step 21: End session with WebSocket reset

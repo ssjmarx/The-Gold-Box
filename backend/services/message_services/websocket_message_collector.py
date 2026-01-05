@@ -366,11 +366,20 @@ class WebSocketMessageCollector:
             True if set successfully
         """
         try:
+            # Get combat service to sync cache
+            from .combat_encounter_service import get_combat_encounter_service
+            combat_service = get_combat_encounter_service()
+            
             # Check if multiple encounters received
             if 'encounters' in combat_data:
+                # Validate that encounters is a non-empty list
+                encounter_states = combat_data.get('encounters', [])
+                if not isinstance(encounter_states, list) or not encounter_states:
+                    logger.error(f"Invalid encounters data from frontend for client {client_id}: not a non-empty list")
+                    return False
+                
                 # Multiple encounters received
                 active_combat_id = combat_data.get('active_combat_id')
-                encounter_states = combat_data['encounters']
                 
                 # FIXED: If no active_combat_id provided, mark first encounter as active
                 # This handles case where frontend sends encounters array without specifying which is active
@@ -380,25 +389,62 @@ class WebSocketMessageCollector:
                 if client_id not in self.client_combat_states:
                     self.client_combat_states[client_id] = {}
                 
-                # Store each encounter
+                # Get currently tracked encounter IDs for this client
+                current_encounter_ids = set(self.client_combat_states[client_id].keys()) if client_id in self.client_combat_states else set()
+                
+                # Store each encounter and sync with CombatEncounterService
                 for i, encounter_state in enumerate(encounter_states):
                     encounter_id = encounter_state.get('combat_id')
+                    
+                    # Validate that each encounter has a combat_id
+                    if not encounter_id:
+                        logger.error(f"Encounter at index {i} missing combat_id from frontend for client {client_id}")
+                        continue  # Skip invalid encounters
+                    
                     # First encounter is active if no active_combat_id provided
                     is_active = (encounter_id == active_combat_id) if active_combat_id else (first_encounter_active and i == 0)
                     
+                    # Update local cache
                     self.client_combat_states[client_id][encounter_id] = {
                         **encounter_state,
                         'is_active': is_active,
                         'last_updated': int(time.time() * 1000)
                     }
+                    
+                    # Sync with CombatEncounterService to ensure cache matches frontend state
+                    combat_service.update_combat_state(encounter_state)
                 
-                logger.info(f"Updated {len(encounter_states)} combat states for client {client_id}, active={active_combat_id or 'first'}, first_encounter_active={first_encounter_active}")
+                # FIXED: Remove encounters that are no longer present from CombatEncounterService cache
+                for encounter_id in current_encounter_ids:
+                    if encounter_id not in [e.get('combat_id') for e in encounter_states]:
+                        logger.info(f"Removing stale encounter {encounter_id} from CombatEncounterService for client {client_id}")
+                        combat_service.delete_encounter(encounter_id)
+                
+                # FIXED: If encounters remain but none are marked active (e.g., after deletion),
+                # mark first remaining encounter as active
+                if encounter_states and active_combat_id is None:
+                    remaining_encounters = [e for e in encounter_states if e.get('in_combat', False)]
+                    if remaining_encounters:
+                        first_remaining_id = remaining_encounters[0].get('combat_id')
+                        if first_remaining_id in self.client_combat_states[client_id]:
+                            self.client_combat_states[client_id][first_remaining_id]['is_active'] = True
+                            logger.info(f"Marked first remaining encounter {first_remaining_id} as active for client {client_id}")
+                
+                logger.info(f"Updated {len(encounter_states)} combat states for client {client_id}, active={active_combat_id or 'first'}, synced with CombatEncounterService")
                 return True
             else:
                 # Single encounter (backward compatibility)
                 encounter_id = combat_data.get('combat_id')
                 combat_data['is_active'] = True  # Single encounter is always active
-                return self.set_combat_state(client_id, combat_data)
+                
+                # Update local cache
+                success = self.set_combat_state(client_id, combat_data)
+                
+                # Sync with CombatEncounterService
+                if success and combat_data:
+                    combat_service.update_combat_state(combat_data)
+                
+                return success
                 
         except Exception as e:
             logger.error(f"Error setting combat state from frontend for client {client_id}: {e}")

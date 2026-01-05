@@ -299,20 +299,12 @@ class TestingCommandProcessor:
         # Check if there are multiple parameters (spaces present)
         # If yes, skip single key-value pattern and go to multi-parameter parsing
         if ' ' in args_string.strip():
-            # Use shlex to properly split while respecting quotes
-            try:
-                tokens = shlex.split(args_string)
-            except ValueError:
-                # Fallback to simple split if shlex fails
-                tokens = args_string.split()
+            # Use regex to preserve quoted values (shlex would remove quotes before we can check)
+            # Pattern: key=value where value can be quoted or unquoted
+            pattern = r'(\w+)=("[^"]*"|\'[^\']*\'|\S+)'
+            matches = re.findall(pattern, args_string)
             
-            for token in tokens:
-                # Parse key=value
-                if '=' not in token:
-                    continue
-                
-                key, value = token.split('=', 1)  # Split on first = only
-                
+            for key, value in matches:
                 # Remove quotes from value if present
                 is_quoted = False
                 if value.startswith('"') and value.endswith('"'):
@@ -325,7 +317,8 @@ class TestingCommandProcessor:
                 # Handle boolean values
                 if value.lower() in ('true', 'false'):
                     value = value.lower() == 'true'
-                # Handle numeric values - but keep quoted values as strings
+                # Handle numeric values - but ONLY if not quoted
+                # Quoted values (including quoted numbers) stay as strings
                 elif not is_quoted:
                     try:
                         value = int(value)
@@ -334,7 +327,7 @@ class TestingCommandProcessor:
                             value = float(value)
                         except ValueError:
                             pass  # Keep as string
-                # Keep quoted values as strings
+                # else: quoted value stays as string (value already set)
                 
                 arguments[key] = value
             
@@ -368,7 +361,8 @@ class TestingCommandProcessor:
                 # Handle boolean values
                 if value_str.lower() in ('true', 'false'):
                     value = value_str.lower() == 'true'
-                # Handle numeric values - but keep quoted values as strings
+                # Handle numeric values - but ONLY if not quoted
+                # Quoted values (including quoted numbers) stay as strings
                 elif not is_quoted:
                     try:
                         value = int(value_str)
@@ -377,9 +371,7 @@ class TestingCommandProcessor:
                             value = float(value_str)
                         except ValueError:
                             value = value_str  # Keep as string
-                else:
-                    # Keep quoted value as string
-                    value = value_str
+                # else: quoted value stays as string (value_str already set after quote removal)
                 
                 arguments[key] = value
             
@@ -403,7 +395,8 @@ class TestingCommandProcessor:
             # Handle boolean values
             if value.lower() in ('true', 'false'):
                 value = value.lower() == 'true'
-            # Handle numeric values - but keep quoted values as strings
+            # Handle numeric values - but ONLY if not quoted
+            # Quoted values (including quoted numbers) stay as strings
             elif not is_quoted:
                 try:
                     value = int(value)
@@ -412,7 +405,7 @@ class TestingCommandProcessor:
                         value = float(value)
                     except ValueError:
                         pass  # Keep as string
-            # Keep quoted values as strings
+            # else: quoted value stays as string (value already set after quote removal)
             
             arguments[key] = value
         
@@ -445,7 +438,8 @@ class TestingCommandProcessor:
             # Handle boolean values - always convert to Python bool
             if value.lower() in ('true', 'false'):
                 value = value.lower() == 'true'
-            # Handle numeric values - but keep quoted values as strings
+            # Handle numeric values - but ONLY if not quoted
+            # Quoted values (including quoted numbers) stay as strings
             elif not is_quoted:
                 try:
                     value = int(value)
@@ -454,7 +448,7 @@ class TestingCommandProcessor:
                         value = float(value)
                     except ValueError:
                         pass  # Keep as string
-            # Keep quoted values as strings
+            # else: quoted value stays as string (value already set after quote removal)
             
             arguments[key] = value
         

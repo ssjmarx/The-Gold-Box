@@ -461,8 +461,66 @@ def initialize_websocket_manager():
                         }
                     })
             
+            def _convert_websocket_message_to_compact(self, message: Dict[str, Any]) -> Dict[str, Any]:
+                """Convert WebSocket JSON message to compact format - bypass HTML parsing"""
+                msg_type = message.get("type", "")
+                
+                # Handle dice rolls from WebSocket
+                if msg_type == "roll":
+                    compact = {
+                        "t": "dr",
+                        "ts": message.get("timestamp", int(time.time() * 1000)),
+                        "f": message.get("formula", ""),
+                        "tt": message.get("total", 0),
+                        "r": message.get("results", []),
+                        "ft": message.get("flavor", "")
+                    }
+                    
+                    # Add speaker info if present
+                    speaker = message.get("speaker")
+                    if speaker:
+                        if isinstance(speaker, dict):
+                            compact["s"] = speaker.get("name", "")
+                            if speaker.get("alias"):
+                                compact["a"] = speaker.get("alias")
+                        else:
+                            compact["s"] = str(speaker)
+                    
+                    return compact
+                
+                # Handle chat messages from WebSocket
+                elif msg_type in ["chat", "cm"]:
+                    compact = {
+                        "t": "cm",
+                        "ts": message.get("timestamp", int(time.time() * 1000)),
+                        "c": message.get("content", "")
+                    }
+                    
+                    # Add speaker info if present
+                    speaker = message.get("speaker")
+                    if speaker:
+                        if isinstance(speaker, dict):
+                            compact["s"] = speaker.get("name", "")
+                            if speaker.get("alias"):
+                                compact["a"] = speaker.get("alias")
+                        else:
+                            compact["s"] = str(speaker)
+                    
+                    return compact
+                
+                # Unknown type - return None to fall back to HTML parsing
+                return None
+            
             def _convert_single_message_to_compact(self, message: Dict[str, Any]) -> Dict[str, Any]:
-                """Convert a single raw HTML message to compact JSON format - DELEGATE TO UNIFIED PROCESSOR"""
+                """Convert message to compact JSON - handle both JSON and HTML formats"""
+                
+                # Check if this is a WebSocket JSON message (has direct type field)
+                if isinstance(message, dict) and "type" in message:
+                    compact = self._convert_websocket_message_to_compact(message)
+                    if compact:
+                        return compact
+                
+                # Fall back to HTML parsing for legacy/relay messages
                 # Import unified processor at function level to avoid circular import issues
                 from shared.core.unified_message_processor import get_unified_processor
                 
@@ -508,6 +566,15 @@ def initialize_websocket_manager():
                     if combat_state:
                         # Single encounter format - store combat state
                         logger.info(f"Received single combat state from client {client_id}")
+                        
+                        # FIXED: Handle deletion response - if combat_state has no combat_id, this means deletion succeeded
+                        # In this case, we should remove the encounter from cache (if we can figure out which one)
+                        # Since we can't know which encounter was deleted from the response alone,
+                        # the delete_encounter command will handle cleanup by checking if combat is still active
+                        if not combat_state.get("combat_id"):
+                            logger.warning(f"Received combat_state without combat_id for client {client_id} - likely deletion response")
+                            # Store the invalid state to allow delete_encounter to detect the issue
+                            # The deletion command will see the encounter is still active and force remove it
                         
                         # Check if this is a response to a combat_state_refresh request
                         if request_id:
