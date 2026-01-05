@@ -338,4 +338,126 @@ def create_session_router(global_config):
                 detail="Failed to clear conversation history"
             )
     
+    @router.post("/session/configure-ai")
+    async def configure_ai(request: Request):
+        """
+        Configure AI providers from Foundry VTT settings
+        
+        Allows users to configure provider/model pairs for general and tactical AI.
+        Local providers (e.g., ollama, vllm) do not require API keys.
+        The backend will attempt to use them directly.
+        Security is handled by UniversalSecurityMiddleware
+        """
+        try:
+            # Import service factory functions
+            from services.system_services.service_factory import get_session_manager, get_key_manager, get_provider_manager
+            
+            session_mgr = get_session_manager()
+            key_manager = get_key_manager()
+            provider_manager = get_provider_manager()
+            
+            # Get request body
+            request_data = await request.json()
+            
+            # Get session ID (optional, if provided store config in session)
+            session_id = request_data.get('session_id')
+            
+            # Extract general AI configuration
+            general_provider = request_data.get('general_provider')
+            general_model = request_data.get('general_model')
+            
+            # Extract tactical AI configuration (optional)
+            tactical_provider = request_data.get('tactical_provider')
+            tactical_model = request_data.get('tactical_model')
+            
+            # Validate general provider and model
+            if not general_provider or not general_model:
+                raise HTTPException(
+                    status_code=400,
+                    detail="general_provider and general_model are required"
+                )
+            
+            # Get provider information
+            general_provider_info = provider_manager.get_provider(general_provider)
+            if not general_provider_info:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Provider '{general_provider}' not found"
+                )
+            
+            # Check if provider requires authentication
+            if general_provider_info.get('requires_auth', True):
+                api_key = key_manager.keys_data.get(general_provider)
+                if not api_key:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Provider '{general_provider}' requires API key. Please configure in key manager."
+                    )
+            else:
+                api_key = None
+            
+            # Build AI configuration
+            ai_config = {
+                'general': {
+                    'provider': general_provider,
+                    'model': general_model,
+                    'api_key': api_key  # None for local providers
+                }
+            }
+            
+            # Configure tactical provider if provided
+            if tactical_provider and tactical_model:
+                tactical_provider_info = provider_manager.get_provider(tactical_provider)
+                if not tactical_provider_info:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Provider '{tactical_provider}' not found"
+                    )
+                
+                # Check if provider requires authentication
+                if tactical_provider_info.get('requires_auth', True):
+                    api_key = key_manager.keys_data.get(tactical_provider)
+                    if not api_key:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Provider '{tactical_provider}' requires API key. Please configure in key manager."
+                        )
+                else:
+                    api_key = None
+                
+                ai_config['tactical'] = {
+                    'provider': tactical_provider,
+                    'model': tactical_model,
+                    'api_key': api_key  # None for local providers
+                }
+            
+            # Store configuration in session if session_id provided
+            if session_id:
+                session_data = session_mgr.get_session_data(session_id)
+                if session_data:
+                    session_data['ai_config'] = ai_config
+                    # Update session data
+            
+            return {
+                'status': 'success',
+                'message': 'AI configuration updated successfully',
+                'config': {
+                    'general': {
+                        'provider': ai_config['general']['provider'],
+                        'model': ai_config['general']['model'],
+                        'requires_auth': general_provider_info.get('requires_auth', True)
+                    }
+                }
+            }
+            
+        except HTTPException:
+            # Re-raise HTTP exceptions
+            raise
+        except Exception as e:
+            logger.error(f"AI configuration error: {str(e)}")
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to configure AI"
+            )
+    
     return router

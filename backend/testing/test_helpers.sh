@@ -7,15 +7,38 @@ alias python3="python3 -c \"import sys; sys.path.insert(0, '$PYTHONPATH'); from 
 
 API_ENDPOINT="http://localhost:5000/api/admin"
 
+# Ensure admin password is available
+# If running from master script, ADMIN_PASSWORD will be set as environment variable
+# If running standalone, prompt user for password
+ensure_admin_password() {
+  if [ -z "$ADMIN_PASSWORD" ]; then
+    # Check if running in non-interactive mode
+    if [ "$AUTO_MODE" = "true" ]; then
+      echo "❌ ERROR: ADMIN_PASSWORD not set and running in AUTO_MODE"
+      echo "   Set ADMIN_PASSWORD environment variable before running"
+      exit 1
+    fi
+    
+    # Interactive mode - prompt for password
+    echo ""
+    read -s -p "Enter admin password: " ADMIN_PASSWORD
+    echo ""
+    export ADMIN_PASSWORD
+  fi
+}
+
 # Execute curl request and save response
 exec_request() {
   local desc="$1"
   local data="$2"
   
+  # Ensure password is available
+  ensure_admin_password
+  
   echo "━━━ $desc ━━━"
   response=$(curl -s -X POST "$API_ENDPOINT" \
     -H "Content-Type: application/json" \
-    -H "X-Admin-Password: swag" \
+    -H "X-Admin-Password: $ADMIN_PASSWORD" \
     -d "$data")
   
   echo "$response" | jq '.'
@@ -63,31 +86,67 @@ start_session() {
   sleep 1
 }
 
+# Validate session and restart if invalid
+validate_session() {
+  # Check if we have a valid session ID
+  if [ ! -f ".test_session_id" ]; then
+    echo "⚠️  No session file found, starting new session..."
+    start_session
+    return
+  fi
+  
+  # Load session ID from file
+  local saved_session_id=$(cat .test_session_id | head -n 1)
+  
+  # Check if session ID is null or empty
+  if [ "$saved_session_id" = "null" ] || [ -z "$saved_session_id" ]; then
+    echo "⚠️  Session ID is null/invalid, starting new session..."
+    start_session
+    return
+  fi
+  
+  # Optionally: Test if session is still valid by sending a status command
+  # This is disabled for now to avoid slowing down tests
+}
+
 # Execute test command
 test_command() {
   local desc="$1"
   local cmd="$2"
+  local encounter_id="$3"  # Optional 3rd parameter for encounter_id
   
-  exec_request "$desc" "{
-    \"command\": \"test_command\",
-    \"test_session_id\": \"$TEST_SESSION_ID\",
-    \"test_command\": \"$cmd\"
-  }"
-}
-
-# Create encounter using Python helper
-create_encounter() {
-  local desc="$1"
-  local actor_ids="$2"
-  local roll_initiative="$3"
+  # Ensure password is available
+  ensure_admin_password
+  
+  # Validate session before executing command
+  validate_session
+  
+  # Ensure TEST_SESSION_ID is loaded from file (after validation)
+  if [ -f ".test_session_id" ]; then
+    TEST_SESSION_ID=$(cat .test_session_id | head -n 1)
+  fi
   
   echo "━━━ $desc ━━━"
-  request_json=$(python3 ./create_encounter_helper.py "$actor_ids" "$TEST_SESSION_ID" $roll_initiative)
+  
+  # Build command with optional encounter_id
+  # For encounter operations, embed encounter_id directly in command string
+  if [ -n "$encounter_id" ]; then
+    if [[ "$cmd" == "advance_combat_turn" ]] || [[ "$cmd" == "delete_encounter" ]] || [[ "$cmd" == "get_encounter" ]]; then
+      # These commands need encounter_id as a parameter
+      cmd_with_id="$cmd encounter_id=\"$encounter_id\""
+      request_json=$(python3 ./create_command_helper.py "$TEST_SESSION_ID" "$cmd_with_id")
+    else
+      # Other commands that might accept encounter_id
+      request_json=$(python3 ./create_command_helper.py "$TEST_SESSION_ID" "$cmd" --encounter_id "$encounter_id")
+    fi
+  else
+    request_json=$(python3 ./create_command_helper.py "$TEST_SESSION_ID" "$cmd")
+  fi
   
   # Execute curl with truncation for JSON responses
   response=$(curl -s -X POST "$API_ENDPOINT" \
     -H "Content-Type: application/json" \
-    -H "X-Admin-Password: swag" \
+    -H "X-Admin-Password: $ADMIN_PASSWORD" \
     -d "$request_json")
   
   # Save full response to file FIRST (before truncation)
@@ -244,6 +303,7 @@ try:
         world_data = json.loads(json_str)
         tokens = world_data.get('active_scene', {}).get('tokens', [])
         actor_ids = [t['actor_id'] for t in tokens if 'actor_id' in t]
+        # Return as JSON array string, properly formatted
         print(json.dumps(actor_ids))
     else:
         print("[]")
@@ -280,6 +340,10 @@ except Exception as e:
     print("")
 PYTHON_SCRIPT
 )
+  
+  if [ "$TOKEN_ID" != "" ]; then
+    echo "$TOKEN_ID" > .token_id
+  fi
 }
 
 # Verify success in last response
@@ -320,7 +384,10 @@ verify_or_fail() {
 # Verify error and exit test if unexpected success
 verify_error_or_fail() {
   local success=$(cat .last_response.json | jq -r '.success // true')
+  local result_success=$(cat .last_response.json | jq -r '.result.success // true')
   local message=$(cat .last_response.json | jq -r '.message // ""')
+  local detail=$(cat .last_response.json | jq -r '.detail // ""')
+  local result_error=$(cat .last_response.json | jq -r '.result.error // ""')
   
   # Check for error indicators:
   # - success=false
@@ -352,6 +419,7 @@ verify_error_or_fail() {
     return 0
   else
     echo "❌ Verification: Expected error but got success"
+    cat .last_response.json | jq '.'
     return 1
   fi
 }

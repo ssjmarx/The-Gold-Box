@@ -38,6 +38,7 @@ class MessageProtocol:
     TYPE_ADVANCE_TURN = "advance_turn"
     TYPE_GET_ACTOR_DETAILS = "get_actor_details"
     TYPE_TOKEN_ACTOR_DETAILS = "token_actor_details"
+    TYPE_MODIFY_TOKEN_ATTRIBUTE = "modify_token_attribute"
     TYPE_GAME_DELTA = "game_delta"
     TYPE_WORLD_STATE_SYNC = "world_state_sync"
     TYPE_WORLD_STATE_REFRESH = "world_state_refresh"

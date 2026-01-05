@@ -215,8 +215,12 @@ class ServerStartup:
             True if environment is valid, False otherwise
         """
         try:
-            # Get effective port (environment override or config)
+            # Get effective port (environment override or config default)
             start_port = self.get_effective_port()
+            
+            # Validate startup environment (includes port check inside)
+            if not validate_startup_environment(self.config):
+                return False
             
             # Find available port with simple fallback (max 3 attempts)
             self.available_port = find_available_port(start_port)
@@ -282,6 +286,9 @@ class ServerStartup:
         """
         Start the FastAPI server with uvicorn.
         """
+        import signal
+        import uvicorn.config
+        
         try:
             # Display startup information
             self.display_startup_info()
@@ -293,9 +300,9 @@ class ServerStartup:
             if not websocket_started:
                 print("WARNING  Warning: Failed to initialize WebSocket endpoint. Native chat functionality may not work.")
             
-            # Start FastAPI server with uvicorn
-            uvicorn.run(
-                self.app,
+            # Configure uvicorn for graceful shutdown
+            config = uvicorn.config.Config(
+                app=self.app,
                 host='localhost',
                 port=self.available_port,
                 log_level="info" if not self.config['debug_mode'] else "debug",

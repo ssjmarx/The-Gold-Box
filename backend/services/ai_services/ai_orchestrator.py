@@ -90,9 +90,8 @@ class AIOrchestrator:
         if is_first_turn:
             try:
                 # Get websocket manager from ServiceRegistry
-                from ..system_services.service_factory import get_service_registry
-                registry = get_service_registry()
-                websocket_manager = registry.get('websocket_manager')
+                from ..system_services.registry import ServiceRegistry
+                websocket_manager = ServiceRegistry.get('websocket_manager')
                 
                 if websocket_manager:
                     # Send world state refresh request

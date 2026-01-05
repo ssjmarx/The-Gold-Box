@@ -81,9 +81,17 @@ class AIService:
             if not hasattr(key_manager, 'keys_data') or not key_manager.keys_data:
                 raise APIKeyException("Key manager keys_data not available - keys not loaded at startup")
             
-            api_key = key_manager.keys_data.get(provider_id)
-            if not api_key:
-                raise APIKeyException(f"API key not configured for provider '{provider_id}' in key manager")
+            # Only check for API key if provider requires authentication
+            if provider.get('requires_auth', True):
+                api_key = key_manager.keys_data.get(provider_id)
+                if not api_key:
+                    raise APIKeyException(f"API key not configured for provider '{provider_id}' in key manager")
+            else:
+                # No authentication needed for local providers
+                # However, LiteLLM's OpenAI client always requires an API key, even if unused
+                # Pass a dummy key to satisfy the client requirement
+                api_key = "dummy-key-not-required"
+                logger.debug(f"Using dummy API key for provider '{provider_id}' (no auth required)")
             
             # Configure provider in LiteLLM if it's custom
             if provider.get('is_custom', False):
@@ -151,7 +159,7 @@ class AIService:
                 
                 # Log summary of response from AI (detailed logs will be in add_conversation_message)
                 logger.info(f"===== RECEIVED FROM AI =====")
-                logger.info(f"LiteLLM Response: finish_reason={getattr(choice, 'finish_reason', 'unknown')}")
+                logger.info(f"Finish reason: {getattr(choice, 'finish_reason', 'unknown')}")
                 
                 # Check for tool_calls and content
                 if hasattr(choice, 'message'):
@@ -181,8 +189,6 @@ class AIService:
                         thinking = msg.thinking
                         logger.info(f"  Thinking length: {len(str(thinking))} characters")
                 
-                if choice.message and choice.message.content:
-                    logger.info(f"  content length: {len(choice.message.content)} characters")
                 logger.info(f"===== END RECEIVED FROM AI =====")
                 
                 # Extracts content and tool calls

@@ -92,3 +92,8 @@ yarn-error.log*
 *.bak
 *.backup
 *.old
+
+# Research and maintenance tool outputs
+*_research.json
+*_research.md
+research-output/

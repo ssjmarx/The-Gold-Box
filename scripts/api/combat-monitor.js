@@ -16,7 +16,7 @@ class CombatMonitor {
         
         this.cachedCombatData = null;
         this.lastCombatCheck = 0;
-        this.lastRequestId = null;  // Track the last create_encounter request_id
+        this.lastRequestId = null;  // Track the last request_id
         
         // Initialize combat event listeners
         this.initCombatListeners();
@@ -46,36 +46,18 @@ class CombatMonitor {
             try {
                 const actorIds = message.data?.actor_ids;
                 const rollInitiative = message.data?.roll_initiative !== false; // Default to true
-                const requestId = message.request_id;  // Capture the request_id
+                const requestId = message.request_id;  // Capture request_id
                 
                 if (!actorIds || !Array.isArray(actorIds) || actorIds.length ===0) {
                     console.error('Combat Monitor: Invalid actor_ids in create_encounter request');
                     return;
                 }
                 
-                // Store the request_id so transmitCombatState can include it
+                // Store request_id so transmitCombatState can include it
                 this.lastRequestId = requestId;
                 
-                // Check if combat is already active
-                if (game.combat && game.combat.started) {
-                    console.warn('Combat Monitor: Combat already active, cannot create new encounter');
-                    // Send error response instead of combat state
-                    const wsClient = window.goldBox?.webSocketClient;
-                    if (wsClient && wsClient.isConnected) {
-                        const errorMessage = {
-                            type: 'error',
-                            request_id: requestId,  // Include request_id for correlation
-                            data: {
-                                error: 'Combat encounter already active',
-                                error_code: 'COMBAT_ALREADY_ACTIVE'
-                            },
-                            timestamp: Date.now()
-                        };
-                        await wsClient.send(errorMessage);
-                        console.log('Combat Monitor: Sent error response for create_encounter:', errorMessage);
-                    }
-                    return;
-                }
+                // REMOVED: Blocking check for active combat - Foundry supports multiple encounters via game.combats
+                // Combat is automatically added to game.combats collection upon creation
                 
                 // Create combat with specified actors
                 const combatData = {
@@ -293,8 +275,8 @@ class CombatMonitor {
                 }
                 
                 // Advance to next turn using Foundry's native API
-                await game.combat.nextTurn();
-                console.log('Combat Monitor: Advanced to next turn');
+                await combat.nextTurn();
+                console.log('Combat Monitor: Advanced to next turn for encounter:', encounterId);
                 
                 // Wait a moment for Foundry to update combat state and fire hooks
                 // This ensures we capture updated turn information
@@ -346,6 +328,44 @@ class CombatMonitor {
                 
             } catch (error) {
                 console.error('Combat Monitor: Error handling advance_turn:', error);
+            }
+        });
+        
+        // Handler for activate_combat messages
+        wsClient.onMessageType('activate_combat', async (message) => {
+            console.log('Combat Monitor: Received activate_combat request', message);
+            
+            try {
+                // Store request_id so transmitCombatState can include it
+                const requestId = message.request_id;
+                if (requestId) {
+                    this.lastRequestId = requestId;
+                    console.log('Combat Monitor: Stored request_id for activate_combat:', requestId);
+                }
+                
+                // Look up combat by ID from game.combats collection
+                const encounterId = message.data?.encounter_id;
+                const combat = encounterId ? game.combats?.get(encounterId) : null;
+                
+                if (!combat) {
+                    console.warn('Combat Monitor: Encounter not found for activation:', encounterId);
+                    // Transmit current combat state
+                    await this.transmitCombatState();
+                    return;
+                }
+                
+                // Activate the combat encounter
+                await combat.activate();
+                console.log('Combat Monitor: Combat activated:', encounterId);
+                
+                // Wait a moment for Foundry to update
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                // Transmit updated combat state
+                await this.transmitCombatState();
+                
+            } catch (error) {
+                console.error('Combat Monitor: Error handling activate_combat:', error);
             }
         });
         
@@ -538,7 +558,7 @@ class CombatMonitor {
             let effectiveTurn = 0;
             
             // Special case: Combat just started, no turn has begun yet (round 0, turn null)
-            // Default to the first combatant in Foundry's turn order
+            // Default to first combatant in Foundry's turn order
             if (combatObj.round === 0 && (combatObj.turn === null || combatObj.turn === undefined)) {
                 if (combatantsArray.length > 0) {
                     currentTurnId = combatantsArray[0]._id;
@@ -577,8 +597,11 @@ class CombatMonitor {
             }
             
             // Get current combat data from Foundry in the order Foundry is using
+            // Include token_id and actor_uuid for token attribute management
             const combatants = combatantsArray.map(c => ({
                 name: c.name || 'Unknown',
+                token_id: c.tokenId,  // Token UUID for attribute modification
+                actor_uuid: c.actorUuid,  // Token-specific actor UUID for queries
                 initiative: c.initiative || 0,
                 is_player: c.hasPlayerOwner || false,
                 is_current_turn: currentTurnId === c._id
@@ -664,25 +687,23 @@ class CombatMonitor {
     }
     
     /**
-     * Get current turn information
-     * @returns {Object|null} Current turn combatant or null
+     * Transmit combat state to backend
+     * Handles both direct combat state and responses to refresh requests
+     * @param {Object} combatState - The combat state to transmit
+     * @param {string|null} requestId - Optional request ID if responding to a refresh request
      */
-    getCurrentTurn() {
-        if (!this.combatState.in_combat) {
-            return null;
+    transmitCombatState(combatState, requestId = null) {
+        // Get Gold Box WebSocket client instance
+        const wsClient = window.goldBox?.webSocketClient;
+        
+        if (!wsClient || !wsClient.isConnected) {
+            console.log('Combat Monitor: WebSocket client not available or not connected, skipping combat state transmission');
+            return;
         }
         
-        return this.combatState.combatants.find(c => c.is_current_turn) || null;
-    }
-    
-    /**
-     * Get turn order with initiative values
-     * @returns {Array} Sorted combatants by initiative
-     */
-    getTurnOrder() {
-        if (!this.combatState.in_combat) {
-            return [];
-        }
+        // Get ALL encounters from game.combats collection
+        const allCombats = game.combats ? Array.from(game.combats.values()) : [];
+        const activeCombatId = game.combat ? game.combat._id : null;
         
         // Build combat state for all encounters
         const encounterStates = allCombats.filter(c => c.started).map(combat => {
@@ -754,6 +775,17 @@ class CombatMonitor {
     }
     
     /**
+     * Get current turn combatant
+     * @returns {Object|null} Current turn combatant or null if not in combat
+     */
+    getCurrentTurn() {
+        if (!this.combatState.in_combat || !this.combatState.combatants) {
+            return null;
+        }
+        return this.combatState.combatants.find(c => c.is_current_turn) || null;
+    }
+    
+    /**
      * Get combat state for backend integration
      * @param {boolean} forceRefresh - Force refresh from Foundry even if cache is recent
      * @returns {Object} Combat state formatted for backend
@@ -772,40 +804,6 @@ class CombatMonitor {
             combatants: this.combatState.combatants,
             last_updated: Date.now()
         };
-    }
-    
-    /**
-     * Transmit combat state to backend via WebSocket
-     */
-    async transmitCombatState() {
-        try {
-            // Get Gold Box WebSocket client instance
-            const wsClient = window.goldBox?.webSocketClient;
-            
-            if (!wsClient || !wsClient.isConnected) {
-                console.log('Combat Monitor: WebSocket client not available or not connected, skipping combat state transmission');
-                return;
-            }
-            
-            // Get current combat state
-            const combatState = this.getCombatStateForBackend();
-            
-            // Send combat state via WebSocket
-            const message = {
-                type: 'combat_state',
-                request_id: this.lastRequestId,  // Include the request_id if available
-                data: {
-                    combat_state: combatState,
-                    timestamp: Date.now()
-                }
-            };
-            
-            await wsClient.send(message);
-            console.log('Combat Monitor: Transmitted combat state to backend:', combatState);
-            
-        } catch (error) {
-            console.error('Combat Monitor: Error transmitting combat state:', error);
-        }
     }
 }
 

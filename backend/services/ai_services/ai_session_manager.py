@@ -321,15 +321,13 @@ class AISessionManager:
         session_data['conversation_history'].append(message)
         session_data['last_activity'] = current_time
         
-        # Print debug output for this message (once when added)
+        # Log message summary (simplified to reduce log noise)
         role = message.get('role', 'unknown')
         content = message.get('content', '')
         tool_calls = message.get('tool_calls', [])
         tool_call_id = message.get('tool_call_id', '')
         
-        logger.info(f"===== ADDING MESSAGE TO CONVERSATION =====")
-        logger.info(f"Session: {session_id}")
-        logger.info(f"Role: {role}")
+        logger.debug(f"Adding message to conversation {session_id}: role={role}")
         
         if tool_calls:
             # Tool calls already logged by ai_service.py, skip here

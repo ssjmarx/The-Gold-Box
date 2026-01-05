@@ -15,7 +15,7 @@ start_session
 
 # Step 2: Get baseline message count
 test_command "Get Baseline Message History" "get_message_history 10"
-BASELINE_COUNT=$(get_value ".result.messages_count // 0")
+BASELINE_COUNT=$(get_value ".result.count // 0")
 echo "📊 Baseline message count: $BASELINE_COUNT"
 echo ""
 
