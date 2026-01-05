@@ -5,6 +5,132 @@ All notable changes to The Gold Box project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0/).
 
+## [0.3.10] - 2026-01-XX
+
+### Major Release: The Combatant
+
+#### Core Combat Management Features
+
+**Feature 1: Combat Encounter Management**
+- **AI Encounter Creation** - New `create_encounter` tool allows AI to start combat encounters
+- **AI Encounter Deletion** - New `delete_encounter` tool allows AI to end combat encounters
+- **Initiative Control** - Optional `roll_initiative` parameter for systems with manual initiative
+- **Immediate Error Handling** - Duplicate combat creation returns immediate error (no 30s timeout)
+- **Foundry Native APIs** - Uses Foundry's native combat creation and management
+
+**Feature 2: Turn Management**
+- **Turn Advancement** - New `advance_combat_turn` tool allows AI to move to next combatant
+- **Automatic Turn Order** - Uses Foundry's native `game.combat.nextTurn()` API
+- **Multiple Turn Advances** - Supports advancing multiple turns in single AI response for grouped NPCs
+
+**Feature 3: Actor Details Query**
+- **Token-Specific Queries** - New `get_actor_details` tool queries token-specific actor instances
+- **Complete Stat Blocks** - Returns full actor data structure with field names
+- **Grep-Like Search** - Optional `search_phrase` parameter for context-aware searching
+- **Case-Insensitive Matching** - Substring search across all actor fields
+- **Context Return** - Includes parent and sibling fields for each match
+- **Search Summary** - Returns total matches and fields searched
+
+**Feature 4: Token Attribute Management**
+- **System-Agnostic Modification** - New `modify_token_attribute` tool works with any game system
+- **Damage and Healing** - Relative changes via `is_delta=true` parameter
+- **Absolute Values** - Set exact values via `is_delta=false` parameter
+- **Foundry Native API** - Uses `modifyTokenAttribute()` for maximum compatibility
+- **Token Bar Updates** - Optional `is_bar` parameter updates token display
+- **Multi-Token Updates** - Supports applying effects to multiple tokens in single call
+
+**Feature 5: Enhanced Delta Tracking**
+- **Turn Advanced Delta** - Tracks when combat turns advance
+- **Combatant Changed Delta** - Tracks ANY token attribute changes (not just HP)
+- **Detailed Change Tracking** - Includes token_id, attribute_path, old_value, new_value, change_type
+- **Change Type Detection** - Automatically categorizes changes (damage/healing/other)
+- **Delta Transmission** - Frontend sends deltas to backend via WebSocket
+- **Automatic Cleanup** - Deltas cleared after AI turn completes
+
+**Feature 6: Prompt Engineering Enhancements**
+- **Batching Guidance** - Added efficiency instructions to all tool descriptions
+  - `get_message_history`: "Efficient: only call once per turn, not before each tool use."
+  - `post_message`: "Multiple messages can be batched in a single call."
+  - `roll_dice`: "Multiple rolls can be batched in a single call."
+- **Role Prompt Updates** - Enhanced all role prompts with efficiency instructions
+  - GM Role: Batch actions, handle multiple NPCs together
+  - GM Assistant Role: Batch related actions when requested
+  - Player Role: Roll multiple dice formulas together, include player list
+- **Bug Fix** - Fixed "name 'context' is not defined" error (2026-01-05)
+
+**Feature 7: Local Model Support & LiteLLM Update**
+- **Local Provider Detection** - System distinguishes local vs remote providers
+  - 6 local providers: ollama, vllm, lm_studio, llamafile, xinference, lemonade
+  - Local providers require NO API keys
+  - Automatic authentication bypass for local providers
+- **Enhanced Model Name Validation** - Expanded regex to support more naming conventions
+  - Updated from `^[a-zA-Z0-9._-]+$` to `^[a-zA-Z0-9._:/-]+$`
+  - Supports colons: `qwen3:14b`, `llama3.2:3b`
+  - Supports slashes: `openrouter/anthropic/claude-3`
+  - Critical for Ollama and OpenRouter compatibility
+- **Updated LiteLLM Provider List** - Synchronized with 103 total providers
+  - Removed 18 outdated providers
+  - Added 48 new providers (including 4 local providers)
+  - Added `requires_auth` field to all providers
+  - Added `provider_type` field (local/remote) to all providers
+- **Provider Type Awareness** - System differentiates authentication requirements
+  - `ProviderManager` loads `requires_auth` and `provider_type` fields
+  - `AIService` conditionally checks API keys based on provider
+  - `KeyManager` skips API key entry for local providers
+  - `CustomProviderWizard` offers "None (Local Provider)" option
+- **Foundry VTT Integration** - Configure local models directly in Foundry settings
+  - New General Provider/Model settings for local AI
+  - Provider-specific base URLs for local instances
+  - Seamless switching between local and remote providers
+
+**Feature 8: Testing Infrastructure**
+- **Comprehensive Test Suite** - `function_check.sh` with 15+ automated test commands
+- **Combat Management Tests** - create_encounter, delete_encounter, error handling
+- **Turn Management Tests** - advance_combat_turn, turn order validation
+- **Actor Details Tests** - Full sheet, search phrases, numeric search, case-insensitivity
+- **Token Attribute Tests** - Damage, healing, absolute values, bar updates
+- **Delta Tracking Tests** - Turn advances, combatant changes
+- **Integration Tests** - Full combat workflow validation
+
+#### Breaking Changes
+
+- **Model Name Validation** - Expanded regex allows colons and slashes (may affect custom validation)
+- **Provider Configuration** - New `requires_auth` and `provider_type` fields added
+- **API Key Behavior** - Local providers no longer require dummy API keys
+
+#### Migration Notes
+
+- **Automatic Upgrade** - Existing provider configurations work with new fields
+- **Local Provider Setup** - Can now configure Ollama and local models directly in Foundry
+- **Model Name Support** - Can use colon-format names (e.g., `qwen3:14b`)
+- **Backward Compatible** - All existing features work unchanged
+
+#### Updated Files (Major Changes)
+
+**Backend Services:**
+- `backend/services/ai_tools/ai_tool_definitions.py` - New combat tools, updated tool descriptions
+- `backend/services/ai_tools/ai_tool_executor.py` - New combat tool executors
+- `backend/services/ai_services/ai_service.py` - Conditional API key checking
+- `backend/services/message_services/message_delta_service.py` - TurnAdvanced, CombatantChanged deltas
+- `backend/shared/providers/custom_provider_wizard.py` - Expanded validation, local provider support
+- `backend/services/system_services/provider_manager.py` - Provider type awareness
+- `backend/services/system_services/key_manager.py` - Skip API keys for local providers
+
+**Frontend Services:**
+- `scripts/api/combat-monitor.js` - Encounter creation/deletion, turn advancement
+- `scripts/services/world-state-collector.js` - Actor details queries, attribute modification
+
+**Server Files:**
+- `backend/shared/server_files/litellm_providers.json` - Updated to 103 providers
+
+#### Implementation Status
+- **Features Completed**: 8/8 (100%)
+- **Testing Complete**: Yes - All features tested via function_check.sh
+- **Documentation Complete**: Yes
+- **Ready for 0.3.11**: Yes - Combat management fully implemented
+
+---
+
 ## [0.3.9] - 2025-12-30
 
 ### Major Release: The Foundation

@@ -263,21 +263,59 @@ The `World State Overview` now includes:
 
 ### **Patch 0.3.10: The Combatant**
 
-**Goal:** To give the AI the tools needed to actively manage and participate in combat encounters, moving it from a passive observer to an active combatant.
+**Status:** ✅ **COMPLETE**
+**Completed:** 2026-01-XX
+
+**Goal:** To give AI tools to actively manage and participate in combat encounters, moving it from a passive observer to an active combatant.
 
 #### **New Functions (0.3.10)**
-*   `create_encounter`
-*   `delete_encounter`
-*   `advance_combat_turn`
-*   `get_actor_details`
-*   `update_actor_hp`
+*   `create_encounter` ✅
+*   `delete_encounter` ✅
+*   `advance_combat_turn` ✅
+*   `get_actor_details` ✅
+*   `modify_token_attribute` ✅ (replaces planned `update_actor_hp`)
 
 #### **New Deltas Tracked (0.3.10)**
-*   `TurnAdvanced`
-*   `CombatantChanged`
+*   `TurnAdvanced` ✅
+*   `CombatantChanged` ✅
 
 #### **Initial Context Added (0.3.10)**
-No major changes to the `World State Overview`, as the AI can now query for this information dynamically.
+No major changes to `World State Overview`, as AI can now query for this information dynamically.
+
+**Note:** `modify_token_attribute` is more powerful than originally planned `update_actor_hp` as it can modify ANY token attribute, not just HP. This provides system-agnostic attribute modification.
+
+---
+
+### **Local Model Support & LiteLLM Update**
+
+**Status:** ✅ **COMPLETE**
+**Completed:** 2026-01-XX
+
+**Goal:** Enable users to configure local AI providers (Ollama, vLLM, etc.) directly in Foundry VTT without requiring API keys, and synchronize provider list with latest LiteLLM offerings.
+
+#### **Provider Configuration Enhancements**
+*   **Provider Type Detection** - System now differentiates local (self-hosted) vs remote (cloud) providers
+*   **Authentication Bypass** - Local providers automatically skip API key requirements
+*   **Provider List Update** - Synchronized with LiteLLM's current 103 providers
+    *   Added 48 new providers
+    *   Removed 18 outdated providers
+    *   Added 6 local providers (ollama, vllm, lm_studio, llamafile, xinference, lemonade)
+*   **Enhanced Model Validation** - Expanded regex to support colons and slashes in model names
+
+#### **Foundry VTT Integration**
+*   **Direct Provider Configuration** - Users can configure local models directly in Foundry settings
+*   **Dual Model Support** - Separate configuration for general and tactical AI models
+*   **Seamless Switching** - Can mix local and remote providers (e.g., local Ollama + remote OpenAI)
+*   **Custom Base URLs** - Provider-specific base URLs for local instances
+
+#### **Breaking Changes**
+*   **Model Name Regex** - Expanded to allow colons and slashes (may affect custom validation)
+*   **Provider Metadata** - New `requires_auth` and `provider_type` fields added to provider configuration
+
+#### **Migration Notes**
+*   **Automatic Compatibility** - Existing provider configurations work with new fields
+*   **Local Provider Setup** - No longer requires dummy API keys - configure directly in Foundry
+*   **Model Name Support** - Can now use standard naming conventions (e.g., `qwen3:14b`)
 
 ---
 

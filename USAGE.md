@@ -94,30 +94,120 @@ The Gold Box module provides configurable settings through the Foundry VTT inter
 | **Backend URL** | URL of the Python backend server | `http://localhost:5000` |
 | **Backend Password** | Admin password for backend operations (from server startup) | `""` |
 
+### Local AI Providers
+
+The Gold Box supports local AI providers that don't require API keys, such as Ollama, vLLM, LM Studio, and others.
+
+| Setting | Description | Example |
+|---------|-------------|----------|
+| **General LLM Provider** | Local provider name (e.g., `ollama`, `vllm`, `lm_studio`) | `ollama` |
+| **General LLM Model** | Model name for local provider | `qwen3:14b` |
+| **General LLM Base URL** | Local instance URL | `http://localhost:11434` |
+
+#### Supported Local Providers
+
+The Gold Box currently supports these local AI providers:
+- **Ollama** - `ollama` (http://localhost:11434)
+- **vLLM** - `vllm` (http://localhost:8000/v1)
+- **LM Studio** - `lm_studio` (http://localhost:1234/v1)
+- **Llamafile** - `llamafile` (http://localhost:8080/v1)
+- **Xinference** - `xinference` (http://localhost:9997/v1)
+- **Lemonade** - `lemonade` (custom URL)
+
+#### Local Provider Setup
+
+1. **Start Your Local Provider** - Run Ollama, vLLM, or your preferred local AI service
+2. **Configure in Foundry** - Go to Module Settings → The Gold Box → AI Configuration
+3. **Select Local Provider** - Choose from "General LLM Provider" dropdown
+4. **Enter Model Name** - Specify the model (e.g., `qwen3:14b`, `llama3.2:3b`)
+5. **Set Base URL** - Enter your local provider's URL (usually `http://localhost:PORT/v1`)
+6. **No API Key Required** - Local providers work without API keys
+
+#### Model Naming Conventions
+
+Different providers use different model naming formats:
+
+**Ollama Format** (with tags):
+```
+qwen3:14b          # Specific version tag
+llama3.2:3b         # Version + tag
+gemma3:latest         # Latest version tag
+```
+
+**vLLM Format** (without tags):
+```
+meta-llama/Llama-3.2-3B-Instruct
+Qwen/Qwen2.5-7B-Instruct
+```
+
+**LM Studio Format** (simple names):
+```
+llama-3.2-3b-instruct
+mistral-7b-instruct
+```
+
+#### Dual Provider Configuration
+
+You can configure different providers for general chat and combat AI:
+
+```javascript
+{
+  "aiRole": "dm",
+  "generalProvider": "ollama",
+  "generalModel": "qwen3:14b",
+  "generalBaseURL": "http://localhost:11434",
+  "tacticalProvider": "openai",      // Remote provider for combat (future feature)
+  "tacticalModel": "gpt-4",
+  "tacticalBaseURL": "https://api.openai.com/v1"
+}
+```
+
+This allows you to use a fast local model for general chat and a powerful remote model for combat scenarios (when tactical AI is implemented in future releases).
+
+#### Troubleshooting Local Providers
+
+**Connection Failed**:
+- Verify local provider is running
+- Check base URL is correct (including `/v1` if needed)
+- Ensure CORS is enabled on local provider
+
+**Model Not Found**:
+- Verify model name format matches your provider's convention
+- Check model is downloaded/available in local provider
+- Try without version tags (e.g., `llama3.2` instead of `llama3.2:3b`)
+
+**Slow Response Times**:
+- Local models may be slower than cloud services
+- Consider using smaller models for faster responses
+- Ensure your machine has sufficient CPU/GPU resources
+
 ### AI Configuration
 
 | Setting | Description | Default |
 |---------|-------------|---------|
 | **AI Role** | Role AI should play in your game (`dm`, `dm_assistant`, `player`) | `dm` |
 | **General LLM Provider** | LiteLLM provider name (e.g., `openai`, `anthropic`, `glm`) | `""` |
-| **General LLM Model** | Model name for the provider (e.g., `gpt-3.5-turbo`, `claude-3-5-sonnet-20241022`) | `""` |
+| **General LLM Model** | Model name for provider (e.g., `gpt-3.5-turbo`, `claude-3-5-sonnet-20241022`) | `""` |
 | **General LLM Base URL** | Custom base URL for provider endpoints (optional) | `""` |
-| **General LLM API Version** | API version for the provider | `v1` |
+| **General LLM API Version** | API version for provider | `v1` |
 | **General LLM Timeout** | Request timeout in seconds | `30` |
 | **General LLM Max Retries** | Maximum retry attempts for failed requests | `3` |
 | **General LLM Custom Headers** | Custom headers in JSON format (advanced) | `""` |
 
-### Tactical AI Configuration
+### Tactical AI Configuration (Future Feature)
 
 | Setting | Description | Default |
 |---------|-------------|---------|
-| **Tactical LLM Provider** | Provider for combat-specific AI (placeholder) | `""` |
-| **Tactical LLM Model** | Model for combat scenarios (placeholder) | `""` |
-| **Tactical LLM Base URL** | Custom base URL for tactical AI (placeholder) | `""` |
+| **Tactical LLM Provider** | Provider for combat-specific AI (placeholder - not yet implemented) | `""` |
+| **Tactical LLM Model** | Model for combat scenarios (placeholder - not yet implemented) | `""` |
+| **Tactical LLM Base URL** | Custom base URL for tactical AI (placeholder - not yet implemented) | `""` |
 | **Tactical LLM API Version** | API version for tactical AI | `v1` |
 | **Tactical LLM Timeout** | Request timeout in seconds | `30` |
 | **Tactical LLM Max Retries** | Maximum retry attempts | `3` |
 | **Tactical LLM Custom Headers** | Custom headers in JSON format | `""` |
+
+**Note:** Tactical AI configuration is a placeholder for future releases. Currently, all AI responses use the General LLM Provider and Model settings.
+
 
 ### Context Configuration
 
@@ -177,32 +267,67 @@ The Gold Box supports creating custom AI providers that follow OpenAI-compatible
 
 1. **Start Backend Server**: Run `python server.py` or use the key management wizard with `GOLD_BOX_KEYCHANGE=true`
 
-2. **Select Key Management**: Choose the key management menu option
+2. **Select Key Management**: Choose to key management menu option
 
-3. **Add Custom Provider**: Select "Add Custom Provider" from the menu
+3. **Add Custom Provider**: Select "Add Custom Provider" from menu
 
 4. **Enter Provider Name**: Choose a unique identifier (e.g., `my-provider`, `local-llm`)
 
-5. **Enter Base URL**: Provide the API base URL (e.g., `https://api.example.com/v1`)
+5. **Enter Base URL**: Provide to API base URL (e.g., `https://api.example.com/v1`, `http://localhost:11434/v1`)
 
-6. **Enter Model Name**: Specify the default model name (e.g., `my-model-name`)
+6. **Enter Model Name**: Specify to default model name (e.g., `my-model-name`, `qwen3:14b`)
 
-7. **Enter API Key**: Provide your API key for the custom provider
+7. **Enter API Key**: Provide your API key for to custom provider (or select "None" for local providers)
 
-8. **Test Connection**: The wizard will test the connection to verify configuration
+8. **Test Connection**: The wizard will test to connection to verify configuration
 
 9. **Save Configuration**: Confirm to save your custom provider settings
+
+### Authentication Options
+
+The custom provider wizard supports these authentication types:
+
+1. **Bearer Token** - Standard JWT/API token (OpenAI, Anthropic, etc.)
+2. **API Key in Header** - Custom header name (some providers)
+3. **API Key in Query** - API key as URL parameter
+4. **Basic Authentication** - Username:Password format
+5. **Custom Header** - Specify header name and value
+6. **None (Local Provider)** - No authentication required (Ollama, vLLM, etc.)
+
+### Provider Type
+
+When creating to custom provider, choose between:
+
+1. **Remote Provider** - Cloud API requiring authentication
+2. **Local Provider** - Self-hosted, no authentication required
+
+Local providers automatically skip API key requirements and can be configured directly in Foundry VTT settings.
 
 ### Custom Provider Description
 
 The custom provider wizard creates a new AI provider configuration that follows OpenAI-compatible API standards. Once created, your custom provider will appear in Foundry VTT module settings under "General LLM Provider" and can be used just like any built-in provider.
 
-**Supported Features for Custom Providers**:
+**Supported Features for Custom Providers:**
 - OpenAI-compatible chat completion endpoints
 - Standard request/response format
 - API key authentication
 - Custom base URL support
 - Model selection
+- Local provider support (no API key required)
+
+### Model Name Guidelines
+
+Model names must follow these rules:
+- **Characters Allowed**: Letters, numbers, dots, hyphens, underscores, colons, and forward slashes
+- **No Spaces**: Model names cannot contain spaces
+- **Examples**:
+  - ✅ Valid: `gpt-4`, `claude-3-5-sonnet-20241022`
+  - ✅ Valid with tags: `qwen3:14b`, `llama3.2:3b`
+  - ✅ Valid with slashes: `openrouter/anthropic/claude-3`
+  - ❌ Invalid: `gpt 4` (contains space)
+  - ❌ Invalid: `model@name` (contains @ symbol)
+
+**Note**: The colon (`:`) and slash (`/`) characters are specifically supported for Ollama's tag format (e.g., `qwen3:14b`) and OpenRouter's provider/model format (e.g., `openrouter/anthropic/claude-3`). These naming conventions are critical for local provider compatibility.
 
 ### Example Custom Provider Configuration
 
