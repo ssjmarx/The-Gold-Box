@@ -135,7 +135,8 @@ class TestingHarness:
             ai_role = universal_settings.get('ai role', 'gm')
             system_prompt = self._unified_processor.generate_enhanced_system_prompt(
                 ai_role,
-                [combat_context_message]
+                [combat_context_message],
+                universal_settings
             )
             
             # Step 8: Use the SHARED UTILITY to build initial messages with delta injection

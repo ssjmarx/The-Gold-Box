@@ -20,7 +20,7 @@ cryptography>=41.0.0        # BSD 3-Clause License - Encryption and security
 beautifulsoup4==4.12.3       # MIT License - HTML parsing for Foundry chat messages
 
 # AI Integration (Phase 1)
-litellm==1.80.0              # MIT License - Unified LLM interface (major update!)
+litellm==1.80.11             # MIT License - Unified LLM interface (latest version - updated 2026-01-05)
 slowapi==0.1.9               # MIT License - Rate limiting for FastAPI
 
 # WebSocket Support (Phase 1)

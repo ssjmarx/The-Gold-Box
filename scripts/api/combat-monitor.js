@@ -407,6 +407,12 @@ class CombatMonitor {
         // It starts firing from turn 1, so we MUST use combatRound to capture turn 0
         Hooks.on('combatRound', (combat, round) => {
             console.log('Combat round:', combat, round);
+            
+            // NEW: Track turn advance in delta service on new round
+            if (window.FrontendDeltaService) {
+                window.FrontendDeltaService.setTurnAdvanced(round, 0);
+            }
+            
             // When new round starts, first combatant is index 0
             // Pass turn 0 explicitly since combatTurn won't fire with it
             // Force a small delay to ensure Foundry has updated combat.turn
@@ -421,6 +427,16 @@ class CombatMonitor {
         // combatRound hook handles turn 0 (first combatant of new round)
         Hooks.on('combatTurn', (combat, context, combatant) => {
             console.log('Combat turn:', combat, context, combatant);
+            
+            // NEW: Track turn advance in delta service
+            if (window.FrontendDeltaService) {
+                // Foundry's context.turn is 0-based, convert to 1-based
+                const turnNumber = (context?.turn || 0) + 1;
+                const roundNumber = combat.round || 0;
+                
+                window.FrontendDeltaService.setTurnAdvanced(roundNumber, turnNumber);
+            }
+            
             // Always use context.turn (0-based index) - this is always accurate
             this.updateCombatState(combat, context?.turn);
         });
@@ -429,7 +445,52 @@ class CombatMonitor {
         // Note: Hook passes combatant as first param, not combat object - use game.combat
         Hooks.on('updateCombatant', (document, data, options, userId) => {
             console.log('Combatant updated:', document, data);
-            // Always use game.combat to get the full combat state with all combatants
+            
+            // NEW: Track combatant attribute changes in delta service
+            if (window.FrontendDeltaService) {
+                // Detect if this is a damage/healing change
+                let changeType = 'other';
+                
+                // Check if HP changed
+                if (data.system?.attributes?.hp?.value !== undefined) {
+                    const oldHP = document.system?.attributes?.hp?.value || 0;
+                    const newHP = data.system.attributes.hp.value;
+                    
+                    if (newHP < oldHP) {
+                        changeType = 'damage';
+                    } else if (newHP > oldHP) {
+                        changeType = 'healing';
+                    }
+                    
+                    // Track HP change
+                    window.FrontendDeltaService.setCombatantChanged({
+                        tokenId: document.tokenId,
+                        attributePath: 'attributes.hp.value',
+                        oldValue: oldHP,
+                        newValue: newHP,
+                        changeType: changeType
+                    });
+                }
+                
+                // Track other attribute changes (status effects, conditions, etc.)
+                // Find first changed attribute
+                const changedKey = Object.keys(data.system || {}).find(key => 
+                    data.system[key] !== document.system?.[key]
+                );
+                
+                if (changedKey && changedKey !== 'attributes') {
+                    const attributePath = changedKey;
+                    window.FrontendDeltaService.setCombatantChanged({
+                        tokenId: document.tokenId,
+                        attributePath: attributePath,
+                        oldValue: document.system?.[changedKey],
+                        newValue: data.system[changedKey],
+                        changeType: 'other'
+                    });
+                }
+            }
+            
+            // Always use game.combat to get full combat state with all combatants
             this.updateCombatState(game.combat);
         });
         

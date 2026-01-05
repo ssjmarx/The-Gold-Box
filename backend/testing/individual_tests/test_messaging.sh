@@ -74,10 +74,38 @@ else
 fi
 echo ""
 
-# Step 6: Check session status
+# Step 6: Post HTML chat card
+test_command "Post HTML Chat Card" "post_message [{\"content\":\"<div class=\\\"chat-card item-card\\\"><section class=\\\"card-header description collapsible\\\"><header class=\\\"summary\\\"><div class=\\\"name-stacked border\\\"><span class=\\\"title\\\">Fireball Spell</span><span class=\\\"subtitle\\\">Evocation, 3rd Level</span></div><i class=\\\"fas fa-chevron-down fa-fw\\\"></i></header><section class=\\\"details collapsible-content card-content\\\"><div class=\\\"wrapper\\\"><p><strong>Casting Time:</strong> 1 action</p><p><strong>Range:</strong> 150 feet</p><p><strong>Damage:</strong> 8d6 fire damage in 20-foot radius</p><p>A bright streak flashes from your pointing finger to a point you choose within range then blossoms with a low roar into an explosion of flame.</p></div></section></div>\",\"type\":\"chat-message\",\"speaker\":{\"alias\":\"The Gold Box\"}}]"
+
+# CRITICAL FIX: Wait for chat card to be collected by frontend
+echo "⏳ Waiting for chat card to be collected..."
+sleep 2
+
+# Step 7: Verify chat card was added
+test_command "Verify Chat Card Added" "get_message_history 5"
+# Filter for chat messages (type 'cm')
+CHAT_CARD_COUNT=$(get_value '.result.messages // [] | map(select(.t == "cm")) | length')
+
+echo "📊 Chat messages found after card test: $CHAT_CARD_COUNT"
+
+# Extract the most recent message to verify it's the chat card
+LATEST_MESSAGE=$(get_value '.result.messages // [] | map(select(.t == "cm")) | .[-1].c // empty')
+
+echo "📊 Latest message content (first 100 chars): $(echo "$LATEST_MESSAGE" | cut -c1-100)"
+
+# Verify chat card contains expected content
+if echo "$LATEST_MESSAGE" | grep -q "Fireball Spell"; then
+  echo "✅ VERIFICATION PASSED: Chat card with HTML formatting created successfully"
+else
+  echo "❌ VERIFICATION FAILED: Chat card not found or content doesn't match"
+  track_failure
+fi
+echo ""
+
+# Step 8: Check session status
 test_command "Check Session Status" "status"
 
-# Step 7: End session with WebSocket reset
+# Step 9: End session with WebSocket reset
 echo ""
 echo "ℹ️  Ending session with WebSocket reset..."
 end_session true
@@ -86,7 +114,8 @@ end_session true
 report_test_result "Messaging Operations" \
   "Single message posting" \
   "Multiple message posting as array" \
-  "Message count verification (3-4 messages added)"
+  "HTML chat card creation with formatting" \
+  "Message count verification (4-5 messages added)"
 
 # Exit with appropriate code
 if has_failures; then

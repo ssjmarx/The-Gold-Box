@@ -1078,7 +1078,7 @@ def initialize_websocket_manager():
                     ai_role = universal_settings.get('ai_role', 'gm')
                     
                     # Generate enhanced system prompt based on AI role using unified processor
-                    system_prompt = processor.generate_enhanced_system_prompt(ai_role, compact_messages)
+                    system_prompt = processor.generate_enhanced_system_prompt(ai_role, compact_messages, universal_settings)
                     import json
                     compact_json_context = json.dumps(compact_messages, indent=2)
                     

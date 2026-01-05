@@ -212,7 +212,7 @@ async def api_chat(http_request: Request, request: APIChatRequest):
         
         # Step 5: Generate enhanced system prompt based on AI role using unified processor
         ai_role = universal_settings.get('ai role', 'gm') if universal_settings else 'gm'
-        system_prompt = unified_processor.generate_enhanced_system_prompt(ai_role, compact_messages)
+        system_prompt = unified_processor.generate_enhanced_system_prompt(ai_role, compact_messages, universal_settings)
         
         # Step 5.5: For function calling mode, strip chat context from system prompt
         # Function calling mode should only send system prompt + role instructions + combat context
@@ -225,7 +225,7 @@ async def api_chat(http_request: Request, request: APIChatRequest):
             # Only include system prompt + role instructions + combat context
             # AI will use get_message_history tool to retrieve chat messages
             combat_context_messages = [msg for msg in compact_messages if msg.get('type') == 'combat_context']
-            system_prompt = unified_processor.generate_enhanced_system_prompt(ai_role, combat_context_messages)
+            system_prompt = unified_processor.generate_enhanced_system_prompt(ai_role, combat_context_messages, universal_settings)
         # Standard mode includes chat context in system prompt (no special handling needed)
         
         # Step 6: Add client_id to universal_settings for world state retrieval

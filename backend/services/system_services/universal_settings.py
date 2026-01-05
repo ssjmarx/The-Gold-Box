@@ -146,6 +146,12 @@ class UniversalSettings:
             'default': 'AI Assistant for tabletop RPGs',
             'description': 'AI role/personality for responses'
         },
+        'player list': {
+            'type': str, 
+            'required': False, 
+            'default': '',
+            'description': 'Comma-separated list of player characters the user is controlling'
+        },
         'relay client id': {
             'type': str, 
             'required': False, 

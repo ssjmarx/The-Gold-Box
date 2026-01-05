@@ -530,8 +530,8 @@ class GoldBoxUIManager {
       // Always use "The Gold Box" as the speaker to clearly label AI-generated content
       const content = msgData.content || '';
       
-      // Parse markdown-style formatting to HTML
-      const htmlContent = this.parseMarkdownToHTML(content);
+      // Pass content through as-is (HTML formatting)
+      const htmlContent = content; // Removed parseMarkdownToHTML call
       
       // Create chat message in Foundry (using current API)
       ChatMessage.create({
