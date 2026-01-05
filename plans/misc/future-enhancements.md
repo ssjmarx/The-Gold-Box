@@ -1,213 +1,131 @@
-# The Gold Box v0.3.9 - Extras #4: Future Enhancements
+# The Gold Box - Future Enhancements
 
 **Version:** 0.3.9-extras-4  
 **Related Patch:** 0.3.9-the-foundation  
 **Status:** Saved for Future Implementation  
-**Date:** 2025-12-29
+**Date:** 2025-12-29  
+**Last Updated:** January 5, 2026 (trimmed)
 
 ---
 
 ## Overview
 
-This plan contains features that were identified during the 0.3.9-the-foundation-extras-3 planning phase but were determined to be better addressed in future updates. These features are saved here for future consideration.
+Features identified during 0.3.9 development but deferred to future updates. These are nice-to-have enhancements, not blocking functionality.
 
 ---
 
-## Saved Feature 1: Enhanced Logger with JSON Pretty-Printing
+## Saved Features
 
-### Status: SAVED FOR LATER
+### 1. Enhanced Logger with JSON Pretty-Printing
 
-### Original Problem
-Current logger outputs JSON objects as single-line strings, making them difficult to read in logs. Nested JSON objects are particularly hard to parse.
+**Status:** SAVED FOR LATER
 
-### Why Saved
-We have colorful console output in place, but full JSON prettification is not yet implemented. This is a nice-to-have enhancement but not blocking any functionality.
+**Problem:** JSON objects logged as single-line strings, difficult to read in logs.
 
-### Planned Implementation
-Create a custom logging formatter that automatically detects and pretty-prints JSON objects with proper indentation.
+**Planned Implementation:** Custom logging formatter to auto-detect and pretty-print JSON objects with indentation.
 
-### Files to Modify (Future)
+**Files to Modify (Future):**
 - `backend/shared/startup/startup.py` - Add custom JSON formatter
 - `backend/shared/startup/config.py` - Update logging configuration
 
-### Notes
-- Current logging is functional with color coding
-- JSON objects are readable but could be improved with indentation
-- No urgency to implement
-
 ---
 
-## Saved Feature 2: Selective Logging Cleanup
+### 2. Selective Logging Cleanup
 
-### Status: SAVED FOR LATER
+**Status:** SAVED FOR LATER
 
-### Original Problem
-Logs are overly verbose with routine operations, making it difficult to find important information.
+**Problem:** Logs overly verbose with routine operations, making it difficult to find important information.
 
-### Why Saved
-Logs are functional and not causing issues. Cleanup can be done when we have time for optimization.
-
-### Planned Cleanup Rules
+**Planned Cleanup Rules:**
 
 **KEEP (INFO level):**
-1. AI Conversation Messages:
-   - `"===== SENDING INITIAL MESSAGES TO AI ====="` through `"===== END SENDING INITIAL MESSAGES ====="`
-   - `"===== ADDING MESSAGE TO CONVERSATION ====="` through `"===== END ADDING MESSAGE ====="`
-   - `"===== SENDING TO AI ====="` through `"===== END SENDING TO AI ====="`
-   - `"===== RECEIVED FROM AI ====="` through `"===== END RECEIVED FROM AI ====="`
-
-2. Endpoint Reports:
-   - `INFO: ::1:44276 - "GET /api/health HTTP/1.1" 200 OK`
-   - All HTTP request/response logs from Uvicorn
-
-3. Outbound Connection Updates:
-   - `03:45:08 - LiteLLM:INFO: utils.py:3427 - LiteLLM completion() model= glm-4.7; provider = openai`
-   - All LiteLLM provider connection logs
-
-4. WebSocket Connection Status:
-   - Connection established/closed messages
-   - Client connected/disconnected messages
-
-5. Critical Errors:
-   - All ERROR and WARNING level logs
+- AI Conversation Messages (all message blocks)
+- Endpoint Reports (HTTP request/response logs from Uvicorn)
+- Outbound Connection Updates (LiteLLM provider logs)
+- WebSocket Connection Status (connection/disconnected messages)
+- Critical Errors (ERROR and WARNING level logs)
 
 **REMOVE or MOVE TO DEBUG:**
-- `"Tools available to AI: 4 tools"` and tool listing
-- `"WebSocket: [FAST PATH] Handling X for client Y"` routine routing messages
-- `"WebSocket: [SLOW PATH] Creating background task for X"`
-- `"Game delta stored for client X"` (keep only if hasChanges=True)
-- `"Delta hasChanges: False - no changes to report"`
-- `"Session: ai_session_XXX"` (keep only in ADD MESSAGE blocks)
-- `"Role: assistant/tool/user"` (keep only in ADD MESSAGE blocks)
-- Roll result processing steps (6+ lines, consolidate to 2-3)
+- Tool listing messages
+- WebSocket routine routing messages
+- Delta "no changes" messages
+- Session ID messages (keep only in ADD MESSAGE blocks)
+- Roll result processing steps (consolidate from 6 lines to 2-3)
 - Combat state double logging
 
-### Files to Modify (Future)
+**Expected Outcome:** ~70% reduction in log volume while preserving critical debugging information.
+
+**Files to Modify (Future):**
 - `backend/services/ai_services/ai_orchestrator.py`
 - `backend/services/ai_tools/ai_tool_executor.py`
 - `backend/services/message_services/websocket_message_collector.py`
 - `backend/services/system_services/websocket_handler.py`
 
-### Expected Outcome (Future)
-- Logs are significantly cleaner while preserving all critical debugging information
-- AI conversation flow remains fully traceable
-- Connection status and health checks still visible
-- ~70% reduction in log volume for routine operations
-
 ---
 
-## Saved Feature 3: Remove All Emojis from Project
+### 3. Remove All Emojis from Project
 
-### Status: SAVED FOR LATER
+**Status:** SAVED FOR LATER
 
-### Original Problem
-Emojis are used throughout the project for visual appeal but may not align with all user preferences or accessibility requirements.
+**Problem:** Emojis used throughout project may not align with accessibility requirements.
 
-### Why Saved
-Emojis were found in project files. This is a code freeze scenario, so we're documenting the remaining work for later.
+**Current Emoji Locations:**
+- `lang/en.json` - 1 occurrence (❌ in CONNECTION_FAILED message)
+- `backend/services/system_services/registry.py` - 8 occurrences (❌ in error logs)
+- `backend/testing/TESTING.md` - 8 occurrences (❌ in documentation tables)
 
-### Current Emoji Locations
+**Planned Replacement:**
+- `❌` (red X) → Replace with "ERROR:" or "FAILED:"
 
-**Files with emojis (excluding venv):**
-1. `lang/en.json` - 1 occurrence (❌ in CONNECTION_FAILED message)
-2. `backend/services/system_services/registry.py` - 8 occurrences (❌ in error logs)
-3. `backend/testing/TESTING.md` - 8 occurrences (❌ in documentation tables)
-
-### Planned Removal (Future)
-
-Replace or remove:
-- `❌` (red X) - Replace with "ERROR:" or "FAILED:"
-- Other emojis if found during comprehensive search
-
-### Files to Modify (Future)
+**Files to Modify (Future):**
 - `lang/en.json`
 - `backend/services/system_services/registry.py`
 - `backend/testing/TESTING.md`
 
-### Verification Steps (Future)
-1. Search codebase for remaining emojis
-2. Review all user-facing text for emoji usage
-3. Test all notifications and UI messages
-4. Ensure readability is maintained
-
-### Expected Outcome (Future)
-- Zero emojis in codebase
-- All text remains clear and readable
-- No loss of functionality or clarity
-- Improved accessibility for screen readers
+**Expected Outcome:** Zero emojis in codebase, improved accessibility for screen readers.
 
 ---
 
-## Saved Feature 4: User-Friendly WebSocket Authentication Errors
+## Complete as-Is
 
-### Status: COMPLETE AS-IS
+### 4. User-Friendly WebSocket Authentication Errors
 
-### Original Problem
-When WebSocket connection fails due to missing password or auth token, users see generic error messages without guidance on how to fix issue.
+**Status:** COMPLETE - NO CHANGES NEEDED
 
-### Why Saved (Marked Complete)
-Authentication errors are already sufficiently user-friendly. No changes needed at this time.
-
-### Current State
-- Authentication failures show clear error messages
-- Backend already provides guidance
-- Frontend displays notifications appropriately
-
-### Notes
-- Existing authentication error handling is adequate
-- Users are directed to appropriate settings
-- No blocking issues identified
+Authentication failures already show clear error messages with appropriate user guidance.
 
 ---
 
-## Saved Feature 5: Settings Menu Reorganization
+## Abandoned
 
-### Status: ABANDONED - Requires Heavy Rewrite
+### 5. Settings Menu Reorganization
 
-### Original Problem
-The settings menu lists all LLM settings (general and tactical) together, making it long and difficult to navigate.
+**Status:** ABANDONED - Requires Heavy Rewrite
 
-### Why Abandoned
-Adding a dropdown selector to show/hide General or Tactical settings groups was determined to require a very heavy code rewrite to Foundry's settings system.
+**Problem:** Settings menu lists all LLM settings together, making it long and difficult to navigate.
 
-### Original Plan
-Add a dropdown selector to show/hide General or Tactical settings groups.
+**Original Plan:** Add dropdown selector to show/hide General or Tactical settings groups.
 
-### Files That Would Need Modification (If Revisited)
-- `scripts/gold-box.js` - Settings registration and UI
-- `module.json` - Settings structure
+**Why Abandoned:** Requires very heavy code rewrite to Foundry's settings system. Current settings menu is functional.
 
-### Alternative Approaches (Future Consideration)
+**Alternative Approaches (Future):**
 1. Create separate configuration pages/tabs
 2. Use Foundry's built-in settings categories (if available)
 3. Consider custom settings UI implementation
-
-### Notes
-- Foundry's settings system is not easily customizable
-- Dropdown grouping would require significant architectural changes
-- Current settings menu is functional, though lengthy
-- Can be revisited if user feedback indicates urgency
 
 ---
 
 ## Summary
 
 **Features Saved for Later:**
-1. Enhanced Logger with JSON Pretty-Printing - Nice-to-have, not blocking
-2. Selective Logging Cleanup - Optimization, not blocking
-3. Remove All Emojis from Project - Accessibility improvement, not blocking
+1. Enhanced Logger with JSON Pretty-Printing - Nice-to-have
+2. Selective Logging Cleanup - Optimization
+3. Remove All Emojis from Project - Accessibility improvement
 
 **Features Complete as-Is:**
 4. User-Friendly WebSocket Authentication Errors - Already adequate
 
 **Features Abandoned:**
-5. Settings Menu Reorganization - Requires heavy rewrite, not worth it currently
+5. Settings Menu Reorganization - Requires heavy rewrite
 
-**Code Freeze Status:**
-- No code changes to be made at this time
-- All features documented for future implementation
-- Project can proceed to next phase of development
-
----
-
-**End of Plan**
+**Note:** No code changes at this time. All features documented for future implementation.
