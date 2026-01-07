@@ -5,6 +5,39 @@ All notable changes to The Gold Box project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0/).
 
+## [0.3.11] - 2026-01-06
+
+### Major Release: The Spatial Context
+
+#### Added
+- **Spatial Context System**: AI can query scene geometry for nearby objects (walls, doors, notes, lights, tokens)
+- **Scene Spatial Filtering**: Server-side geometric filtering with distance-based queries and line-of-sight detection
+- **Journal Context Search**: AI can search journal entries with contextual line extraction
+- **Compendium Search**: AI can search compendium packs for entries matching queries
+- **Party Members Query**: AI can retrieve detailed information about player-controlled characters
+- **Auto-Spatial Context**: Automatic spatial context triggering with intelligent fallback chain (user's PC → first player token → first token)
+- **Distance Matrix**: AI can see nearest tokens ranked by distance
+- **Scene Data Collector**: Frontend service for collecting scene geometry (walls, doors, notes, lights, tokens)
+- **Grid and Distance Settings**: Configurable distance units (e.g., "5 feet", "2 meters") and search radius
+
+#### Changed
+- **World State Structure**: Added `spatial_context` field with auto-search origin and configuration
+- **Settings**: Added spatial settings group (distance_unit, autoTriggerSpatialContext, spatialSearchRadius)
+- **WebSocket Handlers**: Added handlers for get_scene_spatial_data, get_journal_context, search_compendium, get_party_members
+
+#### Technical Details
+- **Geometric Operations**: Uses Shapely library for spatial calculations (line-of-sight, distance filtering)
+- **Frontend-Backend Integration**: Scene data collected in Foundry, processed in backend with geometric filtering
+- **Fallback Chain**: Smart token selection for spatial queries prioritizing user's configured PC
+- **Hierarchical Output**: Spatial results grouped by type with nearest objects highlighted
+
+#### Migration Notes
+- Requires `pip install shapely>=2.0.0` for spatial filtering functionality
+- No breaking changes - existing features work unchanged
+- Spatial context automatically included when auto-trigger is enabled (default: enabled)
+
+---
+
 ## [0.3.10] - 2026-01-05
 
 ### Major Release: The Combatant

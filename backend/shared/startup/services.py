@@ -134,6 +134,11 @@ def initialize_websocket_manager():
                         asyncio.create_task(self._handle_combat_context(client_id, message))
                         return
                     
+                    # Handle spatial context messages from frontend - FAST PATH
+                    if message_type == "spatial_context":
+                        await self._handle_spatial_context(client_id, message)
+                        return
+                    
                     # Handle combat state messages from frontend - FAST PATH
                     if message_type == "combat_state":
                         await self._handle_combat_state(client_id, message)
@@ -167,6 +172,11 @@ def initialize_websocket_manager():
                     # Handle token attribute modified messages from frontend - FAST PATH
                     if message_type == "token_attribute_modified":
                         await self._handle_token_attribute_modified(client_id, message)
+                        return
+                    
+                    # Handle scene spatial data messages from frontend - FAST PATH
+                    if message_type == "scene_spatial_data":
+                        await self._handle_scene_spatial_data(client_id, message)
                         return
                     
                     # Handle chat requests - check for active test session first - SLOW PATH
@@ -457,6 +467,55 @@ def initialize_websocket_manager():
                         "type": "error",
                         "data": {
                             "error": f"Combat context handling failed: {str(e)}",
+                            "timestamp": time.time()
+                        }
+                    })
+            
+            async def _handle_spatial_context(self, client_id: str, message: Dict[str, Any]):
+                """Handle spatial context message from frontend - store in message collector"""
+                try:
+                    spatial_data = message.get("data", {})
+                    
+                    # Validate spatial data
+                    if not spatial_data:
+                        await self.send_to_client(client_id, {
+                            "type": "error",
+                            "data": {
+                                "error": "No spatial context data provided",
+                                "timestamp": time.time()
+                            }
+                        })
+                        return
+                    
+                    # Use WebSocket message collector to store spatial context
+                    from services.message_services.websocket_message_collector import add_client_message
+                    
+                    # Convert spatial data to message format
+                    spatial_message = {
+                        "type": "spatial_context",
+                        "spatial_context": spatial_data,
+                        "timestamp": int(time.time() * 1000)
+                    }
+                    
+                    # Add spatial context message to collector
+                    success = add_client_message(client_id, spatial_message)
+                    if not success:
+                        await self.send_to_client(client_id, {
+                            "type": "error",
+                            "data": {
+                                "error": "Failed to store spatial context",
+                                "timestamp": time.time()
+                            }
+                        })
+                    else:
+                        logger.debug(f"Spatial context stored from client {client_id}")
+                        
+                except Exception as e:
+                    logger.error(f"Error handling spatial context from client {client_id}: {e}")
+                    await self.send_to_client(client_id, {
+                        "type": "error",
+                        "data": {
+                            "error": f"Spatial context handling failed: {str(e)}",
                             "timestamp": time.time()
                         }
                     })
@@ -1217,6 +1276,58 @@ def initialize_websocket_manager():
                     
                 except Exception as e:
                     logger.error(f"Error handling token_attribute_modified for client {client_id}: {e}", exc_info=True)
+            
+            async def _handle_scene_spatial_data(self, client_id: str, message: Dict[str, Any]):
+                """Handle scene_spatial_data message from frontend - support both proactive and response modes"""
+                try:
+                    logger.info(f"_handle_scene_spatial_data called for client {client_id}")
+                    
+                    # Extract request_id and scene data from message
+                    request_id = message.get("request_id")
+                    scene_data = message.get("data", {})
+                    
+                    logger.info(f"Extracted from scene_spatial_data message: request_id={request_id}")
+                    
+                    if request_id:
+                        # RESPONSE MODE: This is a response to a get_scene_spatial_data request
+                        # Forward to AI tool executor to resolve pending request
+                        from services.ai_tools.ai_tool_executor import _pending_roll_requests
+                        if request_id in _pending_roll_requests:
+                            future = _pending_roll_requests[request_id]
+                            if not future.done():
+                                logger.info(f"Resolving pending request {request_id} with scene data")
+                                future.set_result(scene_data)
+                            else:
+                                logger.warning(f"Pending request {request_id} already done")
+                        else:
+                            # Frontend automatically adds request_id to all messages (including proactive ones)
+                            # If request_id is not in _pending_roll_requests, this is a proactive message
+                            logger.debug(f"Received proactive scene_spatial_data with auto-generated request_id: {request_id}")
+                            # Fall through to PROACTIVE MODE handling below
+                    else:
+                        # PROACTIVE MODE: Frontend is sending spatial data automatically
+                        # Store in WebSocket message collector for later use (like world_state_sync)
+                        logger.info(f"Received proactive scene_spatial_data from client {client_id}")
+                        
+                        # Use WebSocket message collector to store spatial data
+                        from services.message_services.websocket_message_collector import add_client_message
+                        
+                        # Convert spatial data to message format
+                        spatial_message = {
+                            "type": "scene_spatial_data",
+                            "spatial_data": scene_data,
+                            "timestamp": int(time.time() * 1000)
+                        }
+                        
+                        # Add spatial data message to collector
+                        success = add_client_message(client_id, spatial_message)
+                        if success:
+                            logger.debug(f"Scene spatial data stored from client {client_id}")
+                        else:
+                            logger.warning(f"Failed to store scene spatial data for client {client_id}")
+                    
+                except Exception as e:
+                    logger.error(f"Error handling scene_spatial_data for client {client_id}: {e}", exc_info=True)
         
         
         websocket_manager = WebSocketConnectionManager()

@@ -40,6 +40,7 @@ class SettingsManager {
     this.registerDisableFunctionCalling();
     this.registerGeneralLLMSettings();
     this.registerTacticalLLMSettings();
+    this.registerSpatialSettings();
     this.registerSettingsConfigHooks();
     
     this.settingsRegistered = true;
@@ -308,6 +309,50 @@ class SettingsManager {
   }
 
   /**
+   * Register Spatial Settings (0.3.11)
+   */
+  registerSpatialSettings() {
+    // Auto-Search Enabled setting
+    game.settings.register(this.moduleName, 'autoSearchEnabled', {
+      name: "Enable Auto-Search",
+      hint: "Automatically provide spatial context to AI at start of each turn. Uses a fallback chain: user's configured PC token → first player-owned token → first non-player token",
+      scope: "world",
+      config: true,
+      type: Boolean,
+      default: true,
+      group: "spatial"
+    });
+
+    // Auto-Search Radius setting
+    game.settings.register(this.moduleName, 'autoSearchRadius', {
+      name: "Auto-Search Radius",
+      hint: "Search radius in grid units for auto-generated spatial context (default: 6 = 30ft in 5ft grids)",
+      scope: "world",
+      config: true,
+      type: Number,
+      default: 6,
+      group: "spatial"
+    });
+
+    // Auto-Search Mode setting
+    game.settings.register(this.moduleName, 'autoSearchMode', {
+      name: "Auto-Search Mode",
+      hint: "Search mode for auto-generated spatial context",
+      scope: "world",
+      config: true,
+      type: String,
+      choices: {
+        "absolute": "Absolute (all objects)",
+        "line_of_sight": "Line-of-Sight (visible only)"
+      },
+      default: "line_of_sight",
+      group: "spatial"
+    });
+
+    console.log('SettingsManager: Successfully registered spatial settings');
+  }
+
+  /**
    * Register settings configuration hooks (like discovery button)
    */
   registerSettingsConfigHooks() {
@@ -404,7 +449,10 @@ class SettingsManager {
         'tactical llm version': this.getSetting('tacticalLlmVersion', 'v1'),
         'tactical llm max retries': this.getSetting('tacticalLlmMaxRetries', 3),
         'tactical llm custom headers': this.getSetting('tacticalLlmCustomHeaders', ''),
-        'backend password': this.getSetting('backendPassword', '')
+        'backend password': this.getSetting('backendPassword', ''),
+        'auto search enabled': this.getSetting('autoSearchEnabled', true),
+        'auto search radius': this.getSetting('autoSearchRadius', 6),
+        'auto search mode': this.getSetting('autoSearchMode', 'line_of_sight')
       };
       console.log("SETTINGS DEBUG: Retrieved settings count:", Object.keys(settings).length);
       console.log("SETTINGS DEBUG: Settings keys:", Object.keys(settings));

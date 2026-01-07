@@ -39,6 +39,15 @@ export class FrontendDeltaService {
     // NEW: Combatant attribute change tracking
     this.combatantChanged = null;
     
+    // NEW: Scene change tracking (0.3.11)
+    this.sceneChanged = null;
+    
+    // NEW: Token movement tracking (0.3.11)
+    this.tokenMoved = null;
+    
+    // NEW: Scene note update tracking (0.3.11)
+    this.sceneNoteUpdated = null;
+    
     console.log('The Gold Box: FrontendDeltaService initialized');
   }
 
@@ -105,6 +114,24 @@ export class FrontendDeltaService {
       delta.hasChanges = true;
     }
     
+    // NEW: Add scene changed if it occurred (0.3.11)
+    if (this.sceneChanged !== null) {
+      delta.SceneChanged = this.sceneChanged;
+      delta.hasChanges = true;
+    }
+    
+    // NEW: Add token moved if it occurred (0.3.11)
+    if (this.tokenMoved !== null) {
+      delta.TokenMoved = this.tokenMoved;
+      delta.hasChanges = true;
+    }
+    
+    // NEW: Add scene note updated if it occurred (0.3.11)
+    if (this.sceneNoteUpdated !== null) {
+      delta.SceneNoteUpdated = this.sceneNoteUpdated;
+      delta.hasChanges = true;
+    }
+    
     // If no changes, add message for clarity
     if (!delta.hasChanges) {
       delta.message = "No changes to game state since last AI turn";
@@ -128,7 +155,10 @@ export class FrontendDeltaService {
       TurnAdvanced: this.turnAdvanced,
       LastTurnNumber: this.lastTurnNumber,
       LastRoundNumber: this.lastRoundNumber,
-      CombatantChanged: this.combatantChanged
+      CombatantChanged: this.combatantChanged,
+      SceneChanged: this.sceneChanged,
+      TokenMoved: this.tokenMoved,
+      SceneNoteUpdated: this.sceneNoteUpdated
     };
     
     this.newMessages = 0;
@@ -144,6 +174,15 @@ export class FrontendDeltaService {
     
     // NEW: Reset combatant change tracking
     this.combatantChanged = null;
+    
+    // NEW: Reset scene change tracking (0.3.11)
+    this.sceneChanged = null;
+    
+    // NEW: Reset token movement tracking (0.3.11)
+    this.tokenMoved = null;
+    
+    // NEW: Reset scene note update tracking (0.3.11)
+    this.sceneNoteUpdated = null;
     
     console.log(`The Gold Box: Delta counts reset. Before reset:`, countsBeforeReset);
   }
@@ -254,6 +293,58 @@ export class FrontendDeltaService {
     };
     console.log(`The Gold Box: Combatant changed: token ${combatantData.tokenId}, path ${combatantData.attributePath}, ${combatantData.changeType}`);
   }
+
+  /**
+   * Record that the active scene has changed (0.3.11)
+   * Called when the GM switches to a different scene
+   * 
+   * @param {Object} sceneData - Scene change data
+   * @param {string} sceneData.scene_id - New scene ID
+   * @param {string} sceneData.scene_name - New scene name
+   */
+  setSceneChanged(sceneData) {
+    this.sceneChanged = {
+      new_scene_id: sceneData.scene_id,
+      new_scene_name: sceneData.scene_name
+    };
+    console.log(`The Gold Box: Scene changed to: ${sceneData.scene_name} (${sceneData.scene_id})`);
+  }
+
+  /**
+   * Record that a token has moved (0.3.11)
+   * Called when a token's position changes on the scene
+   * 
+   * @param {Object} tokenData - Token movement data
+   * @param {string} tokenData.token_id - Token ID that moved
+   * @param {Object} tokenData.old_position - Previous position {x, y}
+   * @param {Object} tokenData.new_position - New position {x, y}
+   */
+  setTokenMoved(tokenData) {
+    this.tokenMoved = {
+      token_id: tokenData.token_id,
+      old_position: tokenData.old_position,
+      new_position: tokenData.new_position
+    };
+    console.log(`The Gold Box: Token moved: ${tokenData.token_id} from (${tokenData.old_position.x}, ${tokenData.old_position.y}) to (${tokenData.new_position.x}, ${tokenData.new_position.y})`);
+  }
+
+  /**
+   * Record that a scene note has been updated (0.3.11)
+   * Called when a journal note pinned to the scene is updated
+   * 
+   * @param {Object} noteData - Note update data
+   * @param {string} noteData.note_id - Note ID that was updated
+   * @param {string} noteData.entry_name - Name of the journal entry
+   * @param {Object} noteData.position - Note position {x, y}
+   */
+  setSceneNoteUpdated(noteData) {
+    this.sceneNoteUpdated = {
+      note_id: noteData.note_id,
+      entry_name: noteData.entry_name,
+      position: noteData.position
+    };
+    console.log(`The Gold Box: Scene note updated: ${noteData.entry_name} (${noteData.note_id}) at (${noteData.position.x}, ${noteData.position.y})`);
+  }
 }
 
 // Create global instance and attach to window
@@ -292,6 +383,49 @@ Hooks.on('deleteChatMessage', (document, options) => {
   if (!isAIMessage) {
     window.FrontendDeltaService?.incrementDeletedMessages();
   }
+});
+
+// NEW: Track scene changes (0.3.11)
+Hooks.on('updateScene', (scene, data, options, userId) => {
+  // Only track when scene actually changes (active scene switch)
+  if (scene.active && (data.initial !== undefined || data.active !== undefined)) {
+    window.FrontendDeltaService?.setSceneChanged({
+      scene_id: scene.id,
+      scene_name: scene.name
+    });
+  }
+});
+
+// NEW: Track token movements (0.3.11)
+Hooks.on('updateToken', (token, data, options, userId) => {
+  // Only track when token position changes (x or y coordinates)
+  if (data.x !== undefined || data.y !== undefined) {
+    window.FrontendDeltaService?.setTokenMoved({
+      token_id: token.id,
+      old_position: {
+        x: data._source?.x ?? token.document._source?.x ?? token.x,
+        y: data._source?.y ?? token.document._source?.y ?? token.y
+      },
+      new_position: {
+        x: token.x,
+        y: token.y
+      }
+    });
+  }
+});
+
+// NEW: Track scene note updates (0.3.11)
+Hooks.on('updateNote', (note, data, options, userId) => {
+  // Get journal entry name for the note
+  const journalEntry = game?.journal?.get(note.entryId);
+  window.FrontendDeltaService?.setSceneNoteUpdated({
+    note_id: note.id,
+    entry_name: journalEntry?.name || 'Unknown Note',
+    position: {
+      x: note.x,
+      y: note.y
+    }
+  });
 });
 
 console.log('The Gold Box: Frontend delta service loaded and Foundry hooks registered');

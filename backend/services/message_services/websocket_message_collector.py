@@ -751,12 +751,12 @@ class WebSocketMessageCollector:
             
             # Must have content or be a recognized type
             message_type = message.get('type')
-            if 'content' not in message and message_type not in ['system', 'combat_context']:
+            if 'content' not in message and message_type not in ['system', 'combat_context', 'scene_spatial_data']:
                 return False
             
             # Content must be non-empty for non-system, non-combat-context messages
             content = message.get('content', '')
-            if message_type not in ['system', 'combat_context'] and not content.strip():
+            if message_type not in ['system', 'combat_context', 'scene_spatial_data'] and not content.strip():
                 return False
             
             # Combat context messages must have combat_context field
@@ -768,6 +768,14 @@ class WebSocketMessageCollector:
                 if not isinstance(combat_context, dict):
                     return False
                 if 'in_combat' not in combat_context:
+                    return False
+            
+            # Scene spatial data messages must have data field with scene data structure
+            if message_type == 'scene_spatial_data':
+                if 'data' not in message:
+                    return False
+                # Validate data is a dictionary (scene data)
+                if not isinstance(message.get('data'), dict):
                     return False
             
             return True

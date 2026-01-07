@@ -158,6 +158,194 @@ class WorldStateCollector {
     }
 
     /**
+     * Collect scene spatial data for spatial filtering
+     * @returns {Object} Complete scene data for spatial filtering
+     */
+    collectSceneSpatialData() {
+        try {
+            const scene = game?.scenes?.active;
+            
+            if (!scene) {
+                console.error('WorldStateCollector: No active scene for spatial data collection');
+                return {
+                    scene_id: null,
+                    scene_name: 'No Active Scene',
+                    grid_size:100,
+                    distance_unit: '5 feet',
+                    walls: [],
+                    doors: [],
+                    tokens: [],
+                    notes: [],
+                    lights: []
+                };
+            }
+            
+            console.log('WorldStateCollector: Collecting scene spatial data for scene:', scene.name);
+            console.log('WorldStateCollector: scene object keys:', Object.keys(scene));
+            console.log('WorldStateCollector: scene.tokens exists:', !!scene.tokens);
+            console.log('WorldStateCollector: scene.tokens type:', typeof scene.tokens);
+            console.log('WorldStateCollector: scene.tokens length:', scene.tokens?.length);
+            console.log('WorldStateCollector: scene.tokens is embedded collection:', scene.tokens instanceof Array);
+            console.log('WorldStateCollector: canvas ready:', !!canvas?.ready);
+            console.log('WorldStateCollector: canvas.tokens exists:', !!canvas?.tokens);
+            console.log('WorldStateCollector: canvas.tokens placeables length:', canvas?.tokens?.placeables?.length || 0);
+            
+            // Collect grid information
+            const grid_size = scene.grid?.size || 100;
+            const distance_unit = scene.grid?.distance || 5; // Foundry stores this as units per square (e.g., 5 for 5ft squares)
+            const distance_unit_setting = `${distance_unit} feet`;
+            
+            // Collect walls with coordinate arrays and vision blocking info
+            const walls = scene.walls.map(wall => {
+                return {
+                    id: wall.id,
+                    c: wall.c, // [x1, y1, x2, y2] coordinate array
+                    door: wall.door,
+                    blocks_vision: wall.sense // Vision blocking flag
+                };
+            });
+            
+            // Collect doors (subset of walls that are doors)
+            const doors = scene.walls.filter(wall => {
+                return wall.door && wall.door !== CONST.WALL_DOOR_TYPES.NONE;
+            }).map(door => {
+                return {
+                    id: door.id,
+                    c: door.c, // [x1, y1, x2, y2] coordinate array
+                    door: door.door,
+                    state: door.doorState || 0, // 0=closed, 1=open, 2=locked
+                    locked: door.locked,
+                    blocks_vision: door.sense,
+                    coordinates: {
+                        start: { x: door.c[0], y: door.c[1] },
+                        end: { x: door.c[2], y: door.c[3] },
+                        center: {
+                            x: (door.c[0] + door.c[2]) / 2,
+                            y: (door.c[1] + door.c[3]) / 2
+                        }
+                    }
+                };
+            });
+            
+            // Collect notes with journal entry details
+            const notes = scene.notes.map(note => {
+                const journalEntry = game?.journal?.get(note.entryId);
+                return {
+                    id: note.id,
+                    x: note.x,
+                    y: note.y,
+                    entry_name: note.entryName,
+                    journal_entry_title: journalEntry?.name || 'Unknown',
+                    note_type: note.icon || 'location'
+                };
+            });
+            
+            // Collect light sources from tokens
+            // Use scene.tokens instead of canvas.tokens.placeables for consistency
+            // In Foundry V12, scene.tokens returns TokenDocuments, so access properties directly
+            if (!scene.tokens || scene.tokens.length === 0) {
+                console.warn('WorldStateCollector: scene.tokens is empty or unavailable, using fallback');
+                return {
+                    scene_id: scene.id,
+                    scene_name: scene.name,
+                    grid_size: grid_size,
+                    distance_unit: distance_unit_setting,
+                    walls: [],
+                    doors: [],
+                    tokens: [],
+                    notes: [],
+                    lights: []
+                };
+            }
+            
+            const tokenList = Array.from(scene.tokens);
+            const lights = tokenList
+                .filter(token => token.light && token.light.radius > 0)
+                .map(token => {
+                    return {
+                        id: token.id,
+                        source_token: token.name,
+                        x: token.x,
+                        y: token.y,
+                        radius: token.light.radius,
+                        color: token.light.color || '#ffffff',
+                        brightness: token.light.dim > 0 ? 'dim' : 'bright'
+                    };
+                });
+            
+            // Collect tokens with player ownership and coordinates
+            // scene.tokens is an EmbeddedCollection, so convert to array first
+            // (Already converted above, reusing the same list for consistency)
+            console.log(`WorldStateCollector: tokenList length: ${tokenList.length}`);
+            const tokens = tokenList.map(token => {
+                // Calculate center coordinates manually since token.center doesn't exist on TokenDocuments
+                const tokenWidth = token.width || (scene.grid?.size || 100);
+                const tokenHeight = token.height || (scene.grid?.size || 100);
+                const centerX = token.x + (tokenWidth / 2);
+                const centerY = token.y + (tokenHeight / 2);
+                
+                return {
+                    id: token.id,
+                    name: token.name,
+                    actor_id: token.actor?.id || null,
+                    x: token.x,
+                    y: token.y,
+                    is_player: token.actor?.hasPlayerOwner || false,
+                    coordinates: {
+                        x: centerX,
+                        y: centerY
+                    }
+                };
+            });
+            
+            console.log(`WorldStateCollector: Mapped ${tokens.length} tokens`);
+            console.log(`WorldStateCollector: First token: ${tokens.length > 0 ? JSON.stringify(tokens[0]) : 'none'}`);
+            
+            const sceneData = {
+                scene_id: scene.id,
+                scene_name: scene.name,
+                grid_size: grid_size,
+                distance_unit: distance_unit_setting,
+                walls: walls,
+                doors: doors,
+                tokens: tokens,
+                notes: notes,
+                lights: lights
+            };
+            
+            console.log(`WorldStateCollector: Collected scene spatial data:`, {
+                scene: scene.name,
+                walls: walls.length,
+                doors: doors.length,
+                tokens: tokens.length,
+                notes: notes.length,
+                lights: lights.length,
+                grid_size: grid_size,
+                distance_unit: distance_unit_setting
+            });
+            
+            console.log(`WorldStateCollector: Full scene data keys:`, Object.keys(sceneData));
+            console.log(`WorldStateCollector: Returning scene data:`, sceneData);
+            
+            return sceneData;
+            
+        } catch (error) {
+            console.error('WorldStateCollector: Error collecting scene spatial data:', error);
+            return {
+                scene_id: null,
+                scene_name: 'Error',
+                grid_size: 100,
+                distance_unit: '5 feet',
+                walls: [],
+                doors: [],
+                tokens: [],
+                notes: [],
+                lights: []
+            };
+        }
+    }
+
+    /**
      * Get active scene data including notes and light sources
      * @returns {Object} Active scene data
      */
@@ -311,6 +499,7 @@ class WorldStateCollector {
                 party_compendium: this.getPartyCompendium(),
                 active_scene: this.getActiveScene(),
                 compendium_index: this.getCompendiumIndex(),
+                spatial_context: this.getSpatialContext(),
                 timestamp: Date.now()
             };
             
@@ -318,13 +507,207 @@ class WorldStateCollector {
                 scene: worldState.active_scene.name,
                 players: worldState.session_info.players.length,
                 party: worldState.party_compendium.length,
-                packs: worldState.compendium_index.length
+                packs: worldState.compendium_index.length,
+                spatial_enabled: worldState.spatial_context.enabled
             });
             
             return worldState;
         } catch (error) {
             console.error('Error collecting full world state:', error);
             return null;
+        }
+    }
+
+  /**
+   * Get spatial context for AI
+   * @returns {Object} Spatial context with search origin
+   */
+  getSpatialContext() {
+    try {
+      // Check if auto-search is enabled
+      const autoSearchEnabled = game?.settings?.get('the-gold-box', 'autoSearchEnabled') ?? true;
+      
+      if (!autoSearchEnabled) {
+        return {
+          enabled: false,
+          reason: 'Auto-search disabled in settings'
+        };
+      }
+      
+      // Get active scene
+      const scene = game?.scenes?.active;
+      if (!scene) {
+        return {
+          enabled: false,
+          reason: 'No active scene'
+        };
+      }
+      
+      // Get search origin using fallback chain
+      const activeScene = this.getActiveScene();
+      const searchOrigin = this.getSpatialSearchOrigin(activeScene);
+      
+      if (!searchOrigin) {
+        return {
+          enabled: false,
+          reason: 'No tokens available in scene'
+        };
+      }
+      
+      // Get spatial settings
+      const radius = game?.settings?.get('the-gold-box', 'autoSearchRadius') ?? 6;
+      const mode = game?.settings?.get('the-gold-box', 'autoSearchMode') ?? 'line_of_sight';
+      
+      return {
+        enabled: true,
+        search_origin: searchOrigin,
+        radius: radius,
+        mode: mode
+      };
+    } catch (error) {
+      console.error('Error getting spatial context:', error);
+      return {
+        enabled: false,
+        reason: `Error: ${error.message}`
+      };
+    }
+  }
+
+    /**
+     * Get spatial search origin using fallback chain
+     * Priority:
+     * 1. User's configured PC token (game.user.character)
+     * 2. First player-owned token in scene
+     * 3. First non-player token in scene
+     * 4. null (no tokens available)
+     * 
+     * @param {Object} activeScene - Active scene data from getActiveScene()
+     * @returns {Object|null} Search origin with token_id, token_name, actor_id, coordinates
+     */
+    getSpatialSearchOrigin(activeScene) {
+        try {
+            // Step 1: Try current user's configured player character
+            const currentUser = game?.user;
+            if (currentUser && currentUser.character) {
+                const pcActor = game.actors.get(currentUser.character.id);
+                if (pcActor) {
+                    // Find all tokens for this actor in scene
+                    const actorTokens = activeScene.tokens.filter(t => t.actor_id === pcActor.id);
+                    if (actorTokens.length > 0) {
+                        const firstToken = actorTokens[0];
+                        console.log(`Spatial search: Using user's PC token ${firstToken.name}`);
+                        return {
+                            token_id: firstToken.id,
+                            token_name: firstToken.name,
+                            actor_id: pcActor.id,
+                            coordinates: { x: firstToken.x, y: firstToken.y }
+                        };
+                    }
+                }
+            }
+            
+            // Step 2: Try first player-owned token in scene
+            const playerToken = activeScene.tokens.find(t => t.is_player);
+            if (playerToken) {
+                console.log(`Spatial search: Using first player-owned token ${playerToken.name}`);
+                return {
+                    token_id: playerToken.id,
+                    token_name: playerToken.name,
+                    actor_id: playerToken.actor_id,
+                    coordinates: { x: playerToken.x, y: playerToken.y }
+                };
+            }
+            
+            // Step 3: Try first non-player token in scene
+            const anyToken = activeScene.tokens.find(t => !t.is_player);
+            if (anyToken) {
+                console.log(`Spatial search: Using first non-player token ${anyToken.name}`);
+                return {
+                    token_id: anyToken.id,
+                    token_name: anyToken.name,
+                    actor_id: anyToken.actor_id,
+                    coordinates: { x: anyToken.x, y: anyToken.y }
+                };
+            }
+            
+            // Step 4: No tokens found
+            console.log('Spatial search: No tokens in scene, skipping');
+            return null;
+        } catch (error) {
+            console.error('Error getting spatial search origin:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Get party members (player-controlled characters)
+     * @returns {Object} Party members with total count and member details
+     */
+    getPartyMembers() {
+        try {
+            const partyMembers = [];
+            
+            if (!game?.actors) {
+                console.warn('WorldStateCollector: No actors available in Foundry');
+                return {
+                    total_party_members: 0,
+                    members: []
+                };
+            }
+            
+            // Get all player-controlled actors
+            for (const actor of game.actors) {
+                if (actor.hasPlayerOwner) {
+                    // Get ownership object
+                    const ownership = actor.ownership || {};
+                    
+                    // Collect owner information
+                    const owners = [];
+                    for (const userId in ownership) {
+                        const user = game.users.get(userId);
+                        
+                        // Skip GM users and invalid users
+                        if (user && !user.isGM) {
+                            owners.push({
+                                id: user.id,
+                                name: user.name,
+                                is_active: user.active
+                            });
+                        }
+                    }
+                    
+                    // Get basic system data
+                    const systemData = actor.system || {};
+                    
+                    partyMembers.push({
+                        id: actor.id,
+                        name: actor.name,
+                        type: actor.type,
+                        img: actor.img,
+                        owners: owners,
+                        system: {
+                            hp: systemData.attributes?.hp || {},
+                            ac: systemData.attributes?.ac || {},
+                            // Add more system fields as needed
+                            details: systemData.details || {}
+                        }
+                    });
+                }
+            }
+            
+            console.log(`WorldStateCollector: Collected ${partyMembers.length} party members`);
+            
+            return {
+                total_party_members: partyMembers.length,
+                members: partyMembers
+            };
+        } catch (error) {
+            console.error('WorldStateCollector: Error getting party members:', error);
+            return {
+                total_party_members: 0,
+                members: [],
+                error: error.message
+            };
         }
     }
 
@@ -416,6 +799,173 @@ class WorldStateCollector {
         }
     }
     
+    /**
+     * Get journal context - search for phrase within journal entry with context lines
+     * @param {string} entryName - Name of journal entry to search
+     * @param {string} searchPhrase - Phrase to search for
+     * @param {number} contextLines - Number of lines of context before and after match (default: 3)
+     * @returns {Object} Journal context with matches
+     */
+    async getJournalContext(entryName, searchPhrase, contextLines = 3) {
+        try {
+            console.log(`WorldStateCollector: Getting journal context for entry "${entryName}", phrase "${searchPhrase}", context: ${contextLines} lines`);
+            
+            // Find journal entry by name
+            const journalEntry = game?.journal?.find(entry => {
+                const entryNameMatch = entry.name === entryName || entry.id === entryName;
+                if (entryNameMatch) {
+                    console.log(`Found journal entry: ${entry.name} (ID: ${entry.id})`);
+                }
+                return entryNameMatch;
+            });
+            
+            if (!journalEntry) {
+                console.error(`WorldStateCollector: Journal entry not found: ${entryName}`);
+                return {
+                    success: false,
+                    error: `Journal entry not found: ${entryName}`
+                };
+            }
+            
+            // Get text content from first page
+            const page = journalEntry.pages?.contents?.[0];
+            
+            if (!page) {
+                console.error(`WorldStateCollector: Journal entry has no pages: ${entryName}`);
+                return {
+                    success: false,
+                    error: `Journal entry has no pages: ${entryName}`
+                };
+            }
+            
+            const text = page.text?.content || '';
+            
+            if (!text) {
+                console.error(`WorldStateCollector: Journal entry has no text content: ${entryName}`);
+                return {
+                    success: false,
+                    error: `Journal entry has no text content: ${entryName}`
+                };
+            }
+            
+            // Split text into lines
+            const lines = text.split('\n');
+            console.log(`WorldStateCollector: Journal entry has ${lines.length} lines`);
+            
+            // Search for phrase (case-insensitive)
+            const searchLower = searchPhrase.toLowerCase();
+            const matches = [];
+            
+            lines.forEach((line, index) => {
+                if (line.toLowerCase().includes(searchLower)) {
+                    const start = Math.max(0, index - contextLines);
+                    const end = Math.min(lines.length, index + contextLines + 1);
+                    
+                    matches.push({
+                        match: line,
+                        context: lines.slice(start, end),
+                        line_number: index + 1,
+                        position: { start, end }
+                    });
+                }
+            });
+            
+            console.log(`WorldStateCollector: Found ${matches.length} matches for phrase "${searchPhrase}"`);
+            
+            // Return results with entry metadata
+            return {
+                success: true,
+                entry_name: journalEntry.name,
+                entry_id: journalEntry.id,
+                search_phrase: searchPhrase,
+                context_lines: contextLines,
+                matches: matches,
+                total_matches: matches.length,
+                timestamp: Date.now()
+            };
+            
+        } catch (error) {
+            console.error('WorldStateCollector: Error getting journal context:', error);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+
+    /**
+     * Search Compendium - search for entries in a compendium pack
+     * @param {string} packName - Name of compendium pack to search
+     * @param {string} query - Search query text
+     * @returns {Object} Compendium search results
+     */
+    async searchCompendium(packName, query) {
+        try {
+            console.log(`WorldStateCollector: Searching compendium pack "${packName}" for "${query}"`);
+            
+            // Find compendium pack by name/collection
+            const pack = game?.packs?.find(p => {
+                return p.collection === packName || p.metadata.label === packName || p.collection.includes(packName);
+            });
+            
+            if (!pack) {
+                console.error(`WorldStateCollector: Compendium pack not found: ${packName}`);
+                return {
+                    success: false,
+                    error: `Compendium pack not found: ${packName}`
+                };
+            }
+            
+            // Get compendium index
+            const index = await pack.getIndex();
+            
+            if (!index) {
+                console.error(`WorldStateCollector: Failed to get index for pack: ${packName}`);
+                return {
+                    success: false,
+                    error: `Failed to get index for compendium pack: ${packName}`
+                };
+            }
+            
+            // Search for entries matching query (case-insensitive, partial matches)
+            const queryLower = query.toLowerCase();
+            const matches = [];
+            
+            for (const entry of index) {
+                const nameLower = (entry.name || '').toLowerCase();
+                const match = nameLower.includes(queryLower);
+                
+                if (match) {
+                    matches.push({
+                        id: entry._id,
+                        name: entry.name,
+                        type: entry.type,
+                        pack: pack.collection
+                    });
+                }
+            }
+            
+            console.log(`WorldStateCollector: Found ${matches.length} matches for query "${query}" in pack "${packName}"`);
+            
+            return {
+                success: true,
+                pack_name: packName,
+                pack_label: pack.metadata.label || packName,
+                query: query,
+                matches: matches,
+                total_matches: matches.length,
+                timestamp: Date.now()
+            };
+            
+        } catch (error) {
+            console.error('WorldStateCollector: Error searching compendium:', error);
+            return {
+                success: false,
+                error: error.message
+            };
+        }
+    }
+
     /**
      * Modify token attribute using Foundry's native API
      * @param {string} tokenId - Token ID to modify

@@ -75,6 +75,39 @@ class MessageCollector {
   }
 
   /**
+   * Send spatial context to backend via WebSocket
+   * Called automatically when autoTriggerSpatialContext is enabled
+   */
+  sendSpatialContext() {
+    console.log('MessageCollector: sendSpatialContext called');
+    
+    if (this.isEnabled && this.webSocketClient && this.webSocketClient.isConnected) {
+      // Check if SceneDataCollector is available
+      if (window.SceneDataCollector && typeof window.SceneDataCollector.collectSceneData === 'function') {
+        // Collect scene data
+        const sceneData = window.SceneDataCollector.collectSceneData();
+        
+        if (sceneData) {
+          // Send spatial context via WebSocket using correct message type
+          this.webSocketClient.sendMessage({
+            type: 'scene_spatial_data',  // Fixed: matches backend message protocol
+            data: sceneData,  // Fixed: send scene data directly, not wrapped
+            timestamp: Date.now()
+          });
+          
+          console.log('MessageCollector: Sent spatial context via WebSocket:', sceneData.scene_name);
+        } else {
+          console.warn('MessageCollector: Failed to collect scene data for spatial context');
+        }
+      } else {
+        console.warn('MessageCollector: SceneDataCollector not available');
+      }
+    } else {
+      console.warn('MessageCollector: WebSocket not connected - cannot send spatial context');
+    }
+  }
+
+  /**
    * Send combat context to backend via WebSocket
    * Replaces DOM scraping with real-time collection
    */

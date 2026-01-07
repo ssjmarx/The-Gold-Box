@@ -133,6 +133,18 @@ class WebSocketCommunicator {
     
     // Initialize actor details handler
     this.initializeActorDetailsHandler();
+    
+    // Initialize scene spatial data handler
+    this.initializeSceneSpatialDataHandler();
+    
+    // Initialize journal context handler
+    this.initializeJournalContextHandler();
+    
+    // Initialize compendium search handler
+    this.initializeCompendiumSearchHandler();
+    
+    // Initialize party members handler
+    this.initializePartyMembersHandler();
   }
 
   /**
@@ -479,7 +491,229 @@ class WebSocketCommunicator {
       
       console.log('WebSocketCommunicator: Actor details handler initialized');
     } catch (error) {
-      console.error('WebSocketCommunicator: Error initializing actor details handler:', error);
+      console.error('WebSocketCommunicator: Error initializing DiceRollExecutor:', error);
+    }
+    
+    // Initialize Scene Spatial Data Handler
+    this.initializeSceneSpatialDataHandler();
+    
+    // Initialize Journal Context Handler
+    this.initializeJournalContextHandler();
+  }
+
+  /**
+   * Initialize Scene Spatial Data Handler
+   * @private
+   */
+  initializeSceneSpatialDataHandler() {
+    try {
+      if (!this.webSocketClient) {
+        console.warn('WebSocketCommunicator: WebSocket client not available for scene spatial data handler');
+        return;
+      }
+      
+      // Register handler for get_scene_spatial_data messages
+      this.webSocketClient.onMessageType('get_scene_spatial_data', async (message) => {
+        console.log('WebSocketCommunicator: Received get_scene_spatial_data request');
+        
+        try {
+          // Check if WorldStateCollector is available
+          if (this.worldStateCollector && typeof this.worldStateCollector.collectSceneSpatialData === 'function') {
+            // Collect scene spatial data
+            const sceneData = this.worldStateCollector.collectSceneSpatialData();
+            
+            if (sceneData) {
+              // Send scene data response back to backend
+              const responseMessage = {
+                type: 'scene_spatial_data',
+                request_id: message.request_id,
+                data: sceneData,
+                timestamp: Date.now()
+              };
+              
+              await this.webSocketClient.send(responseMessage);
+              console.log('WebSocketCommunicator: Scene spatial data transmitted');
+            } else {
+              console.warn('WebSocketCommunicator: Failed to collect scene data');
+              
+              // Send error response
+              const errorMessage = 'Failed to collect scene data';
+              await this.webSocketClient.send({
+                type: 'scene_spatial_data',
+                request_id: message.request_id,
+                data: {
+                  error: errorMessage,
+                  scene_id: null,
+                  scene_name: 'Unknown'
+                },
+                timestamp: Date.now()
+              });
+            }
+          } else {
+            console.warn('WebSocketCommunicator: WorldStateCollector not available or collectSceneSpatialData not found');
+          }
+        } catch (error) {
+          console.error('WebSocketCommunicator: Error handling get_scene_spatial_data:', error);
+        }
+      });
+      
+      console.log('WebSocketCommunicator: Scene spatial data handler initialized');
+    } catch (error) {
+      console.error('WebSocketCommunicator: Error initializing scene spatial data handler:', error);
+    }
+  }
+
+  /**
+   * Initialize Journal Context Handler
+   * @private
+   */
+  initializeJournalContextHandler() {
+    try {
+      if (!this.webSocketClient) {
+        console.warn('WebSocketCommunicator: WebSocket client not available for journal context handler');
+        return;
+      }
+      
+      // Register handler for get_journal_context messages
+      this.webSocketClient.onMessageType('get_journal_context', async (message) => {
+        console.log('WebSocketCommunicator: Received get_journal_context request');
+        
+        try {
+          const entryName = message.data?.entry_name;
+          const searchPhrase = message.data?.search_phrase;
+          const contextLines = message.data?.context_lines || 3;
+          
+          if (!entryName || !searchPhrase) {
+            console.error('WebSocketCommunicator: get_journal_context missing required parameters');
+            return;
+          }
+          
+          // Store request_id for response correlation
+          if (this.worldStateCollector) {
+            this.worldStateCollector.lastRequestId = message.request_id;
+          }
+          
+          // Get journal context from WorldStateCollector
+          const result = await this.worldStateCollector?.getJournalContext(entryName, searchPhrase, contextLines);
+          
+          if (result && result.success !== false) {
+            // Send journal context response back to backend
+            const responseMessage = {
+              type: 'journal_context',
+              request_id: message.request_id,
+              data: result,
+              timestamp: Date.now()
+            };
+            
+            await this.webSocketClient.send(responseMessage);
+            console.log('WebSocketCommunicator: Journal context transmitted for entry', entryName);
+          } else {
+            console.error('WebSocketCommunicator: Failed to get journal context:', result?.error);
+          }
+        } catch (error) {
+          console.error('WebSocketCommunicator: Error handling get_journal_context:', error);
+        }
+      });
+      
+      console.log('WebSocketCommunicator: Journal context handler initialized');
+    } catch (error) {
+      console.error('WebSocketCommunicator: Error initializing journal context handler:', error);
+    }
+  }
+
+  /**
+   * Initialize Compendium Search Handler
+   * @private
+   */
+  initializeCompendiumSearchHandler() {
+    try {
+      if (!this.webSocketClient) {
+        console.warn('WebSocketCommunicator: WebSocket client not available for compendium search handler');
+        return;
+      }
+      
+      // Register handler for search_compendium messages
+      this.webSocketClient.onMessageType('search_compendium', async (message) => {
+        console.log('WebSocketCommunicator: Received search_compendium request');
+        
+        try {
+          const packName = message.data?.pack_name;
+          const query = message.data?.query;
+          
+          if (!packName || !query) {
+            console.error('WebSocketCommunicator: search_compendium missing required parameters');
+            return;
+          }
+          
+          // Get compendium search results from WorldStateCollector
+          const result = await this.worldStateCollector?.searchCompendium(packName, query);
+          
+          if (result && result.success !== false) {
+            // Send compendium results response back to backend
+            const responseMessage = {
+              type: 'compendium_results',
+              request_id: message.request_id,
+              data: result,
+              timestamp: Date.now()
+            };
+            
+            await this.webSocketClient.send(responseMessage);
+            console.log('WebSocketCommunicator: Compendium search results transmitted for pack', packName);
+          } else {
+            console.error('WebSocketCommunicator: Failed to search compendium:', result?.error);
+          }
+        } catch (error) {
+          console.error('WebSocketCommunicator: Error handling search_compendium:', error);
+        }
+      });
+      
+      console.log('WebSocketCommunicator: Compendium search handler initialized');
+    } catch (error) {
+      console.error('WebSocketCommunicator: Error initializing compendium search handler:', error);
+    }
+  }
+
+  /**
+   * Initialize Party Members Handler
+   * @private
+   */
+  initializePartyMembersHandler() {
+    try {
+      if (!this.webSocketClient) {
+        console.warn('WebSocketCommunicator: WebSocket client not available for party members handler');
+        return;
+      }
+      
+      // Register handler for get_party_members messages
+      this.webSocketClient.onMessageType('get_party_members', async (message) => {
+        console.log('WebSocketCommunicator: Received get_party_members request');
+        
+        try {
+          // Get party members from WorldStateCollector
+          const result = this.worldStateCollector?.getPartyMembers();
+          
+          if (result) {
+            // Send party members response back to backend
+            const responseMessage = {
+              type: 'party_members',
+              request_id: message.request_id,
+              data: result,
+              timestamp: Date.now()
+            };
+            
+            await this.webSocketClient.send(responseMessage);
+            console.log('WebSocketCommunicator: Party members transmitted');
+          } else {
+            console.error('WebSocketCommunicator: Failed to get party members');
+          }
+        } catch (error) {
+          console.error('WebSocketCommunicator: Error handling get_party_members:', error);
+        }
+      });
+      
+      console.log('WebSocketCommunicator: Party members handler initialized');
+    } catch (error) {
+      console.error('WebSocketCommunicator: Error initializing party members handler:', error);
     }
   }
 

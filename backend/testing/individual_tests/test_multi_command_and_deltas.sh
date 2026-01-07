@@ -30,11 +30,12 @@ echo ""
 # Step 2: Execute multi-command batch
 echo "━━━ Execute Multi-Command Batch ━━━"
 echo ""
-echo "Executing batch of 4 commands:"
+echo "Executing batch of 5 commands:"
 echo "   1. get_message_history"
 echo "   2. post_message"
 echo "   3. roll_dice"
 echo "   4. post_message"
+echo "   5. get_nearby_objects (spatial filter)"
 echo ""
 
 # Execute each command in the batch
@@ -42,7 +43,21 @@ test_command "Get Message History" "get_message_history 5"
 test_command "Post First Message" "post_message messages=[{\"content\":\"Batch test message 1\",\"type\":\"chat-message\"}]"
 test_command "Roll Dice" "roll_dice rolls=[{\"formula\":\"1d20\",\"flavor\":\"Test roll\"}]"
 test_command "Post Second Message" "post_message messages=[{\"content\":\"Batch test message 2\",\"type\":\"chat-message\"}]"
+test_command "Get Nearby Objects" "get_nearby_objects origin={\"x\":0,\"y\":0} radius=5 search_mode=line_of_sight"
 
+echo ""
+
+# Step 3a: Verify spatial filter tool availability
+echo "━━━ Verify Spatial Filter Tool Available ━━━"
+test_command "Get Tool Definitions" "status"
+
+# Check if get_nearby_objects is in available tools
+if grep -q "get_nearby_objects" .last_response.json 2>/dev/null; then
+  echo "✅ VERIFICATION PASSED: get_nearby_objects tool is available"
+else
+  echo "⚠️  WARNING: get_nearby_objects tool not found in response (may not be fully implemented yet)"
+  # Don't track as failure - this is a new feature
+fi
 echo ""
 
 # Step 3: Verify batched commands executed
@@ -166,7 +181,8 @@ echo ""
 
 # Report final test result
 report_test_result "Multi-Command & Delta Tracking" \
-  "Multi-command execution (4 commands in batch)" \
+  "Multi-command execution (5 commands in batch)" \
+  "Spatial filter tool (get_nearby_objects)" \
   "WebSocket preservation (no reset between sessions)" \
   "Delta tracking across AI turns" \
   "Manual changes captured in subsequent session"

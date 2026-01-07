@@ -3,6 +3,9 @@
  * Main module entry point
  */
 
+// Import Scene Data Collector
+import './services/scene-data-collector.js';
+
 /**
  * API Communication Class for Backend Integration
  * Refactored: Now uses unified WebSocketCommunicator
@@ -537,6 +540,17 @@ class GoldBoxModule {
       // WebSocket-only: collect messages from Foundry chat and send via WebSocket
       const messages = this.collectFoundryChatMessages();
       console.log('The Gold Box: Collected messages from Foundry chat:', messages.length);
+      
+      // ADD SPATIAL CONTEXT: Check if auto-trigger is enabled
+      if (this.messageCollector && this.settingsManager) {
+        const autoTriggerSpatial = this.settingsManager.getSetting('autoTriggerSpatialContext', true);
+        if (autoTriggerSpatial) {
+          console.log('The Gold Box: Auto-triggering spatial context...');
+          this.messageCollector.sendSpatialContext();
+        } else {
+          console.log('The Gold Box: Spatial context auto-trigger disabled');
+        }
+      }
       
       // ADD COMBAT CONTEXT: Check if CombatMonitor is available and get FRESH combat state
       let combatContext = null;

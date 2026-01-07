@@ -125,7 +125,7 @@ def get_tool_definitions() -> list:
             "type": "function",
             "function": {
                 "name": "get_encounter",
-                "description": "Gets combat state. If encounter_id is provided, gets that specific encounter. If not provided, returns all encounters with is_active flags indicating which is the active combat. Returns standard 'no active encounter' response if out of combat.",
+                "description": "Gets combat state. If encounter_id is provided, gets that specific encounter. If not provided, returns all encounters with is_active flags indicating which is active combat. Returns standard 'no active encounter' response if out of combat.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -141,7 +141,7 @@ def get_tool_definitions() -> list:
             "type": "function",
             "function": {
                 "name": "create_encounter",
-                "description": "Start a new combat encounter with specified actors. Creates combat but does not automatically activate it. Use activate_combat tool after creating to make it the active combat. Use roll_initiative parameter to control automatic initiative rolling (false for systems that handle initiative manually, e.g., card-based or dice-pool games).",
+                "description": "Start a new combat encounter with specified actors. Creates combat but does not automatically activate it. Use activate_combat tool after creating to make it active combat. Use roll_initiative parameter to control automatic initiative rolling (false for systems that handle initiative manually, e.g., card-based or dice-pool games).",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -164,13 +164,13 @@ def get_tool_definitions() -> list:
             "type": "function",
             "function": {
                 "name": "activate_combat",
-                "description": "Activate a specific combat encounter to make it the active combat. Use this after creating a new encounter to ensure it becomes the active combat that responds to turn advancement and other operations. Only one encounter can be active at a time.",
+                "description": "Activate a specific combat encounter to make it active combat. Use this after creating a new encounter to ensure it becomes the active combat that responds to turn advancement and other operations. Only one encounter can be active at a time.",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "encounter_id": {
                             "type": "string",
-                            "description": "ID of the encounter to activate"
+                            "description": "ID of encounter to activate"
                         }
                     },
                     "required": ["encounter_id"]
@@ -262,6 +262,96 @@ def get_tool_definitions() -> list:
                         }
                     },
                     "required": ["token_id", "attribute_path", "value"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_nearby_objects",
+                "description": "Get scene objects within a radius of a location or token. Returns hierarchical object structure including tokens, structures (walls/doors), locations of interest (journal notes), lighting, and distance matrix for nearest tokens. Supports line-of-sight filtering to respect vision-blocking walls. Distances formatted in user's preferred units (feet, meters, squares).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "origin": {
+                            "oneOf": [
+                                {"type": "object"},
+                                {"type": "string"}
+                            ],
+                            "description": "Search origin: either token_id string or coordinates object {x, y}"
+                        },
+                        "radius": {
+                            "type": "number",
+                            "description": "Search radius in grid squares (converted from user's distance unit setting)"
+                        },
+                        "search_mode": {
+                            "type": "string",
+                            "enum": ["absolute", "line_of_sight"],
+                            "description": "Search mode: 'absolute' (all objects within radius) or 'line_of_sight' (only visible objects, default)"
+                        }
+                    },
+                    "required": ["origin", "radius"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_journal_context",
+                "description": "Searches for a phrase within a journal entry and returns the surrounding context. Returns matching text with specified number of lines before and after for context. Similar to grep -C (context) but for journal content. Use after seeing a map note to get detailed information about that location.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "entry_name": {
+                            "type": "string",
+                            "description": "Name of journal entry to search"
+                        },
+                        "search_phrase": {
+                            "type": "string",
+                            "description": "Phrase to search for within the journal entry"
+                        },
+                        "context_lines": {
+                            "type": "integer",
+                            "description": "Number of lines of context before and after match (default: 3)",
+                            "default": 3,
+                            "minimum": 0,
+                            "maximum": 20
+                        }
+                    },
+                    "required": ["entry_name", "search_phrase"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "search_compendium",
+                "description": "Searches within a specific compendium pack for entries matching a query. Returns matching entries with their names, IDs, and key information. Use to find items, spells, monsters, or other game content in compendiums.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "pack_name": {
+                            "type": "string",
+                            "description": "Name of compendium pack to search (e.g., 'dnd5e.items', 'dnd5e.spells', 'world.lore-journals')"
+                        },
+                        "query": {
+                            "type": "string",
+                            "description": "Search query text (case-insensitive, partial matches allowed)"
+                        }
+                    },
+                    "required": ["pack_name", "query"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_party_members",
+                "description": "Returns a list of all player-controlled characters (PCs) in the session. Includes character names, player names, and basic information for party composition awareness.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
                 }
             }
         }

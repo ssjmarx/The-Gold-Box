@@ -42,6 +42,17 @@ class MessageProtocol:
     TYPE_GAME_DELTA = "game_delta"
     TYPE_WORLD_STATE_SYNC = "world_state_sync"
     TYPE_WORLD_STATE_REFRESH = "world_state_refresh"
+    TYPE_SCENE_CHANGED = "scene_changed"
+    TYPE_TOKEN_MOVED = "token_moved"
+    TYPE_SCENE_NOTE_UPDATED = "scene_note_updated"
+    TYPE_GET_SCENE_SPATIAL_DATA = "get_scene_spatial_data"
+    TYPE_SCENE_SPATIAL_DATA = "scene_spatial_data"
+    TYPE_GET_JOURNAL_CONTEXT = "get_journal_context"
+    TYPE_JOURNAL_CONTEXT = "journal_context"
+    TYPE_SEARCH_COMPENDIUM = "search_compendium"
+    TYPE_COMPENDIUM_RESULTS = "compendium_results"
+    TYPE_GET_PARTY_MEMBERS = "get_party_members"
+    TYPE_PARTY_MEMBERS = "party_members"
     
     # Protocol version
     PROTOCOL_VERSION = "1.0"

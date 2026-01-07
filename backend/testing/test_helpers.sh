@@ -60,8 +60,14 @@ exec_request_with_truncation() {
     -H "X-Admin-Password: $ADMIN_PASSWORD" \
     -d "$data")
   
-  # Truncate JSON responses using Python truncation utility
-  echo "$response" | python3 -c "import sys, os; sys.path.insert(0, '..'); from shared.utils.log_utils import truncate_for_log; import json; data = sys.stdin.read(); print(truncate_for_log(json.loads(data)))"
+  # Check if truncation is disabled via environment variable
+  if [ "$DISABLE_TRUNCATION" = "true" ]; then
+    # Show full JSON without truncation
+    echo "$response" | jq '.'
+  else
+    # Truncate JSON responses using Python truncation utility
+    echo "$response" | python3 -c "import sys, os; sys.path.insert(0, '..'); from shared.utils.log_utils import truncate_for_log; import json; data = sys.stdin.read(); print(truncate_for_log(json.loads(data)))"
+  fi
   echo "$response" > .last_response.json
   echo ""
 }
@@ -152,8 +158,14 @@ test_command() {
   # Save full response to file FIRST (before truncation)
   echo "$response" > .last_response.json
   
-  # Then display truncated version for logging
-  echo "$response" | python3 -c "import sys, os; sys.path.insert(0, '..'); from shared.utils.log_utils import truncate_for_log; import json; data = sys.stdin.read(); print(truncate_for_log(json.loads(data)))"
+  # Check if truncation is disabled via environment variable
+  if [ "$DISABLE_TRUNCATION" = "true" ]; then
+    # Show full JSON without truncation
+    echo "$response" | jq '.'
+  else
+    # Then display truncated version for logging
+    echo "$response" | python3 -c "import sys, os; sys.path.insert(0, '..'); from shared.utils.log_utils import truncate_for_log; import json; data = sys.stdin.read(); print(truncate_for_log(json.loads(data)))"
+  fi
   
   echo ""
 }
@@ -207,8 +219,14 @@ EOF
   # Save full response to file FIRST (before truncation)
   echo "$response" > .last_response.json
   
-  # Then display truncated version for logging
-  echo "$response" | python3 -c "import sys, os; sys.path.insert(0, '..'); from shared.utils.log_utils import truncate_for_log; import json; data = sys.stdin.read(); print(truncate_for_log(json.loads(data)))"
+  # Check if truncation is disabled via environment variable
+  if [ "$DISABLE_TRUNCATION" = "true" ]; then
+    # Show full JSON without truncation
+    echo "$response" | jq '.'
+  else
+    # Then display truncated version for logging
+    echo "$response" | python3 -c "import sys, os; sys.path.insert(0, '..'); from shared.utils.log_utils import truncate_for_log; import json; data = sys.stdin.read(); print(truncate_for_log(json.loads(data)))"
+  fi
   
   echo ""
     
@@ -271,8 +289,14 @@ EOF
   # Save full response to file FIRST (before truncation)
   echo "$response" > .last_response.json
   
-  # Then display truncated version for logging
-  echo "$response" | python3 -c "import sys, os; sys.path.insert(0, '..'); from shared.utils.log_utils import truncate_for_log; import json; data = sys.stdin.read(); print(truncate_for_log(json.loads(data)))"
+  # Check if truncation is disabled via environment variable
+  if [ "$DISABLE_TRUNCATION" = "true" ]; then
+    # Show full JSON without truncation
+    echo "$response" | jq '.'
+  else
+    # Then display truncated version for logging
+    echo "$response" | python3 -c "import sys, os; sys.path.insert(0, '..'); from shared.utils.log_utils import truncate_for_log; import json; data = sys.stdin.read(); print(truncate_for_log(json.loads(data)))"
+  fi
   
   echo ""
 }

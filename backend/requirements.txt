@@ -25,3 +25,6 @@ slowapi==0.1.9               # MIT License - Rate limiting for FastAPI
 
 # WebSocket Support (Phase 1)
 websockets>=11.0.3             # BSD 3-Clause License - WebSocket server implementation
+
+# Spatial Operations (Patch 0.3.11)
+shapely>=2.0.0                # BSD 3-Clause License - Geometric operations for spatial filtering

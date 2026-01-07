@@ -269,9 +269,32 @@ class TestingCommandProcessor:
             pass
         
         # Check if args_string contains JSON-like patterns (arrays or objects)
-        # Pattern: key=[{...}] or key=[{...},{...}]
+        # Pattern: key=[{...}] or key={...} or key=[{...},{...}]
         # Handle trailing spaces by stripping first
         args_string_stripped = args_string.strip()
+        
+        # Try to match key=json_object pattern (greedy match for object)
+        # This will match: key={...} even with extra content after
+        json_object_pattern = r'(\w+)=({.*?})(?:\s+.*)?$'
+        json_object_match = re.match(json_object_pattern, args_string_stripped)
+        
+        if json_object_match:
+            key = json_object_match.group(1)
+            json_str = json_object_match.group(2)
+            try:
+                value = json.loads(json_str)
+                arguments[key] = value
+                logger.info(f"Parsed JSON object argument: {key}={value}")
+                # Now parse rest of arguments if any
+                rest_of_string = args_string_stripped[len(f"{key}={json_str}"):].strip()
+                if rest_of_string:
+                    # Parse remaining key=value pairs
+                    rest_args = self._parse_key_value_pairs(rest_of_string)
+                    arguments.update(rest_args)
+                return arguments
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON object argument: {e}")
+                pass
         
         # Try to match key=json_array pattern (greedy match for array)
         # This will match: key=[...] even with extra content after
@@ -285,7 +308,7 @@ class TestingCommandProcessor:
                 value = json.loads(json_str)
                 arguments[key] = value
                 logger.info(f"Parsed JSON array argument: {key}={value}")
-                # Now parse the rest of the arguments if any
+                # Now parse rest of arguments if any
                 rest_of_string = args_string_stripped[len(f"{key}={json_str}"):].strip()
                 if rest_of_string:
                     # Parse remaining key=value pairs

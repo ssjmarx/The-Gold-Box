@@ -79,6 +79,14 @@ class AIToolExecutor:
             return await self.execute_get_actor_details(tool_args, client_id)
         elif tool_name == 'modify_token_attribute':
             return await self.execute_modify_token_attribute(tool_args, client_id)
+        elif tool_name == 'get_nearby_objects':
+            return await self.execute_get_nearby_objects(tool_args, client_id)
+        elif tool_name == 'get_journal_context':
+            return await self.execute_get_journal_context(tool_args, client_id)
+        elif tool_name == 'search_compendium':
+            return await self.execute_search_compendium(tool_args, client_id)
+        elif tool_name == 'get_party_members':
+            return await self.execute_get_party_members(tool_args, client_id)
         else:
             raise ValueError(f"Unknown tool: {tool_name}")
     
@@ -624,39 +632,45 @@ class AIToolExecutor:
                 except asyncio.TimeoutError:
                     logger.error(f"create_encounter: Timeout waiting for combat state from frontend, request_id: {request_id}")
                     
+                    # Extract encounter_id from frontend_combat_state if available
+                    timeout_encounter_id = None
+                    if frontend_combat_state and 'combat_id' in frontend_combat_state:
+                        timeout_encounter_id = frontend_combat_state.get('combat_id')
+                    
                     # Check if combat was actually created despite timeout
-                    combat_state = websocket_message_collector.get_specific_combat_state(client_id, encounter_id)
-                    if combat_state and combat_state.get('in_combat', False):
-                        logger.info(f"create_encounter: Combat is active despite timeout (created successfully)")
-                        result = {
-                            "success": True,
-                            "in_combat": True,
-                            "combat_id": combat_state.get('combat_id'),
-                            "round": combat_state.get('round', 0),
-                            "turn": combat_state.get('turn', 0),
-                            "combatants": combat_state.get('combatants', []),
-                            "roll_initiative": roll_initiative,
-                            "actor_count": len(actor_ids),
-                            "last_updated": combat_state.get('last_updated'),
-                            "warning": "Combat created but response timed out"
-                        }
-                        logger.info(f"create_encounter executed for client {client_id}: round {combat_state.get('round', 0)}, turn {combat_state.get('turn', 0)}, {len(combat_state.get('combatants', []))} combatants (with timeout warning)")
-                        return result
-                    else:
-                        # Log diagnostic information to help debug timeout issues
-                        logger.debug(f"create_encounter: Checking message collector for client {client_id}")
-                        logger.debug(f"create_encounter: Pending requests count: {len(_pending_roll_requests)}")
-                        
-                        return {
-                            "success": False,
-                            "error": "Timeout waiting for encounter creation response from frontend. Frontend may have encountered an error or the WebSocket connection may be unstable.",
-                            "details": {
-                                "request_id": request_id,
-                                "timeout_seconds": 15,
-                                "client_id": client_id,
-                                "pending_requests": len(_pending_roll_requests)
+                    if timeout_encounter_id:
+                        combat_state = websocket_message_collector.get_specific_combat_state(client_id, timeout_encounter_id)
+                        if combat_state and combat_state.get('in_combat', False):
+                            logger.info(f"create_encounter: Combat is active despite timeout (created successfully)")
+                            result = {
+                                "success": True,
+                                "in_combat": True,
+                                "combat_id": combat_state.get('combat_id'),
+                                "round": combat_state.get('round', 0),
+                                "turn": combat_state.get('turn', 0),
+                                "combatants": combat_state.get('combatants', []),
+                                "roll_initiative": roll_initiative,
+                                "actor_count": len(actor_ids),
+                                "last_updated": combat_state.get('last_updated'),
+                                "warning": "Combat created but response timed out"
                             }
+                            logger.info(f"create_encounter executed for client {client_id}: round {combat_state.get('round', 0)}, turn {combat_state.get('turn', 0)}, {len(combat_state.get('combatants', []))} combatants (with timeout warning)")
+                            return result
+                    
+                    # Log diagnostic information to help debug timeout issues
+                    logger.debug(f"create_encounter: Checking message collector for client {client_id}")
+                    logger.debug(f"create_encounter: Pending requests count: {len(_pending_roll_requests)}")
+                    
+                    return {
+                        "success": False,
+                        "error": "Timeout waiting for encounter creation response from frontend. Frontend may have encountered an error or the WebSocket connection may be unstable.",
+                        "details": {
+                            "request_id": request_id,
+                            "timeout_seconds": 15,
+                            "client_id": client_id,
+                            "pending_requests": len(_pending_roll_requests)
                         }
+                    }
                 
                 finally:
                     # Clean up pending request
@@ -672,8 +686,12 @@ class AIToolExecutor:
                 if frontend_combat_state:
                     combat_state = frontend_combat_state
                 else:
-                    # Fallback to cached state if no response received
-                    combat_state = websocket_message_collector.get_specific_combat_state(client_id, encounter_id)
+                    # No frontend response available - cannot create encounter
+                    return {
+                        "success": False,
+                        "error": "Failed to create encounter - no response from frontend",
+                        "message": "Encounter creation did not receive combat state response"
+                    }
                 
                 if not combat_state or not combat_state.get('in_combat', False):
                     # Encounter creation failed
@@ -914,15 +932,15 @@ class AIToolExecutor:
                     logger.info(f"delete_encounter: Waiting for combat state for request {request_id}...")
                     await asyncio.wait_for(result_future, timeout=15.0)
                     logger.info(f"delete_encounter: Successfully received combat state for request {request_id}")
-                    
+
                 except asyncio.TimeoutError:
                     logger.error(f"delete_encounter: Timeout waiting for combat state, request_id: {request_id}")
-                    
+
                     # After timeout, verify combat is actually gone by checking the message collector
                     # The frontend should have sent back updated combat state, which would have
                     # updated the cache via set_combat_state_from_frontend
                     combat_state = websocket_message_collector.get_specific_combat_state(client_id, encounter_id)
-                    
+
                     if combat_state and combat_state.get('in_combat', False):
                         return {
                             "success": False,
@@ -942,7 +960,15 @@ class AIToolExecutor:
                             "in_combat": False,
                             "warning": "Deletion response timed out, but encounter is no longer active"
                         }
-                
+
+                except Exception as e:
+                    logger.error(f"delete_encounter: Error waiting for combat state, request_id: {request_id}: {e}")
+                    return {
+                        "success": False,
+                        "error": str(e),
+                        "request_id": request_id
+                    }
+
                 finally:
                     # Clean up pending request
                     logger.info(f"Cleaning up future for request {request_id}")
@@ -1001,20 +1027,13 @@ class AIToolExecutor:
                     "in_combat": False
                 }
             
-            except Exception as inner_error:
-                logger.error(f"delete_encounter: Error during encounter deletion for client {client_id}: {inner_error}")
-                return {
-                    "success": False,
-                    "error": str(inner_error)
-                }
-            
             except Exception as e:
-                logger.error(f"delete_encounter execution failed: {e}")
+                logger.error(f"delete_encounter: Error during encounter deletion for client {client_id}: {e}")
                 return {
                     "success": False,
                     "error": str(e)
                 }
-            
+
         except Exception as e:
             logger.error(f"delete_encounter execution failed: {e}")
             return {
@@ -1138,6 +1157,14 @@ class AIToolExecutor:
                             "error": "Timeout waiting for turn advancement response from frontend",
                             "request_id": request_id
                         }
+                
+                except Exception as e:
+                    logger.error(f"advance_combat_turn: Error waiting for combat state, request_id: {request_id}: {e}")
+                    return {
+                        "success": False,
+                        "error": str(e),
+                        "request_id": request_id
+                    }
                 
                 finally:
                     # Clean up pending request
@@ -1434,6 +1461,486 @@ class AIToolExecutor:
             
         except Exception as e:
             logger.error(f"modify_token_attribute execution failed: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def execute_get_nearby_objects(
+        self,
+        args: Dict[str, Any],
+        client_id: str
+    ) -> Dict[str, Any]:
+        """
+        Execute get_nearby_objects tool - get scene objects within a radius of a location or token
+        
+        Args:
+            args: Tool arguments (must contain 'origin', 'radius', optional 'search_mode')
+            client_id: Client ID for WebSocket communication
+        
+        Returns:
+            Dict with nearby scene objects and distance matrix
+        """
+        try:
+            # Validate required arguments
+            origin = args.get('origin')
+            if origin is None:
+                raise ValueError("origin is required")
+            
+            radius = args.get('radius')
+            if radius is None or not isinstance(radius, (int, float)) or radius <= 0:
+                raise ValueError("radius must be a positive number")
+            
+            search_mode = args.get('search_mode', 'line_of_sight')
+            if search_mode not in ['absolute', 'line_of_sight']:
+                raise ValueError("search_mode must be 'absolute' or 'line_of_sight'")
+            
+            # Get services via ServiceFactory
+            from ..system_services.service_factory import get_websocket_manager
+            from ..spatial_services.scene_spatial_filter import SceneSpatialFilter
+            
+            websocket_manager = get_websocket_manager()
+            
+            # Create a unique request ID for this scene data request
+            request_id = str(uuid.uuid4())
+            
+            logger.info(f"get_nearby_objects: Creating future for request {request_id} with client_id {client_id}")
+            
+            # Create a future to await scene data response
+            result_future = asyncio.Future()
+            _pending_roll_requests[request_id] = result_future
+            logger.info(f"get_nearby_objects: Stored future in _pending_roll_requests. Total pending: {len(_pending_roll_requests)}")
+            
+            try:
+                # Send scene data request to frontend
+                scene_data_message = {
+                    "type": "get_scene_spatial_data",
+                    "request_id": request_id,
+                    "data": {
+                        "timestamp": datetime.now().isoformat()
+                    }
+                }
+                
+                await websocket_manager.send_to_client(client_id, scene_data_message)
+                logger.info(f"get_nearby_objects: Sent scene data request to client {client_id}, request_id: {request_id}")
+                
+                # Wait for scene data response with timeout (5 seconds - should be fast)
+                try:
+                    logger.info(f"get_nearby_objects: Waiting for scene data for request {request_id}...")
+                    scene_data = await asyncio.wait_for(result_future, timeout=5.0)
+                    logger.info(f"get_nearby_objects: Successfully received scene data for request {request_id}")
+                    
+                except asyncio.TimeoutError:
+                    logger.error(f"get_nearby_objects: Timeout waiting for scene data, request_id: {request_id}")
+                    return {
+                        "success": False,
+                        "error": "Timeout waiting for scene data from frontend",
+                        "request_id": request_id,
+                        "details": {
+                            "timeout_seconds": 5
+                        }
+                    }
+                
+                except Exception as e:
+                    logger.error(f"get_nearby_objects: Error waiting for scene data, request_id: {request_id}: {e}")
+                    return {
+                        "success": False,
+                        "error": str(e),
+                        "request_id": request_id
+                    }
+                
+                finally:
+                    # Clean up pending request
+                    logger.info(f"Cleaning up future for request {request_id}")
+                    if request_id in _pending_roll_requests:
+                        del _pending_roll_requests[request_id]
+                        logger.info(f"Removed future for request {request_id} from _pending_roll_requests")
+                    else:
+                        logger.warning(f"Future for request {request_id} not found in _pending_roll_requests during cleanup")
+                
+                # Validate scene data
+                if not isinstance(scene_data, dict):
+                    return {
+                        "success": False,
+                        "error": "Invalid scene data format from frontend"
+                    }
+                
+                # Get scene settings from scene data
+                grid_size = scene_data.get('grid_size', 100)
+                distance_unit_setting = scene_data.get('distance_unit', '5 feet')
+                
+                # Create spatial filter
+                spatial_filter = SceneSpatialFilter(
+                    grid_size=grid_size,
+                    distance_unit_setting=distance_unit_setting
+                )
+                
+                # Convert radius from user units to grid units if needed
+                # The plan specifies "radius in grid squares (converted from user's distance unit setting)"
+                # So if radius is already in grid squares, we use it directly
+                # Otherwise, we convert from user's distance unit
+                if isinstance(radius, (int, float)):
+                    # Assume radius is already in grid squares as per tool definition
+                    radius_grid_units = radius
+                else:
+                    # Convert from user's distance unit
+                    radius_grid_units = radius  # Placeholder for future conversion logic
+                
+                # Get nearby objects
+                result = spatial_filter.get_nearby_objects(
+                    scene_data=scene_data,
+                    origin=origin,
+                    radius=radius_grid_units,
+                    search_mode=search_mode
+                )
+                
+                logger.info(f"get_nearby_objects executed for client {client_id}: {result.get('nearby_scene_objects', {}).get('total_objects_found', 0)} objects found")
+                
+                return {
+                    "success": True,
+                    **result
+                }
+            
+            except Exception as inner_error:
+                logger.error(f"get_nearby_objects: Error during spatial query for client {client_id}: {inner_error}")
+                return {
+                    "success": False,
+                    "error": str(inner_error)
+                }
+            
+        except Exception as e:
+            logger.error(f"get_nearby_objects execution failed: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def execute_get_journal_context(
+        self,
+        args: Dict[str, Any],
+        client_id: str
+    ) -> Dict[str, Any]:
+        """
+        Execute get_journal_context tool - searches journal entry for phrase with context
+        
+        Args:
+            args: Tool arguments (must contain 'entry_name', 'search_phrase', optional 'context_lines')
+            client_id: Client ID for WebSocket communication
+        
+        Returns:
+            Dict with journal context matches
+        """
+        try:
+            # Validate required arguments
+            entry_name = args.get('entry_name')
+            if not isinstance(entry_name, str) or not entry_name.strip():
+                raise ValueError("entry_name must be a non-empty string")
+            
+            search_phrase = args.get('search_phrase')
+            if not isinstance(search_phrase, str) or not search_phrase.strip():
+                raise ValueError("search_phrase must be a non-empty string")
+            
+            context_lines = args.get('context_lines', 3)
+            if not isinstance(context_lines, int) or context_lines < 0 or context_lines > 20:
+                raise ValueError("context_lines must be an integer between 0 and 20")
+            
+            # Get services via ServiceFactory
+            from ..system_services.service_factory import get_websocket_manager
+            
+            websocket_manager = get_websocket_manager()
+            
+            # Create a unique request ID for this journal context request
+            request_id = str(uuid.uuid4())
+            
+            logger.info(f"get_journal_context: Creating future for request {request_id} with client_id {client_id}")
+            
+            # Create a future to await journal context response
+            result_future = asyncio.Future()
+            _pending_roll_requests[request_id] = result_future
+            logger.info(f"get_journal_context: Stored future in _pending_roll_requests. Total pending: {len(_pending_roll_requests)}")
+            
+            try:
+                # Send journal context request to frontend
+                journal_context_message = {
+                    "type": "get_journal_context",
+                    "request_id": request_id,
+                    "data": {
+                        "entry_name": entry_name,
+                        "search_phrase": search_phrase,
+                        "context_lines": context_lines,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                }
+                
+                await websocket_manager.send_to_client(client_id, journal_context_message)
+                logger.info(f"get_journal_context: Sent journal context request to client {client_id} for entry '{entry_name}', request_id: {request_id}")
+                
+                # Wait for journal context response with timeout (5 seconds - should be fast)
+                try:
+                    logger.info(f"get_journal_context: Waiting for journal context for request {request_id}...")
+                    journal_context = await asyncio.wait_for(result_future, timeout=5.0)
+                    logger.info(f"get_journal_context: Successfully received journal context for request {request_id}")
+                    
+                    return {
+                        "success": True,
+                        **journal_context
+                    }
+                    
+                except asyncio.TimeoutError:
+                    logger.error(f"get_journal_context: Timeout waiting for journal context, request_id: {request_id}")
+                    return {
+                        "success": False,
+                        "error": "Timeout waiting for journal context from frontend",
+                        "request_id": request_id,
+                        "details": {
+                            "entry_name": entry_name,
+                            "search_phrase": search_phrase,
+                            "timeout_seconds": 5
+                        }
+                    }
+                
+                except Exception as e:
+                    logger.error(f"get_journal_context: Error waiting for journal context, request_id: {request_id}: {e}")
+                    return {
+                        "success": False,
+                        "error": str(e),
+                        "request_id": request_id
+                    }
+                
+                finally:
+                    # Clean up pending request
+                    logger.info(f"Cleaning up future for request {request_id}")
+                    if request_id in _pending_roll_requests:
+                        del _pending_roll_requests[request_id]
+                        logger.info(f"Removed future for request {request_id} from _pending_roll_requests")
+                    else:
+                        logger.warning(f"Future for request {request_id} not found in _pending_roll_requests during cleanup")
+            
+            except Exception as inner_error:
+                logger.error(f"get_journal_context: Error during journal context request for client {client_id}: {inner_error}")
+                return {
+                    "success": False,
+                    "error": str(inner_error)
+                }
+            
+        except Exception as e:
+            logger.error(f"get_journal_context execution failed: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def execute_search_compendium(
+        self,
+        args: Dict[str, Any],
+        client_id: str
+    ) -> Dict[str, Any]:
+        """
+        Execute search_compendium tool - searches compendium pack for entries matching query
+        
+        Args:
+            args: Tool arguments (must contain 'pack_name', 'query')
+            client_id: Client ID for WebSocket communication
+        
+        Returns:
+            Dict with matching compendium entries
+        """
+        try:
+            # Validate required arguments
+            pack_name = args.get('pack_name')
+            if not isinstance(pack_name, str) or not pack_name.strip():
+                raise ValueError("pack_name must be a non-empty string")
+            
+            query = args.get('query')
+            if not isinstance(query, str) or not query.strip():
+                raise ValueError("query must be a non-empty string")
+            
+            # Get services via ServiceFactory
+            from ..system_services.service_factory import get_websocket_manager
+            
+            websocket_manager = get_websocket_manager()
+            
+            # Create a unique request ID for this compendium search request
+            request_id = str(uuid.uuid4())
+            
+            logger.info(f"search_compendium: Creating future for request {request_id} with client_id {client_id}")
+            
+            # Create a future to await compendium search response
+            result_future = asyncio.Future()
+            _pending_roll_requests[request_id] = result_future
+            logger.info(f"search_compendium: Stored future in _pending_roll_requests. Total pending: {len(_pending_roll_requests)}")
+            
+            try:
+                # Send compendium search request to frontend
+                compendium_search_message = {
+                    "type": "search_compendium",
+                    "request_id": request_id,
+                    "data": {
+                        "pack_name": pack_name,
+                        "query": query,
+                        "timestamp": datetime.now().isoformat()
+                    }
+                }
+                
+                await websocket_manager.send_to_client(client_id, compendium_search_message)
+                logger.info(f"search_compendium: Sent compendium search request to client {client_id} for pack '{pack_name}', query '{query}', request_id: {request_id}")
+                
+                # Wait for compendium search response with timeout (5 seconds - should be fast)
+                try:
+                    logger.info(f"search_compendium: Waiting for compendium search results for request {request_id}...")
+                    compendium_results = await asyncio.wait_for(result_future, timeout=5.0)
+                    logger.info(f"search_compendium: Successfully received compendium search results for request {request_id}")
+                    
+                    return {
+                        "success": True,
+                        "pack_name": pack_name,
+                        "query": query,
+                        "matches": compendium_results,
+                        "total_matches": len(compendium_results) if isinstance(compendium_results, list) else 0,
+                        "request_id": request_id
+                    }
+                    
+                except asyncio.TimeoutError:
+                    logger.error(f"search_compendium: Timeout waiting for compendium search results, request_id: {request_id}")
+                    return {
+                        "success": False,
+                        "error": "Timeout waiting for compendium search results from frontend",
+                        "request_id": request_id,
+                        "details": {
+                            "pack_name": pack_name,
+                            "query": query,
+                            "timeout_seconds": 5
+                        }
+                    }
+                
+                except Exception as e:
+                    logger.error(f"search_compendium: Error waiting for compendium search results, request_id: {request_id}: {e}")
+                    return {
+                        "success": False,
+                        "error": str(e),
+                        "request_id": request_id
+                    }
+                
+                finally:
+                    # Clean up pending request
+                    logger.info(f"Cleaning up future for request {request_id}")
+                    if request_id in _pending_roll_requests:
+                        del _pending_roll_requests[request_id]
+                        logger.info(f"Removed future for request {request_id} from _pending_roll_requests")
+                    else:
+                        logger.warning(f"Future for request {request_id} not found in _pending_roll_requests during cleanup")
+            
+            except Exception as e:
+                logger.error(f"search_compendium: Error during compendium search for client {client_id}: {e}")
+                return {
+                    "success": False,
+                    "error": str(e)
+                }
+
+        except Exception as e:
+            logger.error(f"search_compendium execution failed: {e}")
+            return {
+                "success": False,
+                "error": str(e)
+            }
+    
+    async def execute_get_party_members(
+        self,
+        args: Dict[str, Any],
+        client_id: str
+    ) -> Dict[str, Any]:
+        """
+        Execute get_party_members tool - returns list of player-controlled characters
+        
+        Args:
+            args: Tool arguments (no parameters required)
+            client_id: Client ID for WebSocket communication
+        
+        Returns:
+            Dict with party members information
+        """
+        try:
+            # No parameters required for this tool
+            
+            # Get services via ServiceFactory
+            from ..system_services.service_factory import get_websocket_manager, get_message_collector
+            
+            websocket_manager = get_websocket_manager()
+            websocket_message_collector = get_message_collector()
+            
+            # Create a unique request ID for this party members request
+            request_id = str(uuid.uuid4())
+            
+            logger.info(f"get_party_members: Creating future for request {request_id} with client_id {client_id}")
+            
+            # Create a future to await party members response
+            result_future = asyncio.Future()
+            _pending_roll_requests[request_id] = result_future
+            logger.info(f"get_party_members: Stored future in _pending_roll_requests. Total pending: {len(_pending_roll_requests)}")
+            
+            try:
+                # Send party members request to frontend
+                party_members_message = {
+                    "type": "get_party_members",
+                    "request_id": request_id,
+                    "data": {
+                        "timestamp": datetime.now().isoformat()
+                    }
+                }
+                
+                await websocket_manager.send_to_client(client_id, party_members_message)
+                logger.info(f"get_party_members: Sent party members request to client {client_id}, request_id: {request_id}")
+                
+                # Wait for party members response with timeout (5 seconds - should be fast)
+                try:
+                    logger.info(f"get_party_members: Waiting for party members for request {request_id}...")
+                    party_members = await asyncio.wait_for(result_future, timeout=5.0)
+                    logger.info(f"get_party_members: Successfully received party members for request {request_id}")
+                    
+                    return {
+                        "success": True,
+                        "total_party_members": party_members.get('total_party_members', 0) if isinstance(party_members, dict) else 0,
+                        "members": party_members.get('members', []) if isinstance(party_members, dict) else (party_members if isinstance(party_members, list) else []),
+                        "request_id": request_id
+                    }
+                    
+                except asyncio.TimeoutError:
+                    logger.error(f"get_party_members: Timeout waiting for party members, request_id: {request_id}")
+                    return {
+                        "success": False,
+                        "error": "Timeout waiting for party members from frontend",
+                        "request_id": request_id,
+                        "details": {
+                            "timeout_seconds": 5
+                        }
+                    }
+                
+                except Exception as e:
+                    logger.error(f"get_party_members: Error waiting for party members, request_id: {request_id}: {e}")
+                    return {
+                        "success": False,
+                        "error": str(e),
+                        "request_id": request_id
+                    }
+                
+                finally:
+                    # Clean up pending request
+                    logger.info(f"Cleaning up future for request {request_id}")
+                    if request_id in _pending_roll_requests:
+                        del _pending_roll_requests[request_id]
+                        logger.info(f"Removed future for request {request_id} from _pending_roll_requests")
+                    else:
+                        logger.warning(f"Future for request {request_id} not found in _pending_roll_requests during cleanup")
+            
+            except Exception as e:
+                logger.error(f"get_party_members: Error during party members request for client {client_id}: {e}")
+                return {
+                    "success": False,
+                    "error": str(e)
+                }
+
+        except Exception as e:
+            logger.error(f"get_party_members execution failed: {e}")
             return {
                 "success": False,
                 "error": str(e)

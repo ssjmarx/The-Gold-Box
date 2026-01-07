@@ -321,25 +321,29 @@ No major changes to `World State Overview`, as AI can now query for this informa
 
 ### **Patch 0.3.11: The Observer**
 
-**Goal:** To provide the AI with deep contextual awareness of the physical environment and the game's lore. This patch is about giving the AI "eyes" and "ears," allowing it to understand the *where* and the *why*.
+**Status:** ✅ **COMPLETE**
+**Completed:** 2026-01-06
+
+**Goal:** To provide the AI with deep contextual awareness of the physical environment and the game's lore. This patch is about giving the AI "eyes" and "ears," allowing it to understand *where* and *why*.
 
 #### **New Functions (0.3.11)**
-*   `get_scene_layout`
-*   `get_scene_lighting`
-*   `get_scene_notes`
-*   `get_journal_context`
-*   `search_compendium`
-*   `get_party_members`
+*   `get_scene_layout` ✅
+*   `get_scene_lighting` ✅
+*   `get_scene_notes` ✅
+*   `get_journal_context` ✅
+*   `search_compendium` ✅
+*   `get_party_members` ✅
 
 #### **New Deltas Tracked (0.3.11)**
-*   `SceneChanged`
-*   `TokenMoved`
-*   `SceneNoteUpdated`
+*   `SceneChanged` ⚠️ (Optional enhancement - deferred)
+*   `TokenMoved` ⚠️ (Optional enhancement - deferred)
+*   `SceneNoteUpdated` ⚠️ (Optional enhancement - deferred)
 
 #### **Initial Context Added (0.3.11)**
 The `World State Overview` is now expanded:
-*   The `active_scene` object now includes the `notes` and `light_sources` arrays.
+*   The `active_scene` object now includes `notes` and `light_sources` arrays.
 *   The `compendium_index` is added to give the AI a map of available knowledge.
+*   The `spatial_context` field provides automatic spatial query origin and configuration.
 
 ---
 
