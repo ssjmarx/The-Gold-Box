@@ -74,7 +74,7 @@ Press the **"Take AI Turn"** button in the chat sidebar to send your conversatio
 
 If you like the project and want to support future development, consider donating!
 
-[![Donation Button](https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://www.paypal.com/donate/?business=NW7VGF3US6V8G&no_recurring=0&item_name=If+you+like+this+project+and+want+to+support+future+development.&currency_code=USD)
+[![Donation Button](https://img.shields.io/badge/PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white)](https://www.paypal.com/donate/?hosted_button_id=EJGVSWXJK37MY)
 
 ## License
 
